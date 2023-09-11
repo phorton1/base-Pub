@@ -93,7 +93,7 @@ sub doRemoteRequest
 	while ($file_reply_pending)
 	{
 		display($dbg_request,0,"doRemoteRequest() waiting for reply ...");
-		sleep(1);# 0.2);
+		sleep(0.2);
 	}
 
 	display($dbg_request,0,"doRemoteRequest() got reply: '$file_server_reply'");
