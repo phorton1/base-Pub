@@ -173,18 +173,13 @@ sub connect
 # packets
 #--------------------------------------------------
 
-sub content_level
-{
-	my ($line) = @_;
-	return 0 if $line =~ /^(HELLO|WASSUP|LIST|GET|PUT|DELETE|RENAME|MKDIR|SET|BYTES|CONTINUE|OK|ERROR)/;
-	return 1 if $line =~ /^(dir:|file:)/;
-	return 2;
-}
-
 
 sub send_packet
 {
-    my ($this,$line) = @_;
+    my ($this,$packet) = @_;
+
+
+	print "send_packet ".length($packet)." bytes\n";
 
     my $sock = $this->{SOCK};
     if (!$sock)
@@ -193,17 +188,16 @@ sub send_packet
         return;
     }
 
-    my $level = content_level($line);
-    if ($level > 1)
+    if (length($packet) > 100)
     {
-        display($dbg_packets,0,"--> ".length($line)." bytes");
+        display($dbg_packets,0,"--> ".length($packet)." bytes");
     }
     else
     {
-        display($dbg_packets,0,"--> $line");
+        display($dbg_packets,0,"--> $packet");
     }
 
-    if (!$sock->send($line."\r\n"))
+    if (!$sock->send($packet."\r\n"))
     {
         $this->{SOCK} = undef;
         $this->session_error("Could not write to socket $sock");
@@ -229,33 +223,32 @@ sub get_packet
 	my $CRLF = "\015\012";
 	local $/ = $CRLF;
 
-    my $line = <$sock>;
-    if (!defined($line))
+    my $packet = <$sock>;
+    if (!defined($packet))
     {
         $this->{SOCK} = undef;
         $this->session_error("No response from peer");
         return;
     }
 
-    $line =~ s/(\r|\n)$//g;
+    $packet =~ s/(\r|\n)$//g;
 
-    if (!$line)
+    if (!$packet)
     {
         $this->session_error("Empty response from peer");
         return;
     }
 
-	my $level = content_level($line);
-    if ($level > 1)
+    if (length($packet) > 100)
     {
-        display($dbg_packets,0,"<-- ".length($line)." bytes");
+        display($dbg_packets,0,"<-- ".length($packet)." bytes");
     }
     else
     {
-        display($dbg_packets,0,"<-- $line");
+        display($dbg_packets,0,"<-- $packet");
     }
 
-    return $line;
+    return $packet;
 }
 
 
@@ -269,13 +262,19 @@ sub get_packet
 
 sub listToText
 {
-    my ($this,$dir) = @_;
-    display($dbg_lists,0,"listToText($dir->{entry}) ".scalar(keys %{$dir->{entries}})." entries");
-    my $text = "\t$dir=>{ts|\t$dir->{entry}\n";
-    for my $entry (sort keys %{$dir->{entries}})
+    my ($this,$list) = @_;
+    display($dbg_lists,0,"listToText($list->{entry}) ".
+		($list->{is_dir} ? scalar(keys %{$list->{entries}})." entries" : ""));
+
+	my $text = $list->to_text()."\n";
+
+	if ($list->{is_dir})
     {
-        my $info = $dir->{entries}->{$entry};
-		$text .= $info."\n";
+		for my $entry (sort keys %{$list->{entries}})
+		{
+			my $info = $list->{entries}->{$entry};
+			$text .= $info->to_text()."\n" if $info;
+		}
 	}
     return $text;
 }

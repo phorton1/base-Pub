@@ -316,7 +316,9 @@ sub sessionThread
 			}
 			else
 			{
-				$session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
+				my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
+				my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
+				last if !$session->send_packet($packet);
 			}
 		}
     }
