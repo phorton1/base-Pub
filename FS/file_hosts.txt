@@ -1,0 +1,131 @@
+# This is file_hosts.txt
+#
+# The list is presented by default at the start of the program,
+# and can be gotten from the MAIN MENU CONNECT command (which
+# is different than the context menu re-Connect command).
+
+# Sections are defined by the existence of a NAME= entry
+# The items that follow are assigned to that NAME and include
+# HOST, PORT, LOCAL_DIR, and REMOTE_DIR.
+
+#-----------------------------------------------
+# myIOT rpi server
+
+
+Name = rPi
+HOST = 10.237.50.130
+PORT =  6801
+LOCAL_DIR = /base/My/IOT
+REMOTE_DIR = /base/My/IOT
+
+NAME = rPi_phorton_net
+HOST = phorton.net
+PORT = 10202
+LOCAL_DIR = /base/My/IOT
+REMOTE_DIR = /base/My/IOT
+
+
+
+#---------------------------------------------
+# Experimental CONSOLE_FILE_SERVER
+
+Name = teensyExpression
+HOST = localhost
+PORT =  5872
+LOCAL_DIR = /src/Arduino/teensyExpression2/data
+REMOTE_DIR = /
+
+
+#-----------------------------------
+# My::fileServer running on Server
+# presenting as default port 6801
+
+
+NAME = phnet-base
+HOST = phorton.net
+LOCAL_DIR = /base
+REMOTE_DIR = /base
+
+NAME = phnet-mbeSystems
+HOST = phorton.net
+LOCAL_DIR = /mbeSystems/masterServer
+REMOTE_DIR = /mbeSystems/masterServer
+
+NAME = phnet-www
+HOST = phorton.net
+LOCAL_DIR = /var/www
+REMOTE_DIR = /var/www
+
+
+#-----------------------------------
+# CM::Service file server running
+# on various machines
+
+NAME = Patrick
+HOST = phorton.net
+PORT = 10211
+LOCAL_DIR = /mbeSystems
+REMOTE_DIR = /mbeSystems
+
+
+NAME = cmMaster
+HOST = phorton.net
+PORT = 10213
+LOCAL_DIR = /mbeSystems
+REMOTE_DIR = /mbeSystems
+
+
+NAME = Omar
+HOST = phorton.net
+PORT = 10214
+LOCAL_DIR = /mbeSystems
+REMOTE_DIR = /mbeSystems
+
+NAME = Ricardo
+HOST = phorton.net
+PORT = 10215
+LOCAL_DIR = /mbeSystems
+REMOTE_DIR = /mbeSystems
+
+NAME = Kirian
+HOST = phorton.net
+PORT = 10216
+LOCAL_DIR = /mbeSystems
+REMOTE_DIR = /mbeSystems
+
+NAME = Alex
+HOST = phorton.net
+PORT = 10212
+LOCAL_DIR = /mbeSystems
+REMOTE_DIR = /mbeSystems
+
+NAME = Estafania
+HOST = phorton.net
+PORT = 10218
+LOCAL_DIR = /mbeSystems
+REMOTE_DIR = /mbeSystems
+
+#----------------------------------------------------------
+# default My::fileServer running on localhost:6801
+#----------------------------------------------------------
+
+NAME = local
+HOST = localhost
+LOCAL_DIR = /junk
+REMOTE_DIR = /junk
+
+#-------------------------------------------
+# for testing bad logins to phnet
+#-------------------------------------------
+# special hook that 'blank' is changed to empty string user
+# in /base/apps/file/fileClientWindow.pm
+
+NAME = blank
+HOST = phorton.net
+LOCAL_DIR = /base
+REMOTE_DIR = /base
+
+NAME = blank:pppp
+HOST = phorton.net
+LOCAL_DIR = /base
+REMOTE_DIR = /base
