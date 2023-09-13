@@ -316,9 +316,10 @@ sub sessionThread
 			}
 			else
 			{
+				print "SERVER PACKET $packet\n";
 				my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
 				my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
-				last if !$session->send_packet($packet);
+				last if $packet && !$session->send_packet($packet);
 			}
 		}
     }

@@ -38,7 +38,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::Session;
 use base qw(Pub::FS::Session);
 
-our $dbg_request:shared = 1;
+our $dbg_request:shared = 0;
 
 BEGIN {
     use Exporter qw( import );
@@ -92,11 +92,12 @@ sub doRemoteRequest
 
 	while ($file_reply_pending)
 	{
-		display($dbg_request,0,"doRemoteRequest() waiting for reply ...");
+		display($dbg_request+1,0,"doRemoteRequest() waiting for reply ...");
 		sleep(0.2);
 	}
 
-	display($dbg_request,0,"doRemoteRequest() got reply: '$file_server_reply'");
+	display($dbg_request+1,0,"doRemoteRequest() got reply: '$file_server_reply'");
+	display($dbg_request,0,"doRemoteRequest() returning ".length($file_server_reply)." bytes");
 }
 
 
@@ -114,6 +115,8 @@ sub _listRemoteDir
 		return undef;
 	}
     $this->send_packet($file_server_reply);
+    display($dbg_commands,0,"_listRemoteDir($dir) returning after send_packet(".length($file_server_reply).")");
+	return '';
 }
 
 sub _mkRemoteDir
@@ -127,6 +130,7 @@ sub _mkRemoteDir
 		return undef;
 	}
     $this->send_packet($file_server_reply);
+	return '';
 }
 
 sub _renameRemote
@@ -140,6 +144,7 @@ sub _renameRemote
 		return undef;
 	}
     $this->send_packet($file_server_reply);
+	return '';
 }
 
 

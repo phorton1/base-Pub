@@ -55,7 +55,7 @@ sub _listRemoteDir
     return if (!$text);
 
     my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
+	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry}) returning",$rslt->{entries})
 		if $rslt;
     return $rslt;
 }

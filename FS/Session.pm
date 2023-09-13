@@ -84,6 +84,7 @@ sub new
 	my ($class, $params) = @_;
 	$params ||= {};
 	my $this = { %$params };
+	$this->{WHO} = $this->{IS_SERVER}?"SERVER":"CLIENT";
 	bless $this,$class;
 	return if !$this->{SOCK} && !$this->connect();
 	return $this;
@@ -137,7 +138,7 @@ sub connect
 	my $host = $this->{HOST};
     my $port = $this->{PORT};
 
-	display($dbg_session+1,0,"connecting to $host:$port");
+	display($dbg_session+1,0,"$this->{WHO} connecting to $host:$port");
 
     my @psock = (
         PeerAddr => "$host:$port",
@@ -147,7 +148,7 @@ sub connect
 
     if (!$sock)
     {
-        $this->session_error("Could not connect to PORT $port");
+        $this->session_error("$this->{WHO} could not connect to PORT $port");
     }
     else
     {
@@ -159,7 +160,7 @@ sub connect
 
         if ($line !~ /^WASSUP/)
         {
-            $this->session_error("Unexpected response from server: $line");
+            $this->session_error("$this->{WHO} unexpected response from server: $line");
             return;
         }
     }
@@ -178,29 +179,26 @@ sub send_packet
 {
     my ($this,$packet) = @_;
 
-
-	print "send_packet ".length($packet)." bytes\n";
+    if (length($packet) > 100)
+    {
+        display($dbg_packets,0,"$this->{WHO} --> ".length($packet)." bytes",1);
+    }
+    else
+    {
+        display($dbg_packets,0,"$this->{WHO} --> $packet",1);
+    }
 
     my $sock = $this->{SOCK};
     if (!$sock)
     {
-        $this->session_error("no socket in send_packet");
+        $this->session_error("$this->{WHO} no socket in send_packet");
         return;
-    }
-
-    if (length($packet) > 100)
-    {
-        display($dbg_packets,0,"--> ".length($packet)." bytes");
-    }
-    else
-    {
-        display($dbg_packets,0,"--> $packet");
     }
 
     if (!$sock->send($packet."\r\n"))
     {
         $this->{SOCK} = undef;
-        $this->session_error("Could not write to socket $sock");
+        $this->session_error("$this->{WHO} could not write to socket $sock");
         return;
     }
 
@@ -216,7 +214,7 @@ sub get_packet
     my $sock = $this->{SOCK};
     if (!$sock)
     {
-        $this->session_error("no socket in get_packet");
+        $this->session_error("$this->{WHO} no socket in get_packet");
         return;
     }
 
@@ -227,7 +225,7 @@ sub get_packet
     if (!defined($packet))
     {
         $this->{SOCK} = undef;
-        $this->session_error("No response from peer");
+        $this->session_error("$this->{WHO} no response from peer");
         return;
     }
 
@@ -235,17 +233,17 @@ sub get_packet
 
     if (!$packet)
     {
-        $this->session_error("Empty response from peer");
+        $this->session_error("$this->{WHO} empty response from peer");
         return;
     }
 
     if (length($packet) > 100)
     {
-        display($dbg_packets,0,"<-- ".length($packet)." bytes");
+        display($dbg_packets,0,"$this->{WHO} <-- ".length($packet)." bytes",1);
     }
     else
     {
-        display($dbg_packets,0,"<-- $packet");
+        display($dbg_packets,0,"$this->{WHO} <-- $packet",1);
     }
 
     return $packet;
@@ -263,7 +261,7 @@ sub get_packet
 sub listToText
 {
     my ($this,$list) = @_;
-    display($dbg_lists,0,"listToText($list->{entry}) ".
+    display($dbg_lists,0,"$this->{WHO} listToText($list->{entry}) ".
 		($list->{is_dir} ? scalar(keys %{$list->{entries}})." entries" : ""));
 
 	my $text = $list->to_text()."\n";
@@ -301,7 +299,7 @@ sub textToList
 
     my $result;
     my @lines = split("\n",$text);
-    display($dbg_lists,0,"textToList() lines=".scalar(@lines));
+    display($dbg_lists,0,"$this->{WHO} textToList() lines=".scalar(@lines));
 
     for my $line (@lines)
     {
@@ -316,7 +314,7 @@ sub textToList
 		}
     }
 
-	display_hash($dbg_lists+1,2,"textToList($result->{entry})",$result->{entries});
+	display_hash($dbg_lists+1,2,"$this->{WHO} textToList($result->{entry})",$result->{entries});
     return $result;
 }
 
@@ -343,7 +341,7 @@ sub doCommand
 	$param2 ||= '';
 	$param3 ||= '';
 
-	display($dbg_commands+1,0,"doCommand($command,$local,$param1,$param2,$param3)");
+	display($dbg_commands+1,0,"$this->{WHO} doCommand($command,$local,$param1,$param2,$param3)");
 
 	if ($command eq $SESSION_COMMAND_LIST)
 	{
@@ -363,7 +361,7 @@ sub doCommand
 			$this->_renameLocal($param1,$param2,$param3) :
 			$this->_renameRemote($param1,$param2,$param3);
 	}
-	$this->session_error("unsupported command: $command");
+	$this->session_error("$this->{WHO} unsupported command: $command");
 	return;
 }
 
@@ -373,14 +371,14 @@ sub doCommand
 sub _listLocalDir
 {
     my ($this, $dir) = @_;
-    display($dbg_commands,0,"_listLocalDir($dir)");
+    display($dbg_commands,0,"$this->{WHO} _listLocalDir($dir)");
 
     my $dir_info = Pub::FS::FileInfo->new($this,1,$dir);
     return if (!$dir_info);
 
     if (!opendir(DIR,$dir))
     {
-        $this->session_error("could not opendir $dir");
+        $this->session_error("$this->{WHO} could not opendir $dir");
 		return;
     }
     while (my $entry=readdir(DIR))
@@ -408,7 +406,7 @@ sub _listLocalDir
 sub _mkLocalDir
 {
     my ($this, $dir, $subdir) = @_;
-    display($dbg_commands,0,"_mkLocalDir($dir,$subdir)");
+    display($dbg_commands,0,"$this->{WHO} _mkLocalDir($dir,$subdir)");
     my $path = makepath($dir,$subdir);
 	if (!mkdir($path))
 	{
@@ -422,7 +420,7 @@ sub _mkLocalDir
 sub _renameLocal
 {
     my ($this, $dir, $name1, $name2) = @_;
-    display($dbg_commands,0,"_renameLocal($dir,$name1,$name2)");
+    display($dbg_commands,0,"$this->{WHO} _renameLocal($dir,$name1,$name2)");
     my $path1 = makepath($dir,$name1);
     my $path2 = makepath($dir,$name2);
 
@@ -430,17 +428,17 @@ sub _renameLocal
 
 	if (!-e $path1)
 	{
-		$this->session_error("file/dir $path1 not found");
+		$this->session_error("$this->{WHO} file/dir $path1 not found");
 		return;
 	}
 	if (-e $path2)
 	{
-		$this->session_error("file/dir $path2 already exists");
+		$this->session_error("$this->{WHO} file/dir $path2 already exists");
 		return;
 	}
 	if (!rename($path1,$path2))
 	{
-		$this->session_error("Could not rename $path1 to $path2");
+		$this->session_error("$this->{WHO} Could not rename $path1 to $path2");
 		return;
 	}
 
