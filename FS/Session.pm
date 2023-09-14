@@ -33,7 +33,7 @@ use Pub::Utils;
 use Pub::FS::FileInfo;
 
 our $dbg_session:shared = 1;
-our $dbg_packets:shared = 1;
+our $dbg_packets:shared = 0;
 our $dbg_lists:shared = 1;
 	# 0 = show lists encountered
 	# -1 = show teztToList final hash
@@ -83,13 +83,22 @@ sub new
 {
 	my ($class, $params) = @_;
 	$params ||= {};
+	$params->{IS_REMOTE} ||= 0;
+	$params->{HOST} ||= $DEFAULT_HOST;
+	$params->{PORT} ||= $DEFAULT_PORT if !defined($params->{PORT});
+	$params->{WHO} = $params->{IS_SERVER}?"SERVER":"CLIENT";
 	my $this = { %$params };
-	$this->{WHO} = $this->{IS_SERVER}?"SERVER":"CLIENT";
 	bless $this,$class;
-	return if !$this->{SOCK} && !$this->connect();
+	return if !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
 	return $this;
 }
 
+
+sub onServerLoop
+{
+	my ($this) = @_;
+	return 1;
+}
 
 
 sub session_error
@@ -118,7 +127,7 @@ sub isConnected
 sub disconnect
 {
     my ($this) = @_;
-    display($dbg_session,0,"DISCONNECT");
+    display($dbg_session,-1,"$this->{WHO} disconnect()");
     if ($this->{SOCK})
     {
         $this->send_packet('EXIT');
@@ -132,13 +141,10 @@ sub disconnect
 sub connect
 {
     my ($this) = @_;
-
-	$this->{HOST} ||= $DEFAULT_HOST;
-	$this->{PORT} ||= $DEFAULT_PORT;
 	my $host = $this->{HOST};
     my $port = $this->{PORT};
 
-	display($dbg_session+1,0,"$this->{WHO} connecting to $host:$port");
+	display($dbg_session+1,-1,"$this->{WHO} connecting to $host:$port");
 
     my @psock = (
         PeerAddr => "$host:$port",
@@ -152,11 +158,11 @@ sub connect
     }
     else
     {
- 		display($dbg_session,0,"CONNECTED to PORT $port");
+ 		display($dbg_session,-1,"$this->{WHO} CONNECTED to PORT $port");
         $this->{SOCK} = $sock;
 
         return if !$this->send_packet("HELLO");
-        return if !defined(my $line = $this->get_packet());
+        return if !defined(my $line = $this->get_packet(1));
 
         if ($line !~ /^WASSUP/)
         {
@@ -181,11 +187,11 @@ sub send_packet
 
     if (length($packet) > 100)
     {
-        display($dbg_packets,0,"$this->{WHO} --> ".length($packet)." bytes",1);
+        display($dbg_packets,-1,"$this->{WHO} --> ".length($packet)." bytes",1);
     }
     else
     {
-        display($dbg_packets,0,"$this->{WHO} --> $packet",1);
+        display($dbg_packets,-1,"$this->{WHO} --> $packet",1);
     }
 
     my $sock = $this->{SOCK};
@@ -210,7 +216,7 @@ sub send_packet
 
 sub get_packet
 {
-    my ($this) = @_;
+    my ($this,$block) = @_;
     my $sock = $this->{SOCK};
     if (!$sock)
     {
@@ -218,15 +224,24 @@ sub get_packet
         return;
     }
 
+	if (!$block && $this->{NOBLOCK})
+	{
+		my $select = IO::Select->new($sock);
+		return if !$select->can_read(0.1);
+	}
+
 	my $CRLF = "\015\012";
 	local $/ = $CRLF;
 
     my $packet = <$sock>;
     if (!defined($packet))
     {
-        $this->{SOCK} = undef;
-        $this->session_error("$this->{WHO} no response from peer");
-        return;
+		if (!$this->{NOBLOCK})
+        {
+			$this->{SOCK} = undef;
+			$this->session_error("$this->{WHO} no response from peer");
+		}
+		return;
     }
 
     $packet =~ s/(\r|\n)$//g;
@@ -239,11 +254,11 @@ sub get_packet
 
     if (length($packet) > 100)
     {
-        display($dbg_packets,0,"$this->{WHO} <-- ".length($packet)." bytes",1);
+        display($dbg_packets,-1,"$this->{WHO} <-- ".length($packet)." bytes",1);
     }
     else
     {
-        display($dbg_packets,0,"$this->{WHO} <-- $packet",1);
+        display($dbg_packets,-1,"$this->{WHO} <-- $packet",1);
     }
 
     return $packet;

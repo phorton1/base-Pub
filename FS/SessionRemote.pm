@@ -64,6 +64,8 @@ sub new
 {
     my ($class,$params) = @_;
     my $this = $class->SUPER::new($params);
+	return if !$this;
+	bless $this,$class;
 	return $this;
 }
 

@@ -39,9 +39,11 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw(
 		$dbg_server
+		$ACTUAL_SERVER_PORT
 	);
 }
 
+our $ACTUAL_SERVER_PORT:shared;
 
 
 my $USE_FORKING = 1;
@@ -61,14 +63,14 @@ sub new
 {
 	my ($class,$params) = @_;
 	$params ||= {};
+	$params->{PORT} = $DEFAULT_PORT if !defined($params->{PORT});
+	$params->{HOST} ||= $DEFAULT_HOST;
+	$params->{IS_REMOTE} ||= 0;
 	my $this = shared_clone($params);
-	$this->{PORT} ||= $DEFAULT_PORT;
-	$this->{HOST} ||= $DEFAULT_HOST;
-	$this->{IS_REMOTE} ||= 0;
 	$this->{running} = 0;
 	$this->{stopping} = 0;
     bless $this,$class;
-	$this->start();
+	$this = undef if !$this->start();
 	return $this;
 }
 
@@ -109,16 +111,16 @@ sub stop
     $this->{stopping} = 1;
     while ($this->{running} && time() < $time + $TIMEOUT)
     {
-        display($dbg_server,0,"waiting for file server on port($this->{PORT}) to stop");
+        display($dbg_server,0,"waiting for FS::Server on port($this->{PORT}) to stop");
         sleep(1);
     }
     if ($this->{running})
     {
-        error("STOPPED with $this->{running} existing threads");
+        error("FS::Server STOPPED with $this->{running} existing threads");
     }
     else
     {
-        LOG(0,"STOPPED sucesfully");
+        LOG(0,"FS::Server STOPPED sucesfully");
     }
 }
 
@@ -150,9 +152,16 @@ sub serverThread
     if (!$server_socket)
     {
         $this->dec_running();
-        error("Could not create server socket on port $this->{PORT}: $@");
+        error("Could not create server socket: $@");
         return;
     }
+
+	if (!$this->{PORT})
+	{
+		$ACTUAL_SERVER_PORT = $server_socket->sockport();
+		$this->{PORT} = $ACTUAL_SERVER_PORT;
+		warning($dbg_server,0,"SERVER STARTED ON ACTUAL_PORT($ACTUAL_SERVER_PORT)");
+	}
 
     # loop accepting connectons from clients
 
@@ -221,10 +230,9 @@ sub serverThread
                 {
                     display($dbg_server+1,0,"FS_FORK_START($connect_num) pid=$$");
 
-                    $this->sessionThread($client_socket,$peer_ip,$peer_port);
+                    $this->sessionThread($connect_num,$client_socket,$peer_ip,$peer_port);
 
                     display($dbg_server+1,0,"FS_FORK_END($connect_num) pid=$$");
-
 					if (!$KILL_FORK_ON_PID)
 					{
 						open OUT, ">$temp_dir/$$.pfs_pid";
@@ -241,7 +249,7 @@ sub serverThread
             {
                 display($dbg_server+1,1,"starting sessionThread");
                 $client_threads[$client_thread_num] = threads->create(
-                    \&sessionThread,$this,$client_socket,$peer_ip,$peer_port);
+                    \&sessionThread,$this,$connect_num,$client_socket,$peer_ip,$peer_port);
                 $client_threads[$client_thread_num]->detach();
                 $client_thread_num++;
                 $client_thread_num = 0 if $client_thread_num > @client_threads-1;
@@ -265,8 +273,8 @@ sub serverThread
 
 sub sessionThread
 {
-    my ($this,$client_socket,$peer_ip,$peer_port) = @_;
-    display($dbg_server+1,0,"FILE SESSION THREAD");
+    my ($this,$connect_num,$client_socket,$peer_ip,$peer_port) = @_;
+    display($dbg_server+1,0,"FILE SESSION THREAD($connect_num)");
 
 	my $session = $this->createSession($client_socket);
 
@@ -282,7 +290,6 @@ sub sessionThread
         $session->session_error("BAD LOGIN '$packet'");
 		$ok = 0;
 	}
-
 	if ($ok && !$session->send_packet("WASSUP"))
 	{
         $session->session_error("COULD NOT SEND WASSUP");
@@ -298,31 +305,34 @@ sub sessionThread
 	my $select = IO::Select->new($client_socket);
     while ($ok && !$this->{stopping})
     {
-		if ($select->can_read(1))
+		if ($select->can_read(0.1))
 		{
             $packet = $session->get_packet();
 			last if $this->{stopping};
-			last if !$packet;
+			next if !defined($packet);
 
-			my @params = split(/\t/,$packet);
-
-			if ($params[0] eq 'ABORT')
+			if ($packet =~ /^ABORT/)
 			{
 				next;
 			}
-			elsif ($params[0] eq 'EXIT')
+			elsif ($packet =~ /^EXIT/)
 			{
 				last;
 			}
-			else
-			{
-				print "SERVER PACKET $packet\n";
-				my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
-				my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
-				last if $packet && !$session->send_packet($packet);
-			}
+			# else
+			# {
+			# 	my @params = split(/\t/,$packet);
+			# 	print "SERVER PACKET $packet\n";
+			# 	my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
+			# 	my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
+			# 	last if $packet && !$session->send_packet($packet);
+			# }
 		}
+
+		last if !$session->onServerLoop($connect_num);
     }
+
+    display($dbg_server,0,"FILE SESSION THREAD($connect_num) terminating");
 
 	undef $session->{sock};
     $client_socket->close();

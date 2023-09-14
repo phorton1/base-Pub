@@ -40,6 +40,7 @@ sub new
 	$params ||= {};
 	$params->{IS_REMOTE} = 1;
 	my $this = $class->SUPER::new($params);
+	return if !$this;
     bless $this,$class;
 	return $this;
 }
