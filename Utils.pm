@@ -270,6 +270,10 @@ sub display_hash
 {
 	my ($level,$indent,$title,$hash) = @_;
 	return if !display($level,$indent,"display_hash($title)",1);
+	if (!$hash)
+	{
+		display($level,$indent+1,"NO HASH",1);
+	}
 	for my $k (sort(keys(%$hash)))
 	{
 		my $val = _def($hash->{$k});

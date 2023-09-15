@@ -81,7 +81,7 @@ sub new
 	# if no SOCK parameter is provided,
 	# will try to connect to HOST:PORT
 {
-	my ($class, $params) = @_;
+	my ($class, $params, $no_error) = @_;
 	$params ||= {};
 	$params->{IS_REMOTE} ||= 0;
 	$params->{HOST} ||= $DEFAULT_HOST;
@@ -89,7 +89,7 @@ sub new
 	$params->{WHO} = $params->{IS_SERVER}?"SERVER":"CLIENT";
 	my $this = { %$params };
 	bless $this,$class;
-	return if !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
+	return if $this->{PORT} && !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
 	return $this;
 }
 
@@ -131,7 +131,7 @@ sub disconnect
     if ($this->{SOCK})
     {
         $this->send_packet('EXIT');
-        close $this->{SOCK};
+		close $this->{SOCK};
     }
     $this->{SOCK} = undef;
 }
@@ -154,7 +154,8 @@ sub connect
 
     if (!$sock)
     {
-        $this->session_error("$this->{WHO} could not connect to PORT $port");
+        $this->session_error("$this->{WHO} could not connect to PORT $port")
+			if !$this->{NO_CONNECT_ERROR};
     }
     else
     {

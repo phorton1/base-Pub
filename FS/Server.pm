@@ -48,6 +48,7 @@ our $ACTUAL_SERVER_PORT:shared;
 
 my $USE_FORKING = 1;
 my $KILL_FORK_ON_PID = 1;
+my $KILL_PID_EXT = 'FS_SERVER_pid';
 
 my $server_thread = undef;
 my @client_threads = (0,0,0,0,0,0,0,0,0,0);
@@ -158,6 +159,7 @@ sub serverThread
 
 	if (!$this->{PORT})
 	{
+		$this->{RANDOM_PORT} = 1;
 		$ACTUAL_SERVER_PORT = $server_socket->sockport();
 		$this->{PORT} = $ACTUAL_SERVER_PORT;
 		warning($dbg_server,0,"SERVER STARTED ON ACTUAL_PORT($ACTUAL_SERVER_PORT)");
@@ -178,10 +180,9 @@ sub serverThread
                 closedir DIR;
                 for my $entry (@entries)
                 {
-                    if ($entry =~ /^((-|\d)+)\.pfs_pid/)
+                    if ($entry =~ /^(\d+)\.$KILL_PID_EXT/)
                     {
                         my $pid = $1;
-
 						if ($KILL_FORK_ON_PID)
 						{
 							display($dbg_server+1,0,"KILLING CHILD PID $pid");
@@ -235,7 +236,7 @@ sub serverThread
                     display($dbg_server+1,0,"FS_FORK_END($connect_num) pid=$$");
 					if (!$KILL_FORK_ON_PID)
 					{
-						open OUT, ">$temp_dir/$$.pfs_pid";
+						open OUT, ">$temp_dir/$$.$KILL_PID_EXT";
 						print OUT $$;
 						close OUT;
 					}
@@ -266,6 +267,8 @@ sub serverThread
     LOG(0,"serverThread STOPPED");
     $this->dec_running();
 
+	$this->{running} = 0;
+
 }   # serverThread()
 
 
@@ -274,7 +277,7 @@ sub serverThread
 sub sessionThread
 {
     my ($this,$connect_num,$client_socket,$peer_ip,$peer_port) = @_;
-    display($dbg_server+1,0,"FILE SESSION THREAD($connect_num)");
+    display($dbg_server+1,0,"SESSION THREAD($connect_num)");
 
 	my $session = $this->createSession($client_socket);
 
@@ -317,22 +320,36 @@ sub sessionThread
 			}
 			elsif ($packet =~ /^EXIT/)
 			{
+				# Stopping the server if it's not the primary buddyBox,
+				# as determined by RANDOM_PORT, as all others have them
+				# assigned by buddyApp.
+				#
+				# If it's the last session on this server.
+				# Furthermore, we want to close buddyBox itself down ...
+
+				if (!$this->{RANDOM_PORT} &&
+					$this->{running} == 2)	# one for the server and one for us
+				{
+					display($dbg_server,-1,"SHUTTING DOWN THE SERVER ON LAST EXIT");
+					$this->{stopping} = 1;
+				}
+
 				last;
 			}
-			# else
-			# {
-			# 	my @params = split(/\t/,$packet);
-			# 	print "SERVER PACKET $packet\n";
-			# 	my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
-			# 	my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
-			# 	last if $packet && !$session->send_packet($packet);
-			# }
+			elsif ($packet)
+			{
+				my @params = split(/\t/,$packet);
+				# print "SERVER PACKET $packet\n";
+				my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
+				my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
+				last if $packet && !$session->send_packet($packet);
+			}
 		}
 
 		last if !$session->onServerLoop($connect_num);
     }
 
-    display($dbg_server,0,"FILE SESSION THREAD($connect_num) terminating");
+    display($dbg_server,0,"SESSION THREAD($connect_num) terminating");
 
 	undef $session->{sock};
     $client_socket->close();
@@ -340,7 +357,7 @@ sub sessionThread
 
 	if (!$KILL_FORK_ON_PID)
 	{
-		open OUT, ">$temp_dir/$$.pfs_pid";
+		open OUT, ">$temp_dir/$$.$KILL_PID_EXT";
 		print OUT $$;
 		close OUT;
 	}

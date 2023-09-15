@@ -7,8 +7,6 @@
 # Derived classes should merge their values into the base
 # class $resources member.
 
-use lib '/base/apps/file2';
-
 package Pub::FS::fileClientResources;
 use strict;
 use warnings;

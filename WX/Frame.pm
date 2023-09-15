@@ -86,7 +86,7 @@ sub new
     my $config_rect = readConfigRect("window_rect");
 	my $config_exists = $config_rect ? 1 : 0;
     display($dbg_frame,2,"config_exists=$config_exists");
-	$config_rect = Wx::Rect->new(200,100,900,600) if (!$config_rect);
+	$config_rect = Wx::Rect->new(200,100,300,300) if (!$config_rect);
     writeConfigRect("window_rect",$config_rect);
     writeConfig("running",1);
     Pub::WX::AppConfig::save();
