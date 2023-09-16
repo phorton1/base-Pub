@@ -38,7 +38,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::Session;
 use base qw(Pub::FS::Session);
 
-our $dbg_request:shared = 0;
+our $dbg_request:shared = 1;
 
 BEGIN {
     use Exporter qw( import );

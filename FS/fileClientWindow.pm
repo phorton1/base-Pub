@@ -96,13 +96,17 @@ sub new
 
 
 sub onClose
+	# the bane of my existence.
+	# onClose seems to get called twice,  once before deleting the pane
+	# and once after ... I may try to figure that out later, but for
+	# now I exit the whole program when it reaches zero
 {
 	my ($this,$event) = @_;
 	display($dbg_fcw,-1,"fileClientWindow::onClose(".scalar(@{$this->{frame}->{panes}}).") called");
-	if (@{$this->{frame}->{panes}} == 1)
+	if (@{$this->{frame}->{panes}} == 0)
 	{
-		# display($dbg_fcw,-1,"Exiting Program as last window");
-		# exit(0);
+		display($dbg_fcw,-1,"Exiting Program as last window");
+		exit(0);
 	}
 	$this->SUPER::onClose();
 	$event->Skip();
@@ -133,7 +137,9 @@ sub onSize
 sub onIdle
 {
     my ($this,$event) = @_;
-	# display($dbg_fcw,0,"onIdle()");
+
+	# the EXIT is directed to the window, so we close ourselves,
+	# and let the last window close the app.
 
 	my $do_exit = 0;
 	if ($this->{session})
@@ -158,20 +164,19 @@ sub onIdle
 		}
 	}
 
-	if (0 && $do_exit)
+	if ($do_exit)
 	{
-		warning(0,0,"Exiting Program");
-		Wx::App::ExitMainLoop();
+		warning(0,0,"Closing self");
+		$this->closeSelf();
 
+		# Wx::App::ExitMainLoop();
 		# kill 15,$$;
 		# exit(0);
 	}
-
-
-	# if the socket has gone away, we should close the tab.
-	# if it's the 1st instance, we should close the app.
-
-	$event->RequestMore(1);
+	else
+	{
+		$event->RequestMore(1);
+	}
 }
 
 

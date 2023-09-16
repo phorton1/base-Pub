@@ -20,6 +20,7 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use POSIX;
 use Time::HiRes qw( sleep usleep );
 use IO::Select;
 use IO::Socket::INET;
@@ -47,9 +48,47 @@ BEGIN
 our $ACTUAL_SERVER_PORT:shared;
 
 
-my $USE_FORKING = 1;
-my $KILL_FORK_ON_PID = 1;
+# FINAL SUMMARY OF FORKING VERSUS THREADING AND VARIOUS OPTIONS in buddy
+#
+# Forking had a lot of problems in Buddy with, I think, the
+# closing of STDIN and STOUT that I could not seem to work around
+#
+# Threading seems to work perfectly, and I don't need the circular buffer.
+#
+# Using the circular buffer, when 1, I noticed that even if I
+# open more than 10 threads, which would wrap the @client_threads array,
+# thus effectively undef'ing them, there didn't seem to be any problems.
+# So I tried to use a local $thread handle, and it it barfed.
+#
+# However, using a single global $thread_handles seems to
+# work perfectly and avoids the additional complexity.
+
+
+my $USE_FORKING = 0;
+
+
 my $KILL_PID_EXT = 'FS_SERVER_pid';
+	# PID files are not currently process (buddy invocation) specific
+
+my $KILL_NONE 		= 0x0000;		# don't use feature
+my $KILL_REDIRECT	= 0x0001;		# redirect STDIN and STDOUT locally
+my $KILL_WAIT       = 0x0002;		# waitpid on the PID file in the main thread
+my $KILL_KILL 		= 0x0004;		# kill the PID file in the main thread
+	# the last two are mutuallly exclusive
+
+my $HOW_KILL_FORK = $KILL_REDIRECT;
+
+# following only used if !$USE_FORKING
+
+my $SAVE_CLIENT_THREADS = 0;
+	# Setting this to 0 uses single global $thread_handle
+	# Setting it to 1 uses circular buffer
+
+# following only used if !$SAVE_CLIENT_THREADS
+
+my $thread_handle;
+
+# following only used if $SAVE_CLIENT_THREADS
 
 my $server_thread = undef;
 my @client_threads = (0,0,0,0,0,0,0,0,0,0);
@@ -57,9 +96,17 @@ my $client_thread_num = 0;
      # ring buffer to keep threads alive at
      # least until the session gets started
 
+
+#------------------------
+# local variables
+#------------------------
+
 my $connect_num = 0;
 
 
+#-------------------------------------------------
+# methods
+#-------------------------------------------------
 
 sub new
 {
@@ -138,12 +185,14 @@ sub start
 }
 
 
+#-----------------------------------------------------
+# serverThread()
+#-----------------------------------------------------
 
 sub serverThread
 {
     my ($this) = @_;
-
-    display($dbg_server+1,0,"serverThread started");
+    display($dbg_server,-2,"serverThread started with PID($$)");
 
     my $server_socket = IO::Socket::INET->new(
         LocalPort => $this->{PORT},
@@ -174,7 +223,7 @@ sub serverThread
     while ($this->{running}>1 || (
 		   $this->{running} && !$this->{stopping}))
     {
-        if ($USE_FORKING)
+        if ($USE_FORKING && ($HOW_KILL_FORK & ($KILL_WAIT | $KILL_KILL)))
         {
             if (opendir DIR,$temp_dir)
             {
@@ -185,15 +234,17 @@ sub serverThread
 					if ($entry =~ /^((-)*\d+)\.$KILL_PID_EXT/)
                     {
 						my $pid = $1;
-						if ($KILL_FORK_ON_PID)
+						if ($HOW_KILL_FORK & $KILL_KILL)
 						{
 							display($dbg_server,0,"KILLING CHILD PID $pid");
 							unlink "$temp_dir/$entry";
-							# kill(15, $pid);		# SIGTERM
+							# This attempt to kill child process also,
+							# unfortunately, kills the buddy app ..
+							kill(15, $pid);		# SIGTERM
 						}
-						else
+						else	# $KILL_WAIT
 						{
-							display($dbg_server+1,0,"FS_FORK_WAITPID(pid=$pid)");
+							display($dbg_server,0,"FS_FORK_WAITPID(pid=$pid)");
 							my $got = waitpid($pid,0);  # 0 == WNOHANG
 							if ($got && $got ==$pid)
 							{
@@ -231,19 +282,29 @@ sub serverThread
 
                 if (!$rslt)
                 {
-                    display($dbg_server+1,0,"FS_FORK_START($connect_num) pid=$$");
-
+                    display($dbg_server,0,"FS_FORK_START($connect_num) pid=$$");
                     $this->sessionThread($connect_num,$client_socket,$peer_ip,$peer_port);
+					display($dbg_server,0,"FS_FORK_END($connect_num) pid=$$");
 
-                    display($dbg_server+1,0,"FS_FORK_END($connect_num) pid=$$");
-					if (!$KILL_FORK_ON_PID)
+					# Nothing I tried seemed to work for $USE_FORKING
+
+					local *STDOUT = $HOW_KILL_FORK & $KILL_REDIRECT ?
+						open STDOUT, '>', "/dev/null" :
+						'>&STDOUT';
+
+					if ($HOW_KILL_FORK & ($KILL_WAIT | $KILL_KILL))
 					{
 						open OUT, ">$temp_dir/$$.$KILL_PID_EXT";
 						print OUT $$;
 						close OUT;
 					}
 
-                    exit(0);
+					if ($HOW_KILL_FORK & $KILL_KILL)
+					{
+						while (1) {sleep 10;}
+					}
+					# kill 15,$$;
+					exit(0)
                 }
                 display($dbg_server+1,1,"fs_fork($connect_num) parent continuing");
 
@@ -251,11 +312,21 @@ sub serverThread
             else
             {
                 display($dbg_server+1,1,"starting sessionThread");
-                $client_threads[$client_thread_num] = threads->create(
-                    \&sessionThread,$this,$connect_num,$client_socket,$peer_ip,$peer_port);
-                $client_threads[$client_thread_num]->detach();
-                $client_thread_num++;
-                $client_thread_num = 0 if $client_thread_num > @client_threads-1;
+
+				if ($SAVE_CLIENT_THREADS)
+				{
+					$client_threads[$client_thread_num] = threads->create(
+						\&sessionThread,$this,$connect_num,$client_socket,$peer_ip,$peer_port);
+					$client_threads[$client_thread_num]->detach();
+					$client_thread_num++;
+					$client_thread_num = 0 if $client_thread_num > @client_threads-1;
+				}
+				else
+				{
+					$thread_handle = threads->create(	# barfs: my $thread = threads->create(
+						\&sessionThread,$this,$connect_num,$client_socket,$peer_ip,$peer_port);
+					$thread_handle->detach(); 			# barfs: $thread->detach();
+				}
                 display($dbg_server+1,1,"back from starting sessionThread");
             }
         }
@@ -275,11 +346,14 @@ sub serverThread
 
 
 
+#----------------------------------------------------------------------
+# sessionThread()
+#----------------------------------------------------------------------
 
 sub sessionThread
 {
     my ($this,$connect_num,$client_socket,$peer_ip,$peer_port) = @_;
-    display($dbg_server+1,0,"SESSION THREAD($connect_num)");
+    display($dbg_server,-2,"SESSION THREAD($connect_num) WITH PID($$)");
 
 	my $session = $this->createSession($client_socket);
 
@@ -349,24 +423,16 @@ sub sessionThread
 
 	if ($session->{SOCK} && $this->{SEND_EXIT})
 	{
-		$session->sendPacket("EXIT");
-		sleep(0.2);
+		$session->send_packet("EXIT");
+		# sleep(2);
 	}
+
+	# print "past the exit\n";
+
 	undef $session->{SOCK};
     $client_socket->close();
     $this->dec_running();
 
-	if ($KILL_FORK_ON_PID)  #  && !$this->{stopping})
-	{
-		open OUT, ">$temp_dir/$$.$KILL_PID_EXT";
-		print OUT $$;
-		close OUT;
-	}
-
-	while (1) { sleep(10); }
-
-	# return;
-	# exit(0);
 }
 
 

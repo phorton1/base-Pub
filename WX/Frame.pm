@@ -195,6 +195,9 @@ sub DESTROY
 	my ($this) = @_;
 	display($dbg_frame,0,"DESTROY Pub::WX::Frame");
 	setAppFrame(undef);
+
+	# bypassing months of work years ago, I now just bail on
+	# any memory management and return short here ..
 	return;
 
 	$this->Pub::WX::FrameBase::DESTROY();
@@ -307,6 +310,7 @@ sub display_rect
 sub save_state
 {
     my ($this) = @_;
+	return if !$Pub::WX::AppConfig::ini_file;
     display($dbg_sr,0,"start Pub::WX::Frame::save_state($this)");
 
 	# save the window position to the config file
@@ -390,6 +394,7 @@ sub restore_state
     # open up any needed floating frames
 {
     my ($this) = @_;
+	return if !$Pub::WX::AppConfig::ini_file;
     display($dbg_sr,0,"start Pub::WX::Frame::restore_state()");
     my $main_perspective = readConfig("perspective");
 

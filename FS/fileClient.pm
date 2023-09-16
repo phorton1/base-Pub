@@ -17,14 +17,13 @@ use base qw(Pub::WX::Frame);
 
 my $dbg_app = 0;
 
-$data_dir = '/base/temp';	# should be unused
 $temp_dir = '/base/temp';
-$logfile = "$temp_dir/fileClient2.log";
-$Pub::WX::AppConfig::ini_file = "$temp_dir/fileClient2.ini";
 
 
-unlink $Pub::WX::AppConfig::ini_file;
-	# huh?
+# $data_dir = '/base/temp';
+# $logfile = "$temp_dir/fileClient2.log";
+# $Pub::WX::AppConfig::ini_file = "$temp_dir/fileClient2.ini";
+# unlink $Pub::WX::AppConfig::ini_file;
 
 
 sub new
@@ -39,6 +38,8 @@ sub onInit
     # derived classes MUST call base class!
 {
     my ($this) = @_;
+	display($dbg_app,-1,"FILE CLIENT STARTED WITH PID($$)");
+
     $this->SUPER::onInit();
 	EVT_MENU($this, $COMMAND_CONNECT, \&commandConnect);
 	return if !$this->createPane($ID_CLIENT_WINDOW,undef,"blah");

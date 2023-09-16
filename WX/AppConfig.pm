@@ -31,7 +31,7 @@ BEGIN
 		configDeleteGroup );
 }
 
-our $ini_file = "$data_dir/app.ini";
+our $ini_file = '';
 
 my $global_config_file;
 
@@ -40,6 +40,7 @@ my $global_config_file;
 sub initialize
 	# not exported
 {
+	return if !$ini_file;
 	display(9,0,"AppConfig::initialize($ini_file)");
 	$global_config_file = Wx::FileConfig->new(
         $resources->{app_title},
@@ -52,6 +53,7 @@ sub initialize
 sub save
 	# not exported
 {
+	return if !$ini_file;
 	$global_config_file->Flush() if ($global_config_file);
 }
 
@@ -59,6 +61,7 @@ sub save
 sub configHasGroup
 {
 	my ($title) = @_;
+	return if !$ini_file;
 	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
 	return $global_config_file->HasGroup($title);
 }
@@ -67,6 +70,7 @@ sub configHasGroup
 sub configDeleteGroup
 {
 	my ($title) = @_;
+	return if !$ini_file;
 	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
 	return $global_config_file->DeleteGroup($title);
 }
@@ -75,6 +79,7 @@ sub configDeleteGroup
 sub deleteConfig
 {
 	my ($title) = @_;
+	return if !$ini_file;
 	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
 	return $global_config_file->DeleteEntry($title)
 }
@@ -83,6 +88,7 @@ sub deleteConfig
 sub readConfig
 {
 	my ($title) = @_;
+	return if !$ini_file;
 	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
 	return $global_config_file->Read($title);
 }
@@ -91,6 +97,7 @@ sub readConfig
 sub writeConfig
 {
 	my ($title,$val) = @_;
+	return if !$ini_file;
 	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
 	$global_config_file->Write($title,$val);
 }
@@ -101,8 +108,10 @@ sub writeConfigMenu
 	# each subarray consists of two elements, the submenu title (i.e. &File),
 	# and a (reference to an) array of command_ids for the pull down items.
 {
-	my $num = 1;
 	my ($title,@menus) = @_;
+	return if !$ini_file;
+
+	my $num = 1;
 	foreach my $r_menu (@menus)
 	{
 		my ($menu_title, $r_ids) = @$r_menu;
@@ -117,9 +126,11 @@ sub readConfigMenu
 	# see coments on writeConfigMenu for details on data structure.
 	# reads $config_title1 thru $config_titleN until N is not found.
 {
+	my ($title,@menus) = @_;
+	return if !$ini_file;
+
 	my $num = 1;
 	my @retval = ();
-	my ($title,@menus) = @_;
 	while ((my $menu_str=readConfig($title.($num++))) ne "")
 	{
 		my @data = split(/,/,$menu_str);
@@ -133,6 +144,7 @@ sub readConfigMenu
 sub writeConfigRect
 {
 	my ($title,$rect) = @_;
+	return if !$ini_file;
 	writeConfig($title,sprintf("%d,%d,%d,%d",$rect->x,$rect->y,$rect->width,$rect->height));
 }
 
@@ -140,6 +152,7 @@ sub writeConfigRect
 sub readConfigRect
 {
 	my ($title) = @_;
+	return if !$ini_file;
 	my $str = readConfig($title);
 	if ($str ne "")
 	{
@@ -147,5 +160,6 @@ sub readConfigRect
 		return $rect;
 	}
 }
+
 
 1;

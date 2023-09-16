@@ -8,6 +8,7 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use Cava::Packager;
 use Win32::Console;
 
 
@@ -19,16 +20,19 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw (
 
+		$debug_level
+
+		$temp_dir
+        $data_dir
+        $logfile
+		$resource_dir
+
 		setAppFrame
 		getAppFrame
 
-		$debug_level
-
-        $temp_dir
-        $data_dir
-
-        $logfile
-		$login_name
+		setStandardTempDir
+		setStandardDataDir
+		setStandardCavaResourceDir
 
 		pad
 		pad2
@@ -45,6 +49,7 @@ BEGIN
 
         mergeHash
 
+		filenameFromWin
         getTextFile
 		printVarToFile
     );
@@ -55,6 +60,8 @@ my $app_frame;
 our $temp_dir        = '';
 our $data_dir        = '';
 our $logfile         = '';
+our $resource_dir    = '';
+
 
 my $CHARS_PER_INDENT = 2;
 my $WITH_TIMESTAMPS = 0;
@@ -88,6 +95,43 @@ sub setAppFrame
 sub getAppFrame
 {
     return $app_frame;
+}
+
+
+sub setStandardTempDir
+	# The $temp_dir is not automatically cleaned up.
+	#    if you wanna clean it, do it yourself
+	# The $temp_dir is not process specific, so programs that need
+	#	 process specific files should include the pid $$
+	#    of the main process in filenames, for example if you wanted
+	#    logfiles per instance, or PID files about children to kill/delete.
+{
+	my ($app_name) = @_;
+	$temp_dir = $Cava::Packager::PACKAGED ?
+		filenameFromWin($ENV{USERPROFILE})."/AppData/Local/Temp" :
+		"/base/temp";
+	$temp_dir .= "/$app_name" if $app_name;
+	mkdir $temp_dir if !-d $temp_dir;
+}
+
+
+sub setStandardDataDir
+{
+	my ($app_name) = @_;
+	$data_dir = filenameFromWin($ENV{USERPROFILE});
+	$data_dir .= "/Documents";
+	$data_dir .= "/$app_name" if $app_name;
+	mkdir $data_dir if !-d $data_dir;
+}
+
+
+sub setStandardCavaResourceDir
+	# you pass in the development/local path
+	# and it is totally replaced if PACKAGED
+{
+	my ($res_dir) = @_;
+	Cava::Packager::SetResourcePath($res_dir);
+	$resource_dir = filenameFromWin(Cava::Packager::GetResourcePath());
 }
 
 
@@ -181,7 +225,7 @@ sub _output
 	my $dt = $WITH_TIMESTAMPS ? pad(now(1)." ",20) : '';
 	my $file_part = pad("$file\[$line\]",$PAD_FILENAMES);
 
-    $indent = 0 if $indent_level < 0;
+    $indent = 1-$indent_level if $indent_level < 0;
 	$indent_level = 0 if $indent_level < 0;
 
 	my $full_message = $dt.$proc_info.$file_part;
@@ -383,6 +427,15 @@ sub mergeHash
 #----------------------------------------------------------
 # File Routines
 #----------------------------------------------------------
+
+
+sub filenameFromWin
+{
+	my ($filename) = @_;
+	$filename =~ s/^.*://;
+	$filename =~ s/\\/\//g;
+	return $filename;
+}
 
 
 sub getTextFile

@@ -71,6 +71,14 @@ sub MyWindow
 }
 
 
+sub closeSelf
+{
+	my ($this) = @_;
+	my $book = $this->GetParent();
+	$book->closeBookPage($this);
+
+}
+
 sub DESTROY
 	# debug only
 {

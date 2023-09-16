@@ -10,7 +10,7 @@ use strict;
 use warnings;
 use Pub::Utils;
 
-our $dbg_info = 0;
+our $dbg_info = 1;
 	# 0 = show new fromText events
 	# -1 = show fromText hashes
 
