@@ -60,7 +60,9 @@ sub new
 
 	my $port = $ARGV[0] || $DEFAULT_PORT;
 	display($dbg_fcw,0,"creating session on port($port)");
-    $this->{session} = Pub::FS::SessionClient->new({ PORT => $port});
+    $this->{session} = Pub::FS::SessionClient->new({
+		PORT => $port,
+		NOBLOCK => 1 });
     if (!$this->{session})
     {
         error("Could not create client session!");

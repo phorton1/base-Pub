@@ -3,7 +3,7 @@
 # mkdirDialog
 #-------------------------------------------------
 
-package Pub::FS::mkdirDialog;
+package mkdirDialog;
 use strict;
 use warnings;
 use Wx qw(:everything);

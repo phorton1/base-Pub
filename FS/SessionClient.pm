@@ -9,6 +9,11 @@
 #    remote server via socket, and parses the
 #    returned reply into objects which it returns
 #    to the client.
+#
+# Be sure to pass 1 into get_packet(1) when
+# doing the protocol or else you might get
+# a null result if caller set NOBLOCK=1
+
 
 package Pub::FS::SessionClient;
 use strict;
@@ -37,7 +42,6 @@ sub new
 {
 	my ($class, $params) = @_;
 	$params ||= {};
-	$params->{NOBLOCK} = 1;
 	my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
@@ -47,6 +51,9 @@ sub new
 
 
 sub _listRemoteDir
+	# Be sure to pass 1 into get_packet(1) when
+	# doing the protocol or else you might get
+	# a null result if caller set NOBLOCK=1
 {
     my ($this, $dir) = @_;
     display($dbg_commands,0,"_listRemoteDir($dir)");
@@ -54,7 +61,7 @@ sub _listRemoteDir
     my $command = "$SESSION_COMMAND_LIST\t$dir";
 
     return if !$this->send_packet($command);
-    my $text = $this->get_packet();
+    my $text = $this->get_packet(1);
     return if (!$text);
 
     my $rslt = $this->textToList($text);
@@ -72,7 +79,7 @@ sub _mkRemoteDir
     my $command = "$SESSION_COMMAND_MKDIR\t$dir\t$subdir";
 
     return if !$this->send_packet($command);
-    my $text = $this->get_packet();
+    my $text = $this->get_packet(1);
     return if (!$text);
 
     my $rslt = $this->textToList($text);
@@ -90,7 +97,7 @@ sub _renameRemote
     my $command = "$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2";
 
     return if !$this->send_packet($command);
-    my $text = $this->get_packet();
+    my $text = $this->get_packet(1);
     return if (!$text);
 
     my $rslt = $this->textToList($text);

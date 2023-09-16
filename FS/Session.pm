@@ -209,6 +209,10 @@ sub send_packet
 
 
 sub get_packet
+	# anything having to do with the actual protocol MUST
+	# pass in $block, or else clients, like the fileClientWindow,
+	# who pass in NOBLOCK=1 may eat the returned packet.
+
 {
     my ($this,$block) = @_;
     my $sock = $this->{SOCK};
