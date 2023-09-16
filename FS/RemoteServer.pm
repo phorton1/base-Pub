@@ -38,7 +38,9 @@ sub new
 {
 	my ($class,$params) = @_;
 	$params ||= {};
+	$params->{PORT} ||= 0;
 	$params->{IS_REMOTE} = 1;
+	$params->{SEND_EXIT} = 1;
 	my $this = $class->SUPER::new($params);
 	return if !$this;
     bless $this,$class;

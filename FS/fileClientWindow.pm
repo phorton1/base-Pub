@@ -11,7 +11,10 @@ package Pub::FS::fileClientWindow;
 use strict;
 use warnings;
 use Wx qw(:everything);
-use Wx::Event qw(EVT_SIZE);
+use Wx::Event qw(
+	EVT_SIZE
+	EVT_IDLE
+	EVT_CLOSE );
 use Pub::Utils;
 use Pub::WX::Window;
 use Pub::FS::SessionClient;
@@ -46,9 +49,10 @@ sub new
 
 	$instance++;
 	display($dbg_fcw,0,"new fileClientWindow($data) instance=$instance");
+	my $name = "Connection #$instance";
 
 	my $this = $class->SUPER::new($book,$id);
-	$this->MyWindow($frame,$book,$id,$data,$instance);
+	$this->MyWindow($frame,$book,$id,$name,$data,$instance);
 
     $this->{name} = $data;    # should already be done
     $this->{local_dir} = '/src/Arduino/teensyExpression2/data';
@@ -83,6 +87,8 @@ sub new
 
     # Finished
 
+	EVT_CLOSE($this,\&onClose);
+	EVT_IDLE($this,\&onIdle);
     EVT_SIZE($this,\&onSize);
 	return $this;
 }
@@ -92,11 +98,12 @@ sub new
 sub onClose
 {
 	my ($this,$event) = @_;
-	display(3,1,"fileClientWindow::onClose() called");
-    # $this->{session}->disconnect()
-    #     if ($this->{session} &&
-    #         $this->{session}->isConnected());
-    # $this->{session} = undef;
+	display($dbg_fcw,-1,"fileClientWindow::onClose(".scalar(@{$this->{frame}->{panes}}).") called");
+	if (@{$this->{frame}->{panes}} == 1)
+	{
+		# display($dbg_fcw,-1,"Exiting Program as last window");
+		# exit(0);
+	}
 	$this->SUPER::onClose();
 	$event->Skip();
 }
@@ -119,6 +126,52 @@ sub onSize
     my ($this,$event) = @_;
 	$this->doLayout();
     $event->Skip();
+}
+
+
+
+sub onIdle
+{
+    my ($this,$event) = @_;
+	# display($dbg_fcw,0,"onIdle()");
+
+	my $do_exit = 0;
+	if ($this->{session})
+	{
+		if ($this->{session}->{SOCK})
+		{
+			my $packet = $this->{session}->get_packet();
+			if ($packet)
+			{
+				display($dbg_fcw,-1,"got packet $packet");
+				if ($packet eq 'EXIT')
+				{
+					display($dbg_fcw,-1,"onIdle() EXIT");
+					$do_exit = 1;
+				}
+			}
+		}
+		else
+		{
+			display($dbg_fcw,-1,"fileClientWindow lost SOCKET");
+			$do_exit = 1;
+		}
+	}
+
+	if (0 && $do_exit)
+	{
+		warning(0,0,"Exiting Program");
+		Wx::App::ExitMainLoop();
+
+		# kill 15,$$;
+		# exit(0);
+	}
+
+
+	# if the socket has gone away, we should close the tab.
+	# if it's the 1st instance, we should close the app.
+
+	$event->RequestMore(1);
 }
 
 

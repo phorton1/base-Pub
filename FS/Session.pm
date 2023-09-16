@@ -94,13 +94,6 @@ sub new
 }
 
 
-sub onServerLoop
-{
-	my ($this) = @_;
-	return 1;
-}
-
-
 sub session_error
     # report an error to the user and/or peer
     # server errors are capitalized!

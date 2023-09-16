@@ -20,6 +20,7 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use Time::HiRes qw( sleep usleep );
 use IO::Select;
 use IO::Socket::INET;
 use Time::HiRes qw(sleep);
@@ -159,18 +160,19 @@ sub serverThread
 
 	if (!$this->{PORT})
 	{
-		$this->{RANDOM_PORT} = 1;
 		$ACTUAL_SERVER_PORT = $server_socket->sockport();
 		$this->{PORT} = $ACTUAL_SERVER_PORT;
 		warning($dbg_server,0,"SERVER STARTED ON ACTUAL_PORT($ACTUAL_SERVER_PORT)");
 	}
 
     # loop accepting connectons from clients
+	# and wait for all threads to stop if stopping
 
     my $WAIT_ACCEPT = 1;
     display($dbg_server+1,1,'Waiting for connections ...');
     my $select = IO::Select->new($server_socket);
-    while ($this->{running} && !$this->{stopping})
+    while ($this->{running}>1 || (
+		   $this->{running} && !$this->{stopping}))
     {
         if ($USE_FORKING)
         {
@@ -180,14 +182,14 @@ sub serverThread
                 closedir DIR;
                 for my $entry (@entries)
                 {
-                    if ($entry =~ /^(\d+)\.$KILL_PID_EXT/)
+					if ($entry =~ /^((-)*\d+)\.$KILL_PID_EXT/)
                     {
-                        my $pid = $1;
+						my $pid = $1;
 						if ($KILL_FORK_ON_PID)
 						{
-							display($dbg_server+1,0,"KILLING CHILD PID $pid");
+							display($dbg_server,0,"KILLING CHILD PID $pid");
 							unlink "$temp_dir/$entry";
-							kill(15, $pid);		# SIGTERM
+							# kill(15, $pid);		# SIGTERM
 						}
 						else
 						{
@@ -312,50 +314,49 @@ sub sessionThread
 		{
             $packet = $session->get_packet();
 			last if $this->{stopping};
-			next if !defined($packet);
-
-			if ($packet =~ /^ABORT/)
+			if (defined($packet))
 			{
-				next;
-			}
-			elsif ($packet =~ /^EXIT/)
-			{
-				# Stopping the server if it's not the primary buddyBox,
-				# as determined by RANDOM_PORT, as all others have them
-				# assigned by buddyApp.
-				#
-				# If it's the last session on this server.
-				# Furthermore, we want to close buddyBox itself down ...
-
-				if (!$this->{RANDOM_PORT} &&
-					$this->{running} == 2)	# one for the server and one for us
+				if ($packet =~ /^ABORT/)
 				{
-					display($dbg_server,-1,"SHUTTING DOWN THE SERVER ON LAST EXIT");
-					$this->{stopping} = 1;
+					next;
 				}
-
-				last;
-			}
-			elsif ($packet)
-			{
-				my @params = split(/\t/,$packet);
-				# print "SERVER PACKET $packet\n";
-				my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
-				my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
-				last if $packet && !$session->send_packet($packet);
+				elsif ($packet =~ /^EXIT/)
+				{
+					last;
+				}
+				elsif ($packet)
+				{
+					my @params = split(/\t/,$packet);
+					# print "SERVER PACKET $packet\n";
+					my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
+					my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
+					last if $packet && !$session->send_packet($packet);
+				}
 			}
 		}
 
-		last if !$session->onServerLoop($connect_num);
-    }
+		# exit the session if the socket went away
+
+		if (!$session->{SOCK})
+		{
+		    display($dbg_server,0,"SESSION THREAD($connect_num) lost it's socket!");
+			last;
+		}
+	}	# while $ok && !stopping
+
 
     display($dbg_server,0,"SESSION THREAD($connect_num) terminating");
 
-	undef $session->{sock};
+	if ($session->{SOCK} && $this->{SEND_EXIT})
+	{
+		$session->sendPacket("EXIT");
+		sleep(0.2);
+	}
+	undef $session->{SOCK};
     $client_socket->close();
     $this->dec_running();
 
-	if (!$KILL_FORK_ON_PID)
+	if ($KILL_FORK_ON_PID)  #  && !$this->{stopping})
 	{
 		open OUT, ">$temp_dir/$$.$KILL_PID_EXT";
 		print OUT $$;

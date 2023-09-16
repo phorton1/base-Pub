@@ -41,7 +41,7 @@ sub onInit
     my ($this) = @_;
     $this->SUPER::onInit();
 	EVT_MENU($this, $COMMAND_CONNECT, \&commandConnect);
-	return if !$this->createPane($ID_CLIENT_WINDOW,undef,"test");
+	return if !$this->createPane($ID_CLIENT_WINDOW,undef,"blah");
     return $this;
 }
 
@@ -64,6 +64,12 @@ sub createPane
     return $this->SUPER::createPane($id,$book,$data,$config_str);
 }
 
+
+sub commandConnect
+{
+	my ($this,$event) = @_;
+	$this->createPane($ID_CLIENT_WINDOW,undef,"blah")
+}
 
 
 

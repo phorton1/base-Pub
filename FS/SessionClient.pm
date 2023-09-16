@@ -36,6 +36,8 @@ BEGIN {
 sub new
 {
 	my ($class, $params) = @_;
+	$params ||= {};
+	$params->{NOBLOCK} = 1;
 	my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
