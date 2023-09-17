@@ -458,18 +458,21 @@ sub doCommand
 
 	if ($command eq $SESSION_COMMAND_LIST)				# $dir
 	{
+		# returns dir_info with entries
 		return $local ?
 			$this->_listLocalDir($param1) :
 			$this->_listRemoteDir($param1);
 	}
 	elsif ($command eq $SESSION_COMMAND_MKDIR)			# $dir, $subdir
 	{
+		# returns file_info for the new dir
 		return $local ?
 			$this->_mkLocalDir($param1,$param2) :
 			$this->_mkRemoteDir($param1,$param2);
 	}
 	elsif ($command eq $SESSION_COMMAND_RENAME)			# $dir, $old_name, $new_name
 	{
+		# returns file_info for the renamed item
 		return $local ?
 			$this->_renameLocal($param1,$param2,$param3) :
 			$this->_renameRemote($param1,$param2,$param3);
@@ -480,6 +483,7 @@ sub doCommand
 
 	elsif ($command eq $SESSION_COMMAND_DELETE)			# $dir, $entries_or_filename, undef, $progress
 	{
+		# returns new dir_info with entries
 		return $this->_deleteRemote($param1,$param3,$param2)
 			if !$local;
 
