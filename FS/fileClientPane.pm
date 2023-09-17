@@ -631,8 +631,12 @@ sub addListRow
 
 sub setContents
 	# set the contents based on a directory list.
+	# which may be optionally passed in
+	# short return if not local and not connected
 {
-    my ($this) = @_;
+    my ($this,$dir_info) = @_;
+	return if !$this->{is_local} && !$this->{session}->isConnected();
+
     my $dir = $this->{dir};
     my $local = $this->{is_local};
     display($dbg_pop,0,"setContents($local,$dir)");
@@ -641,35 +645,35 @@ sub setContents
     my @list;     # an array (by index) of infos ...
 	my %hash;
 
-    if ($this->{is_local} || $this->{session}->isConnected())
+    if (!$dir_info)
     {
-        my $dir_info = $this->{session}->doCommand($SESSION_COMMAND_LIST,$local,$dir);
+        $dir_info = $this->{session}->doCommand($SESSION_COMMAND_LIST,$local,$dir);
 		    # $local ?
 			# $this->{session}->_listLocalDir($dir) :
 			# $this->{session}->_listRemoteDir($dir);
 		return if !$dir_info;
+	}
 
-        # add ...UP... or ...ROOT...
+	# add ...UP... or ...ROOT...
 
-		push @list,
-		{
-            is_dir      => 1,
-            dir         => '',
-            ts   		=> '',
-            size        => '',
-			entry		=> $dir eq "/" ? '...ROOT...' : '...UP...',
-            compare     => '',
-            entries     => {}
-		};
+	push @list,
+	{
+		is_dir      => 1,
+		dir         => '',
+		ts   		=> '',
+		size        => '',
+		entry		=> $dir eq "/" ? '...ROOT...' : '...UP...',
+		compare     => '',
+		entries     => {}
+	};
 
-        for my $entry (sort {lc($a) cmp lc($b)} (keys %{$dir_info->{entries}}))
-        {
-			my $info = $dir_info->{entries}->{$entry};
-			$info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
-            push @list,$info;
-			$hash{$entry} = $info;
-        }
-    }
+	for my $entry (sort {lc($a) cmp lc($b)} (keys %{$dir_info->{entries}}))
+	{
+		my $info = $dir_info->{entries}->{$entry};
+		$info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
+		push @list,$info;
+		$hash{$entry} = $info;
+	}
 
     $this->{list} = \@list;
     $this->{hash} = \%hash;
@@ -709,7 +713,6 @@ sub populate
     # compare the two lists before displaying
 
     my $other = $this->compareLists();
-
 
 	# if the data has changed, repopulate the control
 
@@ -1133,6 +1136,7 @@ sub doCommandSelected
 	my $entries = $dir_info->{entries};
 
 	my $first_entry;
+	my $first_is_file = 0;
     for (my $i=1; $i<$num; $i++)
     {
         if ($ctrl->GetItemState($i,wxLIST_STATE_SELECTED))
@@ -1140,7 +1144,11 @@ sub doCommandSelected
             my $index = $ctrl->GetItemData($i);
             my $info = $this->{list}->[$index];
 			my $entry = $info->{entry};
-			$first_entry ||= $entry;
+			if (!$first_entry)
+			{
+				$first_entry = $entry;
+				$first_is_file = !$info->{is_dir};
+			}
             display($dbg_ops+1,2,"selected=$info->{entry}");
 
 			$info->{is_dir} ? $num_dirs++ : $num_files++;
@@ -1183,11 +1191,16 @@ sub doCommandSelected
 
 	# call the command processor
 	# no progress dialog at this time
+	# note special case of single file
 
+	my $param2 = $first_is_file ?
+		$first_entry :
+		$dir_info->{entries};
 	my $rslt = $this->{session}->doCommand(
 		$command,
 		$this->{is_local},
-		$dir_info,					# info-list
+		$this->{dir},
+		$param2,					# info-list or single filename
 		$other->{dir},				# target dir
 		undef);						# progress
 
@@ -1195,7 +1208,7 @@ sub doCommandSelected
 
 	my $update_win = $id == $COMMAND_DELETE ?
 		$this : $other;
-	$update_win->setContents();
+	$update_win->setContents($rslt);
 	$update_win->populate();
 
 }   # doCommandSelected()

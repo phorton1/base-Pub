@@ -358,7 +358,7 @@ sub sessionThread
 	my $session = $this->createSession($client_socket);
 
 	my $ok = 1;
-	my $packet = $session->get_packet();
+	my $packet = $session->getPacket(1);
     if (!defined($packet) || !$packet)
     {
         $session->session_error("EMPTY LOGIN");
@@ -369,7 +369,7 @@ sub sessionThread
         $session->session_error("BAD LOGIN '$packet'");
 		$ok = 0;
 	}
-	if ($ok && !$session->send_packet("WASSUP"))
+	if ($ok && !$session->sendPacket("WASSUP"))
 	{
         $session->session_error("COULD NOT SEND WASSUP");
 		$ok = 0;
@@ -386,7 +386,7 @@ sub sessionThread
     {
 		if ($select->can_read(0.1))
 		{
-            $packet = $session->get_packet();
+            $packet = $session->getPacket();
 			last if $this->{stopping};
 			if (defined($packet))
 			{
@@ -404,7 +404,7 @@ sub sessionThread
 					# print "SERVER PACKET $packet\n";
 					my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
 					my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
-					last if $packet && !$session->send_packet($packet);
+					last if $packet && !$session->sendPacket($packet);
 				}
 			}
 		}
@@ -423,7 +423,7 @@ sub sessionThread
 
 	if ($session->{SOCK} && $this->{SEND_EXIT})
 	{
-		$session->send_packet("EXIT");
+		$session->sendPacket("EXIT");
 		# sleep(2);
 	}
 

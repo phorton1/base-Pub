@@ -60,9 +60,7 @@ sub new
 
 	my $port = $ARGV[0] || $DEFAULT_PORT;
 	display($dbg_fcw,0,"creating session on port($port)");
-    $this->{session} = Pub::FS::SessionClient->new({
-		PORT => $port,
-		NOBLOCK => 1 });
+    $this->{session} = Pub::FS::SessionClient->new({ PORT => $port });
     if (!$this->{session})
     {
         error("Could not create client session!");
@@ -148,7 +146,7 @@ sub onIdle
 	{
 		if ($this->{session}->{SOCK})
 		{
-			my $packet = $this->{session}->get_packet();
+			my $packet = $this->{session}->getPacket();
 			if ($packet)
 			{
 				display($dbg_fcw,-1,"got packet $packet");

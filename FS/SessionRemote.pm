@@ -116,8 +116,8 @@ sub _listRemoteDir
 		$this->session_error("_listRemoteDir() - empty reply - returning undef");
 		return undef;
 	}
-    $this->send_packet($file_server_reply);
-    display($dbg_commands,0,"_listRemoteDir($dir) returning after send_packet(".length($file_server_reply).")");
+    $this->sendPacket($file_server_reply);
+    display($dbg_commands,0,"_listRemoteDir($dir) returning after sendPacket(".length($file_server_reply).")");
 	return '';
 }
 
@@ -131,7 +131,7 @@ sub _mkRemoteDir
 		$this->session_error("_mkRemoteDir() - empty reply - returning undef");
 		return undef;
 	}
-    $this->send_packet($file_server_reply);
+    $this->sendPacket($file_server_reply);
 	return '';
 }
 
@@ -145,7 +145,7 @@ sub _renameRemote
 		$this->session_error("_renameRemote() - empty reply - returning undef");
 		return undef;
 	}
-    $this->send_packet($file_server_reply);
+    $this->sendPacket($file_server_reply);
 	return '';
 }
 

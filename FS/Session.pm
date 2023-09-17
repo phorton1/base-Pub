@@ -80,15 +80,14 @@ our $SESSION_COMMAND_XFER = "XFER";
 #------------------------------------------------
 
 sub new
-	# if no SOCK parameter is provided,
-	# will try to connect to HOST:PORT
+	# will try to connect to HOST:PORT if no SOCK is provided
 {
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
 	$params->{IS_REMOTE} ||= 0;
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $DEFAULT_PORT if !defined($params->{PORT});
-	$params->{WHO} = $params->{IS_SERVER}?"SERVER":"CLIENT";
+	$params->{WHO} ||= $params->{IS_SERVER}?"SERVER":"CLIENT";
 	my $this = { %$params };
 	bless $this,$class;
 	return if $this->{PORT} && !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
@@ -105,7 +104,7 @@ sub session_error
     if ($this->{IS_SERVER} && $this->{SOCK})
     {
         $msg = "ERROR $msg";
-        $this->send_packet($msg);
+        $this->sendPacket($msg);
 		sleep(1);
 	}
 }
@@ -125,7 +124,7 @@ sub disconnect
     display($dbg_session,-1,"$this->{WHO} disconnect()");
     if ($this->{SOCK})
     {
-        $this->send_packet('EXIT');
+        $this->sendPacket('EXIT');
 		close $this->{SOCK};
     }
     $this->{SOCK} = undef;
@@ -157,8 +156,8 @@ sub connect
  		display($dbg_session,-1,"$this->{WHO} CONNECTED to PORT $port");
         $this->{SOCK} = $sock;
 
-        return if !$this->send_packet("HELLO");
-        return if !defined(my $line = $this->get_packet(1));
+        return if !$this->sendPacket("HELLO");
+        return if !defined(my $line = $this->getPacket(1));
 
         if ($line !~ /^WASSUP/)
         {
@@ -177,7 +176,7 @@ sub connect
 #--------------------------------------------------
 
 
-sub send_packet
+sub sendPacket
 {
     my ($this,$packet) = @_;
 
@@ -193,7 +192,7 @@ sub send_packet
     my $sock = $this->{SOCK};
     if (!$sock)
     {
-        $this->session_error("$this->{WHO} no socket in send_packet");
+        $this->session_error("$this->{WHO} no socket in sendPacket");
         return;
     }
 
@@ -210,21 +209,24 @@ sub send_packet
 
 
 
-sub get_packet
-	# anything having to do with the actual protocol MUST
-	# pass in $block, or else clients, like the fileClientWindow,
-	# who pass in NOBLOCK=1 may eat the returned packet.
+sub getPacket
+	# The protocol passes in $is_protocol, which blocks and prevents other
+	# callers from getting packets.  Otherwise, the method does not block.
 
 {
-    my ($this,$block) = @_;
+    my ($this,$is_protocol) = @_;
+	$is_protocol ||= 0;
+
     my $sock = $this->{SOCK};
     if (!$sock)
     {
-        $this->session_error("$this->{WHO} no socket in get_packet");
+        $this->session_error("$this->{WHO} no socket in getPacket");
         return;
     }
+	return if !$is_protocol && $this->{IN_PROTOCOL};
+	$this->{IN_PROTOCOL} = $is_protocol;
 
-	if (!$block && $this->{NOBLOCK})
+	if (!$is_protocol)
 	{
 		my $select = IO::Select->new($sock);
 		return if !$select->can_read(0.1);
@@ -236,9 +238,10 @@ sub get_packet
     my $packet = <$sock>;
     if (!defined($packet))
     {
-		if (!$this->{NOBLOCK})
+		if ($is_protocol)
         {
 			$this->{SOCK} = undef;
+			$this->{IN_PROTOCOL} = 0;
 			$this->session_error("$this->{WHO} no response from peer");
 		}
 		return;
@@ -248,6 +251,7 @@ sub get_packet
 
     if (!$packet)
     {
+		$this->{IN_PROTOCOL} = 0;
         $this->session_error("$this->{WHO} empty response from peer");
         return;
     }
@@ -261,6 +265,7 @@ sub get_packet
         display($dbg_packets,-1,"$this->{WHO} <-- $packet",1);
     }
 
+	$this->{IN_PROTOCOL} = 0;
     return $packet;
 }
 
@@ -431,25 +436,23 @@ sub _renameLocal
 #------------------------------------------------------
 
 sub doCommand
-	# LIST is expected to return a dir FileInfo with entries
-	# RENAME is expacted to return a dir or file FileInfo with the new name
-	# MKDIR is expected to return a value of some sort on success
-	# DELETE and XFER return types are ignored
 {
     my ($this,
 		$command,
         $local,
         $param1,
         $param2,
-        $param3) = @_;
+        $param3,
+		$progress) = @_;
 
 	$command ||= '';
 	$local ||= 0;
 	$param1 ||= '';
 	$param2 ||= '';
 	$param3 ||= '';
+	$progress ||= '';
 
-	display($dbg_commands+1,0,"$this->{WHO} doCommand($command,$local,$param1,$param2,$param3)");
+	display($dbg_commands+1,0,"$this->{WHO} doCommand($command,$local,$param1,$param2,$param3) progress=$progress");
 
 	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
 
@@ -459,139 +462,59 @@ sub doCommand
 			$this->_listLocalDir($param1) :
 			$this->_listRemoteDir($param1);
 	}
-	elsif ($command eq $SESSION_COMMAND_MKDIR)			# $dir,$subdir
+	elsif ($command eq $SESSION_COMMAND_MKDIR)			# $dir, $subdir
 	{
 		return $local ?
 			$this->_mkLocalDir($param1,$param2) :
 			$this->_mkRemoteDir($param1,$param2);
 	}
-	elsif ($command eq $SESSION_COMMAND_RENAME)			# $dir,$old_name,$new_name
+	elsif ($command eq $SESSION_COMMAND_RENAME)			# $dir, $old_name, $new_name
 	{
 		return $local ?
 			$this->_renameLocal($param1,$param2,$param3) :
 			$this->_renameRemote($param1,$param2,$param3);
 	}
 
-	# For these calls $param1->{entry} MUST BE A FULLY QUALIFIED DIR
-	# and $target_dir MUST ALSO BE FULLY QUALIFIED
+	# for delete, a single filename name or list of entries
+	# may be passed in. A local single filename is handled specially.
 
-	# param1 = $list
-	# param2 = $target_dir for xfer
-	# param3 = $progress
-
-	# for delete, if there is only one FILE, do it
-	# locally with no $progress.
-
-	my $dir = $param1->{entry};
-	my $entries = $param1->{entries};
-	my $num_entries = keys %$entries;
-	my $first_entry = (keys %$entries)[0];
-	my $first_info = $entries->{$first_entry};
-
-	if ($local &&
-		$command eq $SESSION_COMMAND_DELETE &&
-		$num_entries == 1 &&			# list has one entry
-		!$first_info->{is_dir})			# and it's a file
+	elsif ($command eq $SESSION_COMMAND_DELETE)			# $dir, $entries_or_filename, undef, $progress
 	{
+		return $this->_deleteRemote($param1,$param3,$param2)
+			if !$local;
 
-		my $path = "$dir/$first_entry";
-		display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");
-		if (!unlink $path)
+		if (!ref($param2))		# single fully qualified filename
 		{
-			$this->session_error("$this->{WHO} Could not delete single local file $path");
-			return;
+			my $path = "$param1/$param2";
+			display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");
+			if (!unlink $path)
+			{
+				$this->session_error("$this->{WHO} Could not delete single local file $path");
+				return;
+			}
+			return $this->_listLocalDir($param1);
 		}
-		# remove the entry from the list
-		delete($entries->{$first_entry});
-		return $param1;
+		return $this->_deleteLocal($param1,$param2,$progress);
 	}
 
-	# otherwise, do the commands recursivly in a sub
-
-	elsif ($command eq $SESSION_COMMAND_XFER ||
-		   $command eq $SESSION_COMMAND_DELETE)
-	{
-		return $this->doCommandRecursive(
-			$command,
-			$local,
-			$dir,			# $dir
-			$entries,		# $entries
-			$param2,		# $target_dir
-			$param3);		# $progress
-	}
 	$this->session_error("$this->{WHO} unsupported command: $command");
 	return;
 }
 
 
-sub doCommandRecursive
-{
-    my ($this,
-		$command,
-        $local,
-        $dir,
-        $entries,
-        $target_dir,
-		$progress) = @_;
 
-	display($dbg_commands+1,0,"$this->{WHO} doCommandRecursive($command,$local,$dir,$entries,$target_dir,$progress)");
-
-	if ($command eq $SESSION_COMMAND_DELETE)
-	{
-		if ($local)
-		{
-			return $this->_recurseLocal(
-				$command,
-				$dir,
-				$entries,
-				$target_dir,
-				$progress);
-		}
-		else
-		{
-			return $this->_recurseRemote(
-				$command,
-				$local,
-				$dir,
-				$entries,
-				$target_dir,
-				$progress);
-		}
-	}
-
-	$this->session_error("$this->{WHO} unsupported recursive command: $command");
-
-}
-
-
-
-sub _recurseLocal
+sub _deleteLocal
 {
 	my ($this,
-		$command,
 		$dir,				# MUST BE FULLY QUALIFIED
 		$entries,
-		$target_dir,
 		$progress,
-		$level,
-		$counts) = @_;
+		$level) = @_;
 
 	$level ||= 0;
 
-	display($dbg_recurse,-2-$level,"recurseLocal($command,$dir,$level)");
-
-	if ($command ne $SESSION_COMMAND_DELETE)
-	{
-		$this->session_error("Pub::FS::Session only suport _recurseLocal(DELETE)");
-		return;
-	}
-
-	$counts ||= {
-		num_dirs  		=> 0,
-		num_files 		=> 0,
-		num_dirs_done	=> 0,
-		num_files_done	=> 0 };
-
+	display($dbg_recurse,-2-$level,"_deleteLocal($dir,$level)");
+	return if $progress && $progress->aborted();
 
 	#----------------------------------------------------
 	# scan directory of any dir entries
@@ -610,11 +533,11 @@ sub _recurseLocal
 		{
 			my $dir_path = "$dir/$entry";
 			my $dir_entries = $entry_info->{entries};
-			$counts->{num_dirs}++;
+			$progress->incNumDirs() if $progress;
 
 			if (!opendir DIR,$dir_path)
 			{
-				$this->session_error("recurseLocal($level) could not opendir($dir)");
+				$this->session_error("_deleteLocal($level) could not opendir($dir)");
 				return;
 			}
 			while (my $dir_entry=readdir(DIR))
@@ -638,13 +561,10 @@ sub _recurseLocal
 		}
 		else
 		{
-			$counts->{num_files}++;
+			$progress->incNumFiles() if $progress;
 			$files->{$entry} = $entry_info;
 		}
 	}
-
-	$progress->set($dir,'',$counts) if $progress;
-
 
 	#-------------------------------------------
 	# depth first recurse thru subdirs
@@ -653,35 +573,31 @@ sub _recurseLocal
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$subdirs)
 	{
 		my $info = $entries->{$entry};
-		return if !$this->_recurseLocal(
-			$command,
+		return if !$this->_deleteLocal(
 			"$dir/$entry",					# dir
 			$info->{entries},				# dir_info
-			"$target_dir/$entry",		    # target_dir
 			$progress,
-			$level + 1,
-			$counts);
+			$level + 1);
 	}
 
 
 	#-------------------------------------------
 	# iterate the flat files in the directory
 	#-------------------------------------------
-	# $command eq $SESSION_COMMAND_DELETE !!
 
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$files)
 	{
+		return if $progress && $progress->aborted();
 		my $info = $entries->{$entry};
 		if (!$info->{is_dir})
 		{
-			$counts->{num_files_done}++;
-			$progress->set($dir,$entry,$counts) if $progress;
+			$progress->incFilesDone($entry) if $progress;
 
 			my $path = "$dir/$entry";
-			display($dbg_recurse,-5-$level,"$this->{WHO} DELETE recursive local file: $path");
+			display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local file: $path");
 			if (!unlink $path)
 			{
-				$this->session_error("$this->{WHO} Could not delete recursive local file $path");
+				$this->session_error("$this->{WHO} Could not delete local file $path");
 				return;
 			}
 		}
@@ -690,25 +606,26 @@ sub _recurseLocal
 	#----------------------------------------------
 	# finally, delete the dir itself at level>0
 	#----------------------------------------------
-	# $command eq $SESSION_COMMAND_DELETE
+	# recursions return 1 upon success
 
 	if ($level)
 	{
-		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE recursive local dir: $dir");
+		return if $progress && $progress->aborted();
+		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local dir: $dir");
 		if (!rmdir $dir)
 		{
-			$this->session_error("$this->{WHO} Could not delete recursive local file $dir");
+			$this->session_error("$this->{WHO} Could not delete local file $dir");
 			return;
 		}
-		$counts->{num_dirs_done}++;
-		$progress->set($dir,'',$counts) if $progress;
+		$progress->incDirsDone($dir) if $progress;
+
+		return 1;
 	}
 
-	# return 1 upon success to continue the recursion
-	# fileClientWindow will redraw regardless of the final return value
+	# level 0 returns a directory listing on success
 
-	return 1;
-
+	$progress->done() if $progress;
+	return $this->_listLocalDir($dir);
 }
 
 
