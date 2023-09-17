@@ -37,7 +37,7 @@ my $dbg_pop  = 0;		# populate, sort, etc
 	# 0 = basic calls
 	# =1 = first order items
 	# -2 = sort and gruesome details
-my $dbg_ops  = 0;		# commands
+my $dbg_ops  = -1;		# commands
 	# 0 = basic calls
 	# -1, -2 = more detail
 
@@ -103,12 +103,12 @@ sub new
 
     $this->setConnectMsg('NO CONNECTION');
 
-    # finished - layout & set_contents
+    # finished - layout & setContents
 
     $this->{sort_col} = 0;
     $this->{sort_desc} = 0;
     $this->doLayout();
-    $this->set_contents();
+    $this->setContents();
 
     EVT_SIZE($this,\&onSize);
     EVT_CONTEXT_MENU($ctrl,\&onContextMenu);
@@ -185,6 +185,83 @@ sub onKeyDown
 }
 
 
+sub onContextMenu
+{
+    my ($ctrl,$event) = @_;
+    my $this = $ctrl->{parent};
+    display($dbg_ops,0,"filePane::onContextMenu()");
+    my $cmd_data = $$resources{command_data}->{$COMMAND_XFER};
+    $$cmd_data[0] = $this->{is_local} ? "Upload" : "Download";
+    my $menu = Pub::WX::Menu::createMenu('win_context_menu');
+	$this->PopupMenu($menu,[-1,-1]);
+}
+
+
+sub onCommandUI
+{
+    my ($this,$event) = @_;
+    my $id = $event->GetId();
+    my $ctrl = $this->{list_ctrl};
+    my $local = $this->{is_local};
+    my $connected = $this->{session}->isConnected();
+
+    # default enable is true for local, and
+    # 'is connected' for remote ...
+
+    my $enabled = 0;
+
+   # Connection commands enabled only in the non-local pane
+   # CONNECT is always available
+
+    if ($id == $COMMAND_RECONNECT)
+    {
+        $enabled = !$local;
+    }
+
+    # other connection commands
+
+    elsif ($id == $COMMAND_DISCONNECT)
+    {
+        $enabled = !$local && $connected;
+    }
+
+    # refresh and mkdir is enabled for both panes
+
+    elsif ($id == $COMMAND_REFRESH ||
+           $id == $COMMAND_MKDIR)
+    {
+        $enabled = $local || $connected;
+    }
+
+    # xfer requires both sides and some stuff
+
+    elsif ($id == $COMMAND_XFER)
+    {
+        $enabled = $connected && $ctrl->GetSelectedItemCount();
+    }
+
+    # rename requires exactly one selected item
+
+    elsif ($id == $COMMAND_RENAME)
+    {
+        $enabled = ($local || $connected) &&
+            $ctrl->GetSelectedItemCount() == 1;
+    }
+
+	# delete requires some selected items
+
+    elsif ($id == $COMMAND_DELETE)
+    {
+        $enabled = ($local || $connected) &&
+            $ctrl->GetSelectedItemCount();
+    }
+
+    $event->Enable($enabled);
+}
+
+
+
+
 #----------------------------------------------
 # connection utilities
 #----------------------------------------------
@@ -228,70 +305,14 @@ sub connect
         error("Could not connect!");
         return;
     }
-    $this->set_contents();
+    $this->setContents();
     $this->populate();
 }
 
 
 
 #-----------------------------------------------
-# set_contents
-#-----------------------------------------------
-
-sub set_contents
-	# set the initial contents based on a directory list.
-{
-    my ($this) = @_;
-    my $dir = $this->{dir};
-    my $local = $this->{is_local};
-    display($dbg_pop,0,"set_contents($local,$dir)");
-    $this->{last_selected_index} = -1;
-
-    my @list;     # an array (by index) of infos ...
-	my %hash;
-
-    if ($this->{is_local} || $this->{session}->isConnected())
-    {
-        my $dir_info = $this->{session}->doCommand($SESSION_COMMAND_LIST,$local,$dir);
-		    # $local ?
-			# $this->{session}->_listLocalDir($dir) :
-			# $this->{session}->_listRemoteDir($dir);
-		return if !$dir_info;
-
-        # add ...UP... or ...ROOT...
-
-		push @list,
-		{
-            is_dir      => 1,
-            dir         => '',
-            ts   		=> '',
-            size        => '',
-			entry		=> $dir eq "/" ? '...ROOT...' : '...UP...',
-            compare     => '',
-            entries     => {}
-		};
-
-        for my $entry (sort {lc($a) cmp lc($b)} (keys %{$dir_info->{entries}}))
-        {
-			my $info = $dir_info->{entries}->{$entry};
-			$info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
-            push @list,$info;
-			$hash{$entry} = $info;
-        }
-    }
-
-    $this->{list} = \@list;
-    $this->{hash} = \%hash;
-    $this->{last_sortcol} = 0;
-    $this->{last_desc}   = 0;
-    $this->{changed} = 1;
-
-}   # set_contents
-
-
-
-#-----------------------------------------------
-# Sort
+# Sorting
 #-----------------------------------------------
 
 sub onClickColHeader
@@ -438,7 +459,7 @@ sub sortListCtrl
 
 
 #--------------------------------------------------------
-# compare_lists and addListRow
+# compareLists and addListRow
 #--------------------------------------------------------
 
 sub getDbgPaneName
@@ -450,7 +471,7 @@ sub getDbgPaneName
 
 }
 
-sub compare_lists
+sub compareLists
 {
     my ($this) = @_;
 
@@ -461,20 +482,11 @@ sub compare_lists
         $this->{parent}->{pane1} ;
     my $other_hash = $other->{hash};
 
-
     display($dbg_pop+1,0,"compare_list(".
 			$this->getDbgPaneName().
 			") other=(".
 			$other->getDbgPaneName().
 			")");
-
-    # get a terminal node expression for the 'other' dir,
-    # i.e. ...UP... == /junk/blah, so other_dir_name = 'blah',
-    # then, while comparing dirs, highlight this one if it matches
-    # the other.
-
-    my $other_dir_name = '';
-    $other_dir_name = $1 if $other->{dir} =~ /^.*\/(.+?)$/;
 
     for my $entry (keys(%$hash))
     {
@@ -511,17 +523,13 @@ sub compare_lists
                 $info->{compare} = 2;
             }
         }
-        elsif ($info->{is_dir} && $entry eq $other_dir_name)
-        {
-            $info->{compare} = 2;
-        }
     }
 
-    display($dbg_pop+1,1,"compare_lists() returning");
+    display($dbg_pop+1,1,"compareLists() returning");
 
     return $other;
 
-}   # compare_lists()
+}   # compareLists()
 
 
 
@@ -616,9 +624,62 @@ sub addListRow
 
 
 
-#---------------------------------------------------------------------------
-# populate()
-#---------------------------------------------------------------------------
+
+#-----------------------------------------------
+# setContents and populate
+#-----------------------------------------------
+
+sub setContents
+	# set the contents based on a directory list.
+{
+    my ($this) = @_;
+    my $dir = $this->{dir};
+    my $local = $this->{is_local};
+    display($dbg_pop,0,"setContents($local,$dir)");
+    $this->{last_selected_index} = -1;
+
+    my @list;     # an array (by index) of infos ...
+	my %hash;
+
+    if ($this->{is_local} || $this->{session}->isConnected())
+    {
+        my $dir_info = $this->{session}->doCommand($SESSION_COMMAND_LIST,$local,$dir);
+		    # $local ?
+			# $this->{session}->_listLocalDir($dir) :
+			# $this->{session}->_listRemoteDir($dir);
+		return if !$dir_info;
+
+        # add ...UP... or ...ROOT...
+
+		push @list,
+		{
+            is_dir      => 1,
+            dir         => '',
+            ts   		=> '',
+            size        => '',
+			entry		=> $dir eq "/" ? '...ROOT...' : '...UP...',
+            compare     => '',
+            entries     => {}
+		};
+
+        for my $entry (sort {lc($a) cmp lc($b)} (keys %{$dir_info->{entries}}))
+        {
+			my $info = $dir_info->{entries}->{$entry};
+			$info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
+            push @list,$info;
+			$hash{$entry} = $info;
+        }
+    }
+
+    $this->{list} = \@list;
+    $this->{hash} = \%hash;
+    $this->{last_sortcol} = 0;
+    $this->{last_desc}   = 0;
+    $this->{changed} = 1;
+
+}   # setContents
+
+
 
 sub populate
     # display the directory listing,
@@ -630,7 +691,7 @@ sub populate
     my $dir = $this->{dir};
     my $ctrl = $this->{list_ctrl};
 
-    $from_other = 0 if (!$from_other);
+    $from_other ||= 0;
 
     # debug and display title
 
@@ -647,10 +708,11 @@ sub populate
 
     # compare the two lists before displaying
 
-    my $other = $this->compare_lists();
+    my $other = $this->compareLists();
 
-    # if the data has changed, repopulate the control
-    # there should always be at least one entry ...
+
+	# if the data has changed, repopulate the control
+
     # if the data has not changed, and we
     # are being called from 'other', then
     # we need to call addListRow with
@@ -671,7 +733,7 @@ sub populate
     $this->sortListCtrl();
 
     # if we changed, then tell the
-    # other window to compare_lists and populate ..
+    # other window to compareLists and populate ..
     # the 1 is recursion protection
 
     if ($this->{changed})
@@ -692,111 +754,8 @@ sub populate
 
 
 #------------------------------------------------
-# Command event handlers
+# Selection Handlers
 #------------------------------------------------
-
-sub onContextMenu
-{
-    my ($ctrl,$event) = @_;
-    my $this = $ctrl->{parent};
-    display($dbg_ops,0,"filePane::onContextMenu()");
-    my $cmd_data = $$resources{command_data}->{$COMMAND_XFER};
-    $$cmd_data[0] = $this->{is_local} ? "Upload" : "Download";
-    my $menu = Pub::WX::Menu::createMenu('win_context_menu');
-	$this->PopupMenu($menu,[-1,-1]);
-}
-
-
-sub onCommandUI
-{
-    my ($this,$event) = @_;
-    my $id = $event->GetId();
-    my $ctrl = $this->{list_ctrl};
-    my $local = $this->{is_local};
-    my $connected = $this->{session}->isConnected();
-
-    # default enable is true for local, and
-    # 'is connected' for remote ...
-
-    my $enabled = 0;
-
-   # Connection commands enabled only in the non-local pane
-   # CONNECT is always available
-
-    if ($id == $COMMAND_RECONNECT)
-    {
-        $enabled = !$local;
-    }
-
-    # other connection commands
-
-    elsif ($id == $COMMAND_DISCONNECT)
-    {
-        $enabled = !$local && $connected;
-    }
-
-    # refresh and mkdir is enabled for both panes
-
-    elsif ($id == $COMMAND_REFRESH ||
-           $id == $COMMAND_MKDIR)
-    {
-        $enabled = $local || $connected;
-    }
-
-    # xfer requires both sides and some stuff
-
-    elsif ($id == $COMMAND_XFER)
-    {
-        $enabled = $connected && $ctrl->GetSelectedItemCount();
-    }
-
-    # rename requires exactly one selected item
-
-    elsif ($id == $COMMAND_RENAME)
-    {
-        $enabled = ($local || $connected) &&
-            $ctrl->GetSelectedItemCount() == 1;
-    }
-
-    $event->Enable($enabled);
-}
-
-
-
-sub onCommand
-{
-    my ($this,$event) = @_;
-    my $id = $event->GetId();
-
-    if ($id == $COMMAND_REFRESH)
-    {
-        $this->set_contents();
-        $this->populate();
-    }
-    elsif ($id == $COMMAND_DISCONNECT)
-    {
-        $this->disconnect();
-    }
-    elsif ($id == $COMMAND_RECONNECT)
-    {
-        $this->connect();
-    }
-    elsif ($id == $COMMAND_RENAME)
-    {
-        $this->doRename();
-    }
-    elsif ($id == $COMMAND_MKDIR)
-    {
-        $this->doMakeDir();
-    }
-    else
-    {
-        $this->doCommandSelected($id);
-    }
-    $event->Skip();
-}
-
-
 
 sub onDoubleClick
     # {this} is the list control
@@ -834,12 +793,12 @@ sub onDoubleClick
             $this->{parent}->{pane2}  :
             $this->{parent}->{pane1}  ;
 
-        $this->set_contents();
+        $this->setContents();
 
         if ($follow)
         {
             $other->{dir} = $this->{dir};
-            $other->set_contents();
+            $other->setContents();
         }
 
         $this->populate();
@@ -853,189 +812,139 @@ sub onDoubleClick
 
 
 
-sub doCommandSelected
+sub onItemSelected
+    # it's twice they've selected this item then
+    # start renaming it.
 {
-    my ($this,$id) = @_;
-    return if (!$this->checkConnected());
+    my ($ctrl,$event) = @_;
+    my $item = $event->GetItem();
+    my $row = $event->GetIndex();
 
-    my @entries;
-    my %subdir;
-    my $ctrl = $this->{list_ctrl};
-    my $num_files = 0;
-    my $num_dirs = 0;
-    my $num = $ctrl->GetItemCount();
-    my $local = $this->{is_local};
-    my $other = $local ?
-        $this->{parent}->{pane2}  :
-        $this->{parent}->{pane1}  ;
+    # unselect the 0th row
 
-    display($dbg_ops,1,"doCommandSelected(".$ctrl->GetSelectedItemCount()."/$num) selected items");
-
-    # build a list of the selected entries
-    # prevent item zero from being grabbed
-    # hence loop starts at one
-
-    for (my $i=1; $i<$num; $i++)
+    if (!$row)
     {
-        if ($ctrl->GetItemState($i,wxLIST_STATE_SELECTED))
-        {
-            my $entry = $ctrl->GetItemText($i);
-            my $index = $ctrl->GetItemData($i);
-            my $info = $this->{list}->[$index];
-            my $is_dir = $info->{is_dir};
-
-            $num_dirs++ if $is_dir;
-            $num_files++ if !$is_dir;
-
-            display($dbg_ops+1,2,"selected=$entry");
-            push @entries,$entry;
-            $subdir{$entry} = 1 if ($is_dir);
-        }
+        display($dbg_ops,2,"unselecting row 0");
+        $item->SetStateMask(wxLIST_STATE_SELECTED);
+        $item->SetState(0);
+        $ctrl->SetItem($item);
+        return;
     }
 
-    # build a message saying what will be affected
+    $event->Skip();
 
-    my $file_and_dirs = '';
-    if ($num_files == 0 && $num_dirs == 1)
+    my $this = $ctrl->{parent};
+    my $index = $item->GetData();
+    my $old_index = $this->{last_selected_index};
+    my $num_sel = $ctrl->GetSelectedItemCount();
+
+    display($dbg_ops,0,"onItemSelected($index) old=$old_index num=$num_sel");
+
+    if ($num_sel > 1 || $index != $old_index)
     {
-        $file_and_dirs = "the directory '$entries[0]'";
-    }
-    elsif ($num_dirs == 0 && $num_files == 1)
-    {
-        $file_and_dirs = "the file '$entries[0]'";
-    }
-    elsif ($num_files == 0)
-    {
-        $file_and_dirs = "$num_dirs directories";
-    }
-    elsif ($num_dirs == 0)
-    {
-        $file_and_dirs = "$num_files files";
+        $this->{last_selected_index} = $index;
     }
     else
     {
-        $file_and_dirs = "$num_dirs directories and $num_files files";
+		display($dbg_ops,0,"calling doRename()");
+        $this->doRename();
     }
+}
 
-    # Recursive commands
 
-    if ($id == $COMMAND_XFER ||
-		$id == $COMMAND_DELETE)
+#---------------------------------------------------------
+# onCommand, doMakeDir, and doRename
+#---------------------------------------------------------
+
+sub onCommand
+{
+    my ($this,$event) = @_;
+    my $id = $event->GetId();
+
+    if ($id == $COMMAND_REFRESH)
     {
-		my $command =
-			$id == $COMMAND_XFER ? $local ? 'UPLOAD' : 'DOWNLOAD' :
-			'DELETE';
-		my $params = $id == $COMMAND_DELETE ?
-			{ DELETE=>1 } :
-			{
-				$command => $other->{dir},
-				sync_any => $this->{parent}->{sync_any}->GetValue() ? 1 : 0
-			};
-
-		my $update_win = $id == $COMMAND_DELETE ?
-			$this : $other;
-
-
-        return if !yesNoDialog($this,
-            "Are you sure you want to ".lc($command)." $file_and_dirs ??",
-            CapFirst($command)." Confirmation");
-
-
-        display($dbg_ops,1,"COMMAND_$command");
-
-        $this->doUICommandRecursive(
-				$command,
-				$num_files,
-				$num_dirs,
-				\@entries,
-				\%subdir,
-                $local,
-                $params);
-
-		$update_win->set_contents();
-        $update_win->populate();
-    }
-
-    # different dialog boxes, but similar calls
-    # for SETDTIME, SETMODE, and SET_UG
-
-    else
-    {
-        my $dlg;
-        my $opt = '';
-
-        # show the dialog get the result
-        # quit if not ok
-
-        my $rslt = $dlg->ShowModal();
-        my ($val,$recurse) = $dlg->getResults();
-        $dlg->Destroy();
-        return if ($rslt != wxID_OK);
-
-        $val = localToGMTTime($val);
-        my %opts;
-        $opts{$opt} = $val;
-        $opts{RECURSE} = 1 if ($recurse);
-
-		$this->doUICommandRecursive(
-			$opt,
-			$num_files,
-			$num_dirs,
-			# $opt." ".$file_and_dirs,
-			\@entries,
-			\%subdir,
-			$local,
-			\%opts);
-
-		$this->set_contents();
+        $this->setContents();
         $this->populate();
-
     }
-
-}   # doCommandSelected()
-
-
-
-sub doUICommandRecursive
-	# mostly exists to wrap the command
-	# in a progress dialog
-{
-    my ($this,
-		$what,
-		$num_files,
-		$num_dirs,
-		$entries,			# entries upon which to operate
-		$subdir,			# hash telling if entries are subdirs
-        $local,				# constant
-        $opts) = @_;		# reference
-
-	my $progress = fileProgressDialog->new(
-		undef,
-		$what,
-		$num_files,
-		$num_dirs);
-
-	for my $entry (@$entries)
-	{
-		last if !$this->{session}->doCommandRecursive(
-			$local,
-			$subdir->{$entry} ? 1:0,
-			$opts,
-			$this->{dir},
-			$entry,
-			$progress);
-	}
-
-	$progress->Destroy();
+    elsif ($id == $COMMAND_DISCONNECT)
+    {
+        $this->disconnect();
+    }
+    elsif ($id == $COMMAND_RECONNECT)
+    {
+        $this->connect();
+    }
+    elsif ($id == $COMMAND_RENAME)
+    {
+        $this->doRename();
+    }
+    elsif ($id == $COMMAND_MKDIR)
+    {
+        $this->doMakeDir();
+    }
+    else
+    {
+        $this->doCommandSelected($id);
+    }
+    $event->Skip();
 }
 
 
 
+sub doMakeDir
+    # responds to COMMAND_MKDIR command event
+{
+    my ($this) = @_;
+    my $ctrl = $this->{list_ctrl};
+    display($dbg_ops,1,"doMakeDir()");
+
+    # Bring up a self-checking dialog box for accepting the new name
+
+    my $dlg = mkdirDialog->new($this);
+    my $rslt = $dlg->ShowModal();
+    my $new_name = $dlg->getResults();
+    $dlg->Destroy();
+
+    # Do the command (locally or remotely)
+
+    return if $rslt == wxID_OK &&
+		!$this->{session}->doCommand($SESSION_COMMAND_MKDIR,
+            $this->{is_local},
+            $this->{dir},
+            $new_name);
+
+    $this->setContents();
+    $this->populate();
+    return 1;
+}
 
 
-#-------------------------------------------------
-# COMMAND_RENAME
-#-------------------------------------------------
+sub doRename
+{
+    my ($this) = @_;
+    my $ctrl = $this->{list_ctrl};
+    my $num = $ctrl->GetItemCount();
+
+    # get the item to edit
+
+    my $i;
+    for ($i=1; $i<$num; $i++)
+    {
+        last if $ctrl->GetItemState($i,wxLIST_STATE_SELECTED);
+    }
+    if ($i >= $num)
+    {
+        error("No items selected!");
+        return;
+    }
+
+    # start editing the item in place ...
+
+    display($dbg_ops,1,"doRename($i) starting edit ...");
+    $ctrl->EditLabel($i);
+}
+
+
 
 sub onBeginEditLabel
 {
@@ -1149,105 +1058,151 @@ sub onEndEditLabel
 }
 
 
-sub doRename
+
+#--------------------------------------------------------------
+# doCommandSelected
+#--------------------------------------------------------------
+
+sub doUICommandRecursive
+	# mostly exists to wrap the command
+	# in a progress dialog
 {
-    my ($this) = @_;
-    my $ctrl = $this->{list_ctrl};
-    my $num = $ctrl->GetItemCount();
+    my ($this,
+		$what,
+		$num_files,
+		$num_dirs,
+		$entries,			# entries upon which to operate
+		$subdir,			# hash telling if entries are subdirs
+        $local,				# constant
+        $opts) = @_;		# reference
 
-    # get the item to edit
+	my $progress = fileProgressDialog->new(
+		undef,
+		$what,
+		$num_files,
+		$num_dirs);
 
-    my $i;
-    for ($i=1; $i<$num; $i++)
-    {
-        last if $ctrl->GetItemState($i,wxLIST_STATE_SELECTED);
-    }
-    if ($i >= $num)
-    {
-        error("No items selected!");
-        return;
-    }
+	for my $entry (@$entries)
+	{
+		last if !$this->{session}->doCommandRecursive(
+			$local,
+			$subdir->{$entry} ? 1:0,
+			$opts,
+			$this->{dir},
+			$entry,
+			$progress);
+	}
 
-    # start editing the item in place ...
-
-    display($dbg_ops,1,"doRename($i) starting edit ...");
-    $ctrl->EditLabel($i);
-
+	$progress->Destroy();
 }
 
 
-sub onItemSelected
-    # it's twice they've selected this item then
-    # start renaming it.
+
+
+sub doCommandSelected
 {
-    my ($ctrl,$event) = @_;
-    my $item = $event->GetItem();
-    my $row = $event->GetIndex();
+    my ($this,$id) = @_;
+    return if (!$this->checkConnected());
 
-    # unselect the 0th row
+    my $num_files = 0;
+    my $num_dirs = 0;
+    my $ctrl = $this->{list_ctrl};
+    my $num = $ctrl->GetItemCount();
+    my $local = $this->{is_local};
+    my $other = $local ?
+        $this->{parent}->{pane2}  :
+        $this->{parent}->{pane1}  ;
 
-    if (!$row)
+	my $display_command = $id == $COMMAND_XFER ?
+		$local ? 'upload' : 'download' :
+		'delete';
+
+    display($dbg_ops,1,"doCommandSelected($display_command) ".$ctrl->GetSelectedItemCount()."/$num selected items");
+
+    # build an info for the root entry (since the
+	# one on the list has ...UP... or ...ROOT...),
+	# and add the actual selected infos to it.
+
+	my $dir_info = Pub::FS::FileInfo->new(
+        $this->{session},
+		1,					# $is_dir,
+		undef,				# parent directory
+        $this->{dir},		# directory or filename
+        1 );				# $no_checks
+	return if !$dir_info;
+	my $entries = $dir_info->{entries};
+
+	my $first_entry;
+    for (my $i=1; $i<$num; $i++)
     {
-        display($dbg_ops,2,"unselecting row 0");
-        $item->SetStateMask(wxLIST_STATE_SELECTED);
-        $item->SetState(0);
-        $ctrl->SetItem($item);
-        return;
+        if ($ctrl->GetItemState($i,wxLIST_STATE_SELECTED))
+        {
+            my $index = $ctrl->GetItemData($i);
+            my $info = $this->{list}->[$index];
+			my $entry = $info->{entry};
+			$first_entry ||= $entry;
+            display($dbg_ops+1,2,"selected=$info->{entry}");
+
+			$info->{is_dir} ? $num_dirs++ : $num_files++;
+			$entries->{$entry} = $info;
+        }
     }
 
-    $event->Skip();
+    # build a message saying what will be affected
 
-    my $this = $ctrl->{parent};
-    my $index = $item->GetData();
-    my $old_index = $this->{last_selected_index};
-    my $num_sel = $ctrl->GetSelectedItemCount();
-
-    display($dbg_ops,0,"onItemSelected($index) old=$old_index num=$num_sel");
-
-    if ($num_sel > 1 || $index != $old_index)
+    my $file_and_dirs = '';
+    if ($num_files == 0 && $num_dirs == 1)
     {
-        $this->{last_selected_index} = $index;
+        $file_and_dirs = "the directory '$first_entry'";
+    }
+    elsif ($num_dirs == 0 && $num_files == 1)
+    {
+        $file_and_dirs = "the file '$first_entry'";
+    }
+    elsif ($num_files == 0)
+    {
+        $file_and_dirs = "$num_dirs directories";
+    }
+    elsif ($num_dirs == 0)
+    {
+        $file_and_dirs = "$num_files files";
     }
     else
     {
-		display($dbg_ops,0,"calling doRename()");
-        $this->doRename();
+        $file_and_dirs = "$num_dirs directories and $num_files files";
     }
-}
+
+	return if !yesNoDialog($this,
+		"Are you sure you want to $display_command $file_and_dirs ??",
+		CapFirst($display_command)." Confirmation");
+
+	my $command = $id == $COMMAND_XFER ?
+		$SESSION_COMMAND_XFER :
+		$SESSION_COMMAND_DELETE;
+	my $target_dir =
+
+	# call the command processor
+	# no progress dialog at this time
+
+	my $rslt = $this->{session}->doCommand(
+		$command,
+		$this->{is_local},
+		$dir_info,					# info-list
+		$other->{dir},				# target dir
+		undef);						# progress
+
+	# We repopulate regardless of the command result
+
+	my $update_win = $id == $COMMAND_DELETE ?
+		$this : $other;
+	$update_win->setContents();
+	$update_win->populate();
+
+}   # doCommandSelected()
 
 
-#------------------------------------------------------------
-# other COMMANDS
-#------------------------------------------------------------
 
-sub doMakeDir
-    # responds to COMMAND_MKDIR command event
-{
-    my ($this) = @_;
-    my $ctrl = $this->{list_ctrl};
-    display($dbg_ops,1,"doMakeDir()");
 
-    # Bring up a self-checking dialog box for accepting the new name
-
-    my $dlg = mkdirDialog->new($this);
-    my $rslt = $dlg->ShowModal();
-    my $new_name = $dlg->getResults();
-    $dlg->Destroy();
-
-    # Do the command (locally or remotely)
-
-    return if $rslt == wxID_OK &&
-		!$this->{session}->doCommand($SESSION_COMMAND_MKDIR,
-            $this->{is_local},
-            $this->{dir},
-            $new_name);
-
-        #!$this->{session}->makeDirectory($this->{is_local},$this->{dir},$new_name);
-
-    $this->set_contents();
-    $this->populate();
-    return 1;
-}
 
 
 1;

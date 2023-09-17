@@ -55,7 +55,7 @@ sub new
 	$this->MyWindow($frame,$book,$id,$name,$data,$instance);
 
     $this->{name} = $data;    # should already be done
-    $this->{local_dir} = '/src/Arduino/teensyExpression2/data';
+    $this->{local_dir} = '/junk/data';
     $this->{remote_dir} = '/';
 
 	my $port = $ARGV[0] || $DEFAULT_PORT;

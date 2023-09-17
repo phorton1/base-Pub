@@ -10,7 +10,7 @@ use strict;
 use warnings;
 use Pub::Utils;
 
-our $dbg_info = 1;
+our $dbg_info = 0;
 	# 0 = show new fromText events
 	# -1 = show fromText hashes
 
@@ -23,12 +23,19 @@ BEGIN {
 }
 
 
-# the dir field is serialized specially
-
 my @fields = qw( size ts entry );
 
 
 sub new
+	# there is a dangerous ambiguity as to semantic for dirs
+	# 	  the entry may or may not be fully qualified!
+	# if called with both dir and entry it is NOT fully qualified
+	#     and assumes the caller knows that the entry is a
+	#     subdirectory of the given dir.
+	# if called with only one of dir or entry, it is assumed to
+	#     be fully qualified.
+	# these assumptions will be checked except if $no_checks,
+	#     but it still is a dangerous way to do things.
 {
     my ($class,
         $session,
@@ -36,6 +43,9 @@ sub new
 		$dir,		# parent directory
         $entry,		# directory or filename
         $no_checks ) = @_;
+
+	$dir ||= '';
+	$entry ||= '';
 
 	if ($dir && !$entry)
 	{
@@ -58,7 +68,7 @@ sub new
 
     if ($is_dir && !(-d $filename))
     {
-        error("directory $filename not found");
+        $session->session_error("directory $filename not found");
         return;
     }
     if (!$is_dir && !(-e $filename))

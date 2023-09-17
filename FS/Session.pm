@@ -37,10 +37,11 @@ our $dbg_packets:shared = 0;
 our $dbg_lists:shared = 1;
 	# 0 = show lists encountered
 	# -1 = show teztToList final hash
-our $dbg_commands:shared = 0;
+our $dbg_commands:shared = -1;
 	# 0 = show atomic commands
 	# -1 = show command header
 	# -2 = show command details
+our $dbg_recurse:shared = 0;
 
 
 BEGIN {
@@ -51,6 +52,7 @@ BEGIN {
 		$dbg_packets
 		$dbg_lists
 		$dbg_commands
+		$dbg_recurse
 
 		$DEFAULT_PORT
 		$DEFAULT_HOST
@@ -332,56 +334,13 @@ sub textToList
 }
 
 
-
 #------------------------------------------------------
-# commands
+# local atomic commands
 #------------------------------------------------------
-
-
-
-sub doCommand
-{
-    my ($this,
-		$command,
-        $local,
-        $param1,
-        $param2,
-        $param3) = @_;
-
-	$command ||= '';
-	$local ||= 0;
-	$param1 ||= '';
-	$param2 ||= '';
-	$param3 ||= '';
-
-	display($dbg_commands+1,0,"$this->{WHO} doCommand($command,$local,$param1,$param2,$param3)");
-
-	if ($command eq $SESSION_COMMAND_LIST)
-	{
-		return $local ?
-			$this->_listLocalDir($param1) :
-			$this->_listRemoteDir($param1);
-	}
-	elsif ($command eq $SESSION_COMMAND_MKDIR)
-	{
-		return $local ?
-			$this->_mkLocalDir($param1,$param2) :
-			$this->_mkRemoteDir($param1,$param2);
-	}
-	elsif ($command eq $SESSION_COMMAND_RENAME)
-	{
-		return $local ?
-			$this->_renameLocal($param1,$param2,$param3) :
-			$this->_renameRemote($param1,$param2,$param3);
-	}
-	$this->session_error("$this->{WHO} unsupported command: $command");
-	return;
-}
-
-
-
 
 sub _listLocalDir
+	# $dir must be fully qualified
+	# must return a full list with fully qualified $dir_info->{entry}
 {
     my ($this, $dir) = @_;
     display($dbg_commands,0,"$this->{WHO} _listLocalDir($dir)");
@@ -417,6 +376,8 @@ sub _listLocalDir
 
 
 sub _mkLocalDir
+	# $dir must be fully qualified
+	# must return defined value upon success
 {
     my ($this, $dir, $subdir) = @_;
     display($dbg_commands,0,"$this->{WHO} _mkLocalDir($dir,$subdir)");
@@ -431,6 +392,10 @@ sub _mkLocalDir
 
 
 sub _renameLocal
+	# $dir must be fully qualified
+	# may return a partially qualified new FileInfo
+	# but the fileClientWindow also checks for a fully qualified
+	# one and removes the part that matches.
 {
     my ($this, $dir, $name1, $name2) = @_;
     display($dbg_commands,0,"$this->{WHO} _renameLocal($dir,$name1,$name2)");
@@ -458,6 +423,293 @@ sub _renameLocal
 	return Pub::FS::FileInfo->new($this,$is_dir,$dir,$name2);
 }
 
+
+
+
+#------------------------------------------------------
+# doCommand and doCommandRecursive
+#------------------------------------------------------
+
+sub doCommand
+	# LIST is expected to return a dir FileInfo with entries
+	# RENAME is expacted to return a dir or file FileInfo with the new name
+	# MKDIR is expected to return a value of some sort on success
+	# DELETE and XFER return types are ignored
+{
+    my ($this,
+		$command,
+        $local,
+        $param1,
+        $param2,
+        $param3) = @_;
+
+	$command ||= '';
+	$local ||= 0;
+	$param1 ||= '';
+	$param2 ||= '';
+	$param3 ||= '';
+
+	display($dbg_commands+1,0,"$this->{WHO} doCommand($command,$local,$param1,$param2,$param3)");
+
+	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
+
+	if ($command eq $SESSION_COMMAND_LIST)				# $dir
+	{
+		return $local ?
+			$this->_listLocalDir($param1) :
+			$this->_listRemoteDir($param1);
+	}
+	elsif ($command eq $SESSION_COMMAND_MKDIR)			# $dir,$subdir
+	{
+		return $local ?
+			$this->_mkLocalDir($param1,$param2) :
+			$this->_mkRemoteDir($param1,$param2);
+	}
+	elsif ($command eq $SESSION_COMMAND_RENAME)			# $dir,$old_name,$new_name
+	{
+		return $local ?
+			$this->_renameLocal($param1,$param2,$param3) :
+			$this->_renameRemote($param1,$param2,$param3);
+	}
+
+	# For these calls $param1->{entry} MUST BE A FULLY QUALIFIED DIR
+	# and $target_dir MUST ALSO BE FULLY QUALIFIED
+
+	# param1 = $list
+	# param2 = $target_dir for xfer
+	# param3 = $progress
+
+	# for delete, if there is only one FILE, do it
+	# locally with no $progress.
+
+	my $dir = $param1->{entry};
+	my $entries = $param1->{entries};
+	my $num_entries = keys %$entries;
+	my $first_entry = (keys %$entries)[0];
+	my $first_info = $entries->{$first_entry};
+
+	if ($local &&
+		$command eq $SESSION_COMMAND_DELETE &&
+		$num_entries == 1 &&			# list has one entry
+		!$first_info->{is_dir})			# and it's a file
+	{
+
+		my $path = "$dir/$first_entry";
+		display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");
+		if (!unlink $path)
+		{
+			$this->session_error("$this->{WHO} Could not delete single local file $path");
+			return;
+		}
+		# remove the entry from the list
+		delete($entries->{$first_entry});
+		return $param1;
+	}
+
+	# otherwise, do the commands recursivly in a sub
+
+	elsif ($command eq $SESSION_COMMAND_XFER ||
+		   $command eq $SESSION_COMMAND_DELETE)
+	{
+		return $this->doCommandRecursive(
+			$command,
+			$local,
+			$dir,			# $dir
+			$entries,		# $entries
+			$param2,		# $target_dir
+			$param3);		# $progress
+	}
+	$this->session_error("$this->{WHO} unsupported command: $command");
+	return;
+}
+
+
+sub doCommandRecursive
+{
+    my ($this,
+		$command,
+        $local,
+        $dir,
+        $entries,
+        $target_dir,
+		$progress) = @_;
+
+	display($dbg_commands+1,0,"$this->{WHO} doCommandRecursive($command,$local,$dir,$entries,$target_dir,$progress)");
+
+	if ($command eq $SESSION_COMMAND_DELETE)
+	{
+		if ($local)
+		{
+			return $this->_recurseLocal(
+				$command,
+				$dir,
+				$entries,
+				$target_dir,
+				$progress);
+		}
+		else
+		{
+			return $this->_recurseRemote(
+				$command,
+				$local,
+				$dir,
+				$entries,
+				$target_dir,
+				$progress);
+		}
+	}
+
+	$this->session_error("$this->{WHO} unsupported recursive command: $command");
+
+}
+
+
+
+sub _recurseLocal
+{
+	my ($this,
+		$command,
+		$dir,				# MUST BE FULLY QUALIFIED
+		$entries,
+		$target_dir,
+		$progress,
+		$level,
+		$counts) = @_;
+
+	$level ||= 0;
+
+	display($dbg_recurse,-2-$level,"recurseLocal($command,$dir,$level)");
+
+	if ($command ne $SESSION_COMMAND_DELETE)
+	{
+		$this->session_error("Pub::FS::Session only suport _recurseLocal(DELETE)");
+		return;
+	}
+
+	$counts ||= {
+		num_dirs  		=> 0,
+		num_files 		=> 0,
+		num_dirs_done	=> 0,
+		num_files_done	=> 0 };
+
+
+	#----------------------------------------------------
+	# scan directory of any dir entries
+	#----------------------------------------------------
+	# adding their child entries, and pushing them on @subdirs
+	# otherwise, push file entries onto @files
+
+	my $files = {};
+	my $subdirs = {};
+
+	for my $entry  (sort {uc($a) cmp uc($b)} keys %$entries)
+	{
+		display($dbg_recurse,-4-$level,"entry=$entry");
+		my $entry_info = $entries->{$entry};
+		if ($entry_info->{is_dir})
+		{
+			my $dir_path = "$dir/$entry";
+			my $dir_entries = $entry_info->{entries};
+			$counts->{num_dirs}++;
+
+			if (!opendir DIR,$dir_path)
+			{
+				$this->session_error("recurseLocal($level) could not opendir($dir)");
+				return;
+			}
+			while (my $dir_entry=readdir(DIR))
+			{
+				next if ($dir_entry =~ /^(\.|\.\.)$/);
+				display($dbg_recurse,-4-$level,"dir_entry=$dir_entry");
+				my $sub_path = makepath($dir_path,$dir_entry);
+				my $is_dir = -d $sub_path ? 1 : 0;
+
+				my $info = Pub::FS::FileInfo->new($this,$is_dir,$dir_path,$dir_entry);
+				if (!$info)
+				{
+					closedir DIR;
+					return;
+				}
+				$dir_entries->{$dir_entry} = $info;
+			}
+
+			closedir DIR;
+			$subdirs->{$entry} = $entry_info;
+		}
+		else
+		{
+			$counts->{num_files}++;
+			$files->{$entry} = $entry_info;
+		}
+	}
+
+	$progress->set($dir,'',$counts) if $progress;
+
+
+	#-------------------------------------------
+	# depth first recurse thru subdirs
+	#-------------------------------------------
+
+	for my $entry  (sort {uc($a) cmp uc($b)} keys %$subdirs)
+	{
+		my $info = $entries->{$entry};
+		return if !$this->_recurseLocal(
+			$command,
+			"$dir/$entry",					# dir
+			$info->{entries},				# dir_info
+			"$target_dir/$entry",		    # target_dir
+			$progress,
+			$level + 1,
+			$counts);
+	}
+
+
+	#-------------------------------------------
+	# iterate the flat files in the directory
+	#-------------------------------------------
+	# $command eq $SESSION_COMMAND_DELETE !!
+
+	for my $entry  (sort {uc($a) cmp uc($b)} keys %$files)
+	{
+		my $info = $entries->{$entry};
+		if (!$info->{is_dir})
+		{
+			$counts->{num_files_done}++;
+			$progress->set($dir,$entry,$counts) if $progress;
+
+			my $path = "$dir/$entry";
+			display($dbg_recurse,-5-$level,"$this->{WHO} DELETE recursive local file: $path");
+			if (!unlink $path)
+			{
+				$this->session_error("$this->{WHO} Could not delete recursive local file $path");
+				return;
+			}
+		}
+	}
+
+	#----------------------------------------------
+	# finally, delete the dir itself at level>0
+	#----------------------------------------------
+	# $command eq $SESSION_COMMAND_DELETE
+
+	if ($level)
+	{
+		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE recursive local dir: $dir");
+		if (!rmdir $dir)
+		{
+			$this->session_error("$this->{WHO} Could not delete recursive local file $dir");
+			return;
+		}
+		$counts->{num_dirs_done}++;
+		$progress->set($dir,'',$counts) if $progress;
+	}
+
+	# return 1 upon success to continue the recursion
+	# fileClientWindow will redraw regardless of the final return value
+
+	return 1;
+
+}
 
 
 1;
