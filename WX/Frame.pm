@@ -122,20 +122,20 @@ sub onInit
 
     # add notebook commands to the view menu if the client desires
 
-    my $got_one = 0;
-    my @nb_command_ids;
-    for my $nb (@{$resources->{notebooks}})
-    {
-        my $command_id = $$nb{command_id};
-        if ($command_id)
-        {
-            push @{$resources->{view_menu}},$ID_SEPARATOR
-                if (!$got_one);
-            $got_one = 1;
-            push @{$resources->{view_menu}},$command_id;
-            EVT_MENU($this, $command_id, \&onOpenNotebook);
-        }
-    }
+    # my $got_one = 0;
+    # my @nb_command_ids;
+    # for my $nb (@{$resources->{notebooks}})
+    # {
+    #     my $command_id = $$nb{command_id};
+    #     if ($command_id)
+    #     {
+    #         push @{$resources->{view_menu}},$ID_SEPARATOR
+    #             if (!$got_one);
+    #         $got_one = 1;
+    #         push @{$resources->{view_menu}},$command_id;
+    #         EVT_MENU($this, $command_id, \&onOpenNotebook);
+    #     }
+    # }
 
     # restore the state from the ini file if it exists
     # or, if not, create the default setup and save it ...
@@ -267,9 +267,7 @@ sub onCloseFrame
 # create the main menu
 #------------------------------------------------------------
 
-
 sub setMainMenu
-
 {
 	my ($this) = @_;
 	display($dbg_frame,1,"setMainMenu()");
@@ -607,51 +605,51 @@ sub getOpenDefaultNotebook
 
 
 
-sub findPageBook
-    # return the book and pageid for a given page (pane)
-{
-	my ($this,$page) = @_;
-	my $r_books = $this->{notebooks};
-	foreach my $bname (keys(%$r_books))
-	{
-		my $book = $$r_books{$bname};
-		my $idx  = $book->GetPageIndex($page);
-		return ($book,$idx) if ($idx ge '0');
-	}
-}
+# sub findPageBook
+#     # return the book and pageid for a given page (pane)
+# {
+# 	my ($this,$page) = @_;
+# 	my $r_books = $this->{notebooks};
+# 	foreach my $bname (keys(%$r_books))
+# 	{
+# 		my $book = $$r_books{$bname};
+# 		my $idx  = $book->GetPageIndex($page);
+# 		return ($book,$idx) if ($idx ge '0');
+# 	}
+# }
 
 
-sub onOpenNotebook
-	# Toggles the state of a notebook showing, by ID
-    # Is only intended to handle commands to show main
-    # window notebooks, nothing fancy like floating frames.
-{
-	my ($this,$event) = @_;
-	my $id = $event->GetId();
-    my $notebook_name = $resources->{notebook_name};
-	my $nbname = $$notebook_name{$id};
-	my $book = $this->{notebooks}{$nbname};
-    my $book_pane = $this->{manager}->GetPane($book);
-    if (!$notebook_name || !$nbname || !$book || !$book_pane)
-    {
-        error("Could not find notebook info: id=$id notebook_name=$notebook_name nbname=$nbname book=$book book_pane=$book_pane");
-        return;
-    }
-
-	display($dbg_frame,0,"onOpenNotebook($nbname)");
-
-	if ($book_pane->IsShown())
-	{
-		display($dbg_frame,1,"hiding notebook");
-		$this->{manager}->GetPane($book)->Hide();
-	}
-	else
-	{
-		display($dbg_frame,1,"showing notebook");
-		$this->{manager}->GetPane($book)->Show(1);
-	}
-	$this->{manager}->Update();
-}
+#sub onOpenNotebook
+#	# Toggles the state of a notebook showing, by ID
+#    # Is only intended to handle commands to show main
+#    # window notebooks, nothing fancy like floating frames.
+#{
+#	my ($this,$event) = @_;
+#	my $id = $event->GetId();
+#    my $notebook_name = $resources->{notebook_name};
+#	my $nbname = $$notebook_name{$id};
+#	my $book = $this->{notebooks}{$nbname};
+#    my $book_pane = $this->{manager}->GetPane($book);
+#    if (!$notebook_name || !$nbname || !$book || !$book_pane)
+#    {
+#        error("Could not find notebook info: id=$id notebook_name=$notebook_name nbname=$nbname book=$book book_pane=$book_pane");
+#        return;
+#    }
+#
+#	display($dbg_frame,0,"onOpenNotebook($nbname)");
+#
+#	if ($book_pane->IsShown())
+#	{
+#		display($dbg_frame,1,"hiding notebook");
+#		$this->{manager}->GetPane($book)->Hide();
+#	}
+#	else
+#	{
+#		display($dbg_frame,1,"showing notebook");
+#		$this->{manager}->GetPane($book)->Show(1);
+#	}
+#	$this->{manager}->Update();
+#}
 
 
 
@@ -665,17 +663,19 @@ sub createPane
 	# would like to remove base class createPane method?
 {
 	my ($this,$id,$book,$data,$config_str) = @_;
-	display($dbg_frame,1,"UNUSED Pub::WX::Frame::createPane($id) called ... book=".($book?$book->{name}:'undef'));
-	if (!$id)
-	{
-		error("No id specified in Pub::WX::Frame::createPane()");
-		return;
-	}
-    if (!$book)
-    {
-        $book = $this->getOpenDefaultNotebook($id);
-    }
-	error("Unknown pane id=$id in Pub::WX::Frame::createPane()");
+	error("Your application must implement createPane!!");
+	return;
+	# display($dbg_frame,1,"UNUSED Pub::WX::Frame::createPane($id) called ... book=".($book?$book->{name}:'undef'));
+	# if (!$id)
+	# {
+	# 	error("No id specified in Pub::WX::Frame::createPane()");
+	# 	return;
+	# }
+    # if (!$book)
+    # {
+    #     $book = $this->getOpenDefaultNotebook($id);
+    # }
+	# error("Unknown pane id=$id in Pub::WX::Frame::createPane()");
 }
 
 
@@ -759,124 +759,124 @@ sub findPane
 }
 
 
-sub findOrOpenPaneWithData
-    # called by clients, will find or create the
-    # given toolpane by id (single instance only)
-    # and pass the given data to it.
-{
-    my ($this,$id,$data) = @_;
-    my $pane = $this->findPane($id);
-    if ($pane)
-    {
-        # derived classes must implement setFromConfigStr()
-
-		if ($pane->can('setFromConfigStr'))
-		{
-			$pane->setFromConfigStr($data);
-			$pane->populate();
-		}
-    }
-    else
-    {
-        $pane = $this->createPane($id,"","",$data);
-    }
-    # my $book = $pane->{book};
-    my $book = $pane->GetParent();
-    my $idx = $book->GetPageIndex($pane);
-    $book->SetSelection($idx);
-    $pane->Show(1) if (!$pane->IsShown());
-    $this->{manager}->Update();
-}
-
-
-
-sub findOrOpenMultipleInstancePane
-	# find the existing multiple instance pane, if any
-	# with the given base_id and data, create a new on
-	# if not found.
-{
-	my ($this,$base_id,$data) = @_;
-	display($dbg_frame,0,"findOrOpenMultipleInstancePane($base_id,$data)");
-
-	my $found;
-    for my $pane (@{$this->{panes}})
-	{
-		my $pane_instance = $pane->{instance} || 0;
-		my $pane_base = $pane->{id} - $pane_instance;
-		display($dbg_frame,1,"checking $pane($pane_base,$pane_instance)");
-
-		if ($pane_base == $base_id && $pane->{data} eq $data)
-		{
-			$found = $pane;
-			display($dbg_frame,1,"found($pane) = $pane->{id} = $pane->{data}");
-			last;
-		}
-	}
-
-	if (!$found)
-	{
-        $found = $this->createPane($base_id,'',$data,'');
-	}
-
-	return $found;
-}
+# sub findOrOpenPaneWithData
+#     # called by clients, will find or create the
+#     # given toolpane by id (single instance only)
+#     # and pass the given data to it.
+# {
+#     my ($this,$id,$data) = @_;
+#     my $pane = $this->findPane($id);
+#     if ($pane)
+#     {
+#         # derived classes must implement setFromConfigStr()
+#
+# 		if ($pane->can('setFromConfigStr'))
+# 		{
+# 			$pane->setFromConfigStr($data);
+# 			$pane->populate();
+# 		}
+#     }
+#     else
+#     {
+#         $pane = $this->createPane($id,"","",$data);
+#     }
+#     # my $book = $pane->{book};
+#     my $book = $pane->GetParent();
+#     my $idx = $book->GetPageIndex($pane);
+#     $book->SetSelection($idx);
+#     $pane->Show(1) if (!$pane->IsShown());
+#     $this->{manager}->Update();
+# }
+#
 
 
+#sub findOrOpenMultipleInstancePane
+#	# find the existing multiple instance pane, if any
+#	# with the given base_id and data, create a new on
+#	# if not found.
+#{
+#	my ($this,$base_id,$data) = @_;
+#	display($dbg_frame,0,"findOrOpenMultipleInstancePane($base_id,$data)");
+#
+#	my $found;
+#    for my $pane (@{$this->{panes}})
+#	{
+#		my $pane_instance = $pane->{instance} || 0;
+#		my $pane_base = $pane->{id} - $pane_instance;
+#		display($dbg_frame,1,"checking $pane($pane_base,$pane_instance)");
+#
+#		if ($pane_base == $base_id && $pane->{data} eq $data)
+#		{
+#			$found = $pane;
+#			display($dbg_frame,1,"found($pane) = $pane->{id} = $pane->{data}");
+#			last;
+#		}
+#	}
+#
+#	if (!$found)
+#	{
+#        $found = $this->createPane($base_id,'',$data,'');
+#	}
+#
+#	return $found;
+#}
+#
 
-sub onOpenPane
-	# Called directly from an event, this method
-    # creates a window, and if necessary, a notebook,
-    # based on the event ID. It uses the factory method
-    # which only includes the monitorWindow in the base
-    # class.
-{
-	my $book;
-	my ($this,$event) = @_;
-	my $id = $event->GetId();
-	my $pane = $this->findPane($id);
-	display($dbg_frame,1,"onOpenPane($id) existing=".($pane?$pane:'undef'));
 
-	# if the pane does exist, get the real notebook
-	# if the pane doesn't exist, use the default notebook
-
-	if ($pane)
-	{
-		# $book = $pane->{book};
-		$book = $pane->GetParent();
-		if (!$book)
-		{
-			error("existing pane($pane->{title}) has no parent","orange");
-			return;
-		}
-		my $book_pane = $this->{manager}->GetPane($book);
-		if (!$book_pane)
-		{
-			error("Could not find book_pane for $book");
-			return;
-		}
-		if (!$book_pane->IsShown())
-		{
-			display($dbg_frame,1,"showing notebook");
-			$this->{manager}->GetPane($book)->Show(1);
-
-		}
-	}
-	else
-	{
-		$book = $this->getOpenDefaultNotebook($id);
-		$pane = $this->createPane($id,$book);
-	}
-
-	# make it the current tab and show it if necessary
-
-	if ($pane)
-    {
-        my $idx = $book->GetPageIndex($pane);
-        $book->SetSelection($idx);
-        $pane->Show(1) if (!$pane->IsShown());
-        $this->{manager}->Update();
-    }
-}
+#sub onOpenPane
+#	# Called directly from an event, this method
+#    # creates a window, and if necessary, a notebook,
+#    # based on the event ID. It uses the factory method
+#    # which only includes the monitorWindow in the base
+#    # class.
+#{
+#	my $book;
+#	my ($this,$event) = @_;
+#	my $id = $event->GetId();
+#	my $pane = $this->findPane($id);
+#	display($dbg_frame,1,"onOpenPane($id) existing=".($pane?$pane:'undef'));
+#
+#	# if the pane does exist, get the real notebook
+#	# if the pane doesn't exist, use the default notebook
+#
+#	if ($pane)
+#	{
+#		# $book = $pane->{book};
+#		$book = $pane->GetParent();
+#		if (!$book)
+#		{
+#			error("existing pane($pane->{title}) has no parent","orange");
+#			return;
+#		}
+#		my $book_pane = $this->{manager}->GetPane($book);
+#		if (!$book_pane)
+#		{
+#			error("Could not find book_pane for $book");
+#			return;
+#		}
+#		if (!$book_pane->IsShown())
+#		{
+#			display($dbg_frame,1,"showing notebook");
+#			$this->{manager}->GetPane($book)->Show(1);
+#
+#		}
+#	}
+#	else
+#	{
+#		$book = $this->getOpenDefaultNotebook($id);
+#		$pane = $this->createPane($id,$book);
+#	}
+#
+#	# make it the current tab and show it if necessary
+#
+#	if ($pane)
+#    {
+#        my $idx = $book->GetPageIndex($pane);
+#        $book->SetSelection($idx);
+#        $pane->Show(1) if (!$pane->IsShown());
+#        $this->{manager}->Update();
+#    }
+#}
 
 
 

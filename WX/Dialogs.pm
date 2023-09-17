@@ -1,10 +1,9 @@
 #!/usr/bin/perl
 
 #------------------------------------------
-# MyMS::Dialogs
+# Pub::WX::Dialogs
 #------------------------------------------
-# can be included by non-wx clients as long
-# as they don't call anything?
+# CR should be OK
 
 package Pub::WX::Dialogs;
 use strict;
