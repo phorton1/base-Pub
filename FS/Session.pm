@@ -339,6 +339,66 @@ sub textToList
 }
 
 
+
+#--------------------------------------------------------
+# remote atomic commands
+#--------------------------------------------------------
+
+sub _listRemoteDir
+{
+    my ($this, $dir) = @_;
+    display($dbg_commands,0,"_listRemoteDir($dir)");
+
+    my $command = "$SESSION_COMMAND_LIST\t$dir";
+
+    return if !$this->sendPacket($command);
+    my $text = $this->getPacket(1);
+    return if (!$text);
+
+    my $rslt = $this->textToList($text);
+	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry}) returning",$rslt->{entries})
+		if $rslt;
+    return $rslt;
+}
+
+
+sub _mkRemoteDir
+{
+    my ($this, $dir,$subdir) = @_;
+    display($dbg_commands,0,"_mkRemoteDir($dir,$subdir)");
+
+    my $command = "$SESSION_COMMAND_MKDIR\t$dir\t$subdir";
+
+    return if !$this->sendPacket($command);
+    my $text = $this->getPacket(1);
+    return if (!$text);
+
+    my $rslt = $this->textToList($text);
+	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
+		if $rslt;
+    return $rslt;
+}
+
+
+sub _renameRemote
+{
+    my ($this,$dir,$name1,$name2) = @_;
+    display($dbg_commands,0,"_renameRemote($dir,$name1,$name2)");
+
+    my $command = "$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2";
+
+    return if !$this->sendPacket($command);
+    my $text = $this->getPacket(1);
+    return if (!$text);
+
+    my $rslt = $this->textToList($text);
+	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
+		if $rslt;
+    return $rslt;
+}
+
+
+
 #------------------------------------------------------
 # local atomic commands
 #------------------------------------------------------
@@ -429,85 +489,7 @@ sub _renameLocal
 }
 
 
-
-
-#------------------------------------------------------
-# doCommand and doCommandRecursive
-#------------------------------------------------------
-
-sub doCommand
-{
-    my ($this,
-		$command,
-        $local,
-        $param1,
-        $param2,
-        $param3,
-		$progress) = @_;
-
-	$command ||= '';
-	$local ||= 0;
-	$param1 ||= '';
-	$param2 ||= '';
-	$param3 ||= '';
-	$progress ||= '';
-
-	display($dbg_commands+1,0,"$this->{WHO} doCommand($command,$local,$param1,$param2,$param3) progress=$progress");
-
-	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
-
-	if ($command eq $SESSION_COMMAND_LIST)				# $dir
-	{
-		# returns dir_info with entries
-		return $local ?
-			$this->_listLocalDir($param1) :
-			$this->_listRemoteDir($param1);
-	}
-	elsif ($command eq $SESSION_COMMAND_MKDIR)			# $dir, $subdir
-	{
-		# returns file_info for the new dir
-		return $local ?
-			$this->_mkLocalDir($param1,$param2) :
-			$this->_mkRemoteDir($param1,$param2);
-	}
-	elsif ($command eq $SESSION_COMMAND_RENAME)			# $dir, $old_name, $new_name
-	{
-		# returns file_info for the renamed item
-		return $local ?
-			$this->_renameLocal($param1,$param2,$param3) :
-			$this->_renameRemote($param1,$param2,$param3);
-	}
-
-	# for delete, a single filename name or list of entries
-	# may be passed in. A local single filename is handled specially.
-
-	elsif ($command eq $SESSION_COMMAND_DELETE)			# $dir, $entries_or_filename, undef, $progress
-	{
-		# returns new dir_info with entries
-		return $this->_deleteRemote($param1,$param3,$param2)
-			if !$local;
-
-		if (!ref($param2))		# single fully qualified filename
-		{
-			my $path = "$param1/$param2";
-			display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");
-			if (!unlink $path)
-			{
-				$this->session_error("$this->{WHO} Could not delete single local file $path");
-				return;
-			}
-			return $this->_listLocalDir($param1);
-		}
-		return $this->_deleteLocal($param1,$param2,$progress);
-	}
-
-	$this->session_error("$this->{WHO} unsupported command: $command");
-	return;
-}
-
-
-
-sub _deleteLocal
+sub _deleteLocal			# RECURSES!!
 {
 	my ($this,
 		$dir,				# MUST BE FULLY QUALIFIED
@@ -631,6 +613,87 @@ sub _deleteLocal
 	$progress->done() if $progress;
 	return $this->_listLocalDir($dir);
 }
+
+
+
+
+
+#------------------------------------------------------
+# doCommand
+#------------------------------------------------------
+
+sub doCommand
+{
+    my ($this,
+		$command,
+        $local,
+        $param1,
+        $param2,
+        $param3,
+		$progress) = @_;
+
+	$command ||= '';
+	$local ||= 0;
+	$param1 ||= '';
+	$param2 ||= '';
+	$param3 ||= '';
+	$progress ||= '';
+
+	display($dbg_commands+1,0,"$this->{WHO} doCommand($command,$local,$param1,$param2,$param3) progress=$progress");
+
+	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
+
+	if ($command eq $SESSION_COMMAND_LIST)				# $dir
+	{
+		# returns dir_info with entries
+		return $local ?
+			$this->_listLocalDir($param1) :
+			$this->_listRemoteDir($param1);
+	}
+	elsif ($command eq $SESSION_COMMAND_MKDIR)			# $dir, $subdir
+	{
+		# returns file_info for the new dir
+		return $local ?
+			$this->_mkLocalDir($param1,$param2) :
+			$this->_mkRemoteDir($param1,$param2);
+	}
+	elsif ($command eq $SESSION_COMMAND_RENAME)			# $dir, $old_name, $new_name
+	{
+		# returns file_info for the renamed item
+		return $local ?
+			$this->_renameLocal($param1,$param2,$param3) :
+			$this->_renameRemote($param1,$param2,$param3);
+	}
+
+	# for delete, a single filename name or list of entries
+	# may be passed in. A local single filename is handled specially.
+
+	elsif ($command eq $SESSION_COMMAND_DELETE)			# $dir, $entries_or_filename, undef, $progress
+	{
+		# returns new dir_info with entries
+		return $this->_deleteRemote($param1,$param3,$param2)
+			if !$local;
+
+		if (!ref($param2))		# single fully qualified filename
+		{
+			my $path = "$param1/$param2";
+			display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");
+			if (!unlink $path)
+			{
+				$this->session_error("$this->{WHO} Could not delete single local file $path");
+				return;
+			}
+			return $this->_listLocalDir($param1);
+		}
+		return $this->_deleteLocal($param1,$param2,$progress);
+	}
+
+	$this->session_error("$this->{WHO} unsupported command: $command");
+	return;
+}
+
+
+
 
 
 1;

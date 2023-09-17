@@ -48,59 +48,6 @@ sub new
 
 
 
-sub _listRemoteDir
-{
-    my ($this, $dir) = @_;
-    display($dbg_commands,0,"_listRemoteDir($dir)");
-
-    my $command = "$SESSION_COMMAND_LIST\t$dir";
-
-    return if !$this->sendPacket($command);
-    my $text = $this->getPacket(1);
-    return if (!$text);
-
-    my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry}) returning",$rslt->{entries})
-		if $rslt;
-    return $rslt;
-}
-
-
-sub _mkRemoteDir
-{
-    my ($this, $dir,$subdir) = @_;
-    display($dbg_commands,0,"_mkRemoteDir($dir,$subdir)");
-
-    my $command = "$SESSION_COMMAND_MKDIR\t$dir\t$subdir";
-
-    return if !$this->sendPacket($command);
-    my $text = $this->getPacket(1);
-    return if (!$text);
-
-    my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
-		if $rslt;
-    return $rslt;
-}
-
-
-sub _renameRemote
-{
-    my ($this,$dir,$name1,$name2) = @_;
-    display($dbg_commands,0,"_renameRemote($dir,$name1,$name2)");
-
-    my $command = "$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2";
-
-    return if !$this->sendPacket($command);
-    my $text = $this->getPacket(1);
-    return if (!$text);
-
-    my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
-		if $rslt;
-    return $rslt;
-}
-
 
 
 1;
