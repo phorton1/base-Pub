@@ -43,6 +43,7 @@ BEGIN
 		display
     	display_hash
 		display_bytes
+		CapFirst
 
 		now
 		today
@@ -370,6 +371,26 @@ sub display_bytes
 	print "..." if ($i < length($packet));
 	print "\n" ;
 }
+
+
+
+sub CapFirst
+	# changed implementation on 2014/07/19
+{
+    my ($name) = @_;
+	return '' if !$name;
+	$name =~ s/^\s+|\s+$/g/;
+
+    my $new_name = '';
+	my @parts = split(/\s+/,$name);
+    for my $part (@parts)
+    {
+        $new_name .= " " if ($name ne "");
+        $new_name .= uc(substr($part,0,1)).lc(substr($part,1));
+    }
+    return $name;
+}
+
 
 
 #----------------------------------------
