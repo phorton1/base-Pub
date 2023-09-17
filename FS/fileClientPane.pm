@@ -33,12 +33,14 @@ use base qw(Wx::Window);
 
 
 my $dbg_life = 0;		# life_cycle
-my $dbg_pop  = 0;		# populate, sort, etc
-	# 0 = basic calls
-	# =1 = first order items
-	# -2 = sort and gruesome details
+my $dbg_pop  = 1;		# populate
+	# -1 = addItem
+	# -2 = addItem idx mapping
+my $dbg_comp = 1;		# compare colors
+	# -1 = entries
+my $dbg_sort = 1;		# sorting
+	# =1 = details
 my $dbg_ops  = -1;		# commands
-	# 0 = basic calls
 	# -1, -2 = more detail
 
 
@@ -68,6 +70,15 @@ my $color_missing = Wx::Colour->new(0x00 ,0x00, 0x00);  # black
 my $color_older   = Wx::Colour->new(0xff, 0x00, 0xff);  # purple
 my $color_newer   = Wx::Colour->new(0xff ,0x00, 0x00);  # red
 
+sub compareType
+{
+	my ($comp_value) = @_;
+	return '' if !$comp_value;
+    return 'newer' if $comp_value == 3;
+    return 'same'  if $comp_value == 2;
+    return 'older' if $comp_value == 1;
+	return '';	# JIC
+}
 
 #-----------------------------------
 # new
@@ -362,11 +373,17 @@ sub onClickColHeader
 }   # onClickColHeader()
 
 
-sub comp
+
+sub comp	# for sort, not for conmpare
 {
-    my ($list,$sort_col,$desc,$index_a,$index_b) = @_;
-    my $info_a = $$list[$index_a];
-    my $info_b = $$list[$index_b];
+    my ($this,$sort_col,$desc,$index_a,$index_b) = @_;
+	my $ctrl = $this->{list_ctrl};
+	# my $entry_a = $ctrl->GetItemText($index_a);
+	# my $entry_b = $ctrl->GetItemText($index_b);
+	my $info_a = $this->{list}->[$index_a];
+	my $info_b = $this->{list}->[$index_b];
+
+    display($dbg_sort+1,0,"comp $index_a=$info_a->{entry} $index_b=$info_b->{entry}");
 
     # The ...UP... or ...ROOT... entry is always first
 
@@ -385,19 +402,19 @@ sub comp
     elsif ($info_a->{is_dir} && !$info_b->{is_dir})
     {
         $retval = -1;
-        display($dbg_pop+2,0,"comp_dir($info_a->{entry},$info_b->{entry}) returning -1");
+        display($dbg_sort+1,1,"comp_dir($info_a->{entry},$info_b->{entry}) returning -1");
     }
     elsif ($info_b->{is_dir} && !$info_a->{is_dir})
     {
         $retval = 1;
-        display($dbg_pop+2,0,"comp_dir($info_a->{entry},$info_b->{entry}) returning 1");
+        display($dbg_sort+1,1,"comp_dir($info_a->{entry},$info_b->{entry}) returning 1");
     }
 
     elsif ($info_a->{is_dir} && $sort_col>0 && $sort_col<$num_fields)
     {
 		# we sort directories ascending except on the entry field
 		$retval = (lc($info_a->{entry}) cmp lc($info_b->{entry}));
-        display($dbg_pop+2,0,"comp_same_dir($info_a->{entry},$info_b->{entry}) returning $retval");
+        display($dbg_sort+1,1,"comp_same_dir($info_a->{entry},$info_b->{entry}) returning $retval");
     }
     else
     {
@@ -420,41 +437,45 @@ sub comp
 
 		# i'm not seeing any ext's here
 
-        display($dbg_pop+1,0,"comp($field,$sort_col,$desc,$val_a,$val_b) returning $retval");
+        display($dbg_sort+1,1,"comp($field,$sort_col,$desc,$val_a,$val_b) returning $retval");
     }
     return $retval;
 
 }   # comp() - compare two infos for sorting
 
 
+
 sub sortListCtrl
 {
     my ($this) = @_;
-    my $list = $this->{list};
+    my $hash = $this->{list};
     my $ctrl = $this->{list_ctrl};
     my $sort_col = $this->{sort_col};
     my $sort_desc = $this->{sort_desc};
 
-    display($dbg_pop+1,0,"sortListCtrl($sort_col,$sort_desc) local=$this->{is_local}");
+    display($dbg_sort,0,"sortListCtrl($sort_col,$sort_desc) local=$this->{is_local}");
 
     if ($sort_col == $this->{last_sortcol} &&
         $sort_desc == $this->{last_desc} &&
         !$this->{changed})
     {
-        display($dbg_pop+1,1,"short ending last=$this->{last_desc}:$this->{last_sortcol}");
+        display($dbg_sort,1,"short ending last=$this->{last_desc}:$this->{last_sortcol}");
         return;
     }
 
+	# $a and $b are the indexes into $this->{list]
+	# that we set via SetUserData() in the initial setListRow()
+
     $ctrl->SortItems(sub {
         my ($a,$b) = @_;
-        return comp($list,$sort_col,$sort_desc,$a,$b); });
+		return comp($this,$sort_col,$sort_desc,$a,$b); });
 
 	# now that they are sorted, {list} no longer matches the contents by row
 
     $this->{last_sortcol} = $sort_col;
-    $this->{last_desc}   = $sort_desc;
+    $this->{last_desc} = $sort_desc;
 
-}   # sort_entries() (with debugging)
+}
 
 
 
@@ -476,13 +497,12 @@ sub compareLists
     my ($this) = @_;
 
     my $hash = $this->{hash};
-
     my $other = $this->{is_local} ?
         $this->{parent}->{pane2} :
         $this->{parent}->{pane1} ;
     my $other_hash = $other->{hash};
 
-    display($dbg_pop+1,0,"compare_list(".
+    display($dbg_comp,0,"compareLists(".
 			$this->getDbgPaneName().
 			") other=(".
 			$other->getDbgPaneName().
@@ -491,18 +511,15 @@ sub compareLists
     for my $entry (keys(%$hash))
     {
         my $info = $$hash{$entry};
-        display($dbg_pop+2,1,"checking $entry=$info");
 
-        # do the opposite ...UP... on the client
-        $entry = $1 if $entry eq '...UP...' && $this->{dir} =~ /^.*\/(.+?)$/;
+        display($dbg_comp+1,1,"checking $entry=$info");
+
         my $other_info = $$other_hash{$entry};
 
         $info->{compare} = '';
 
-        if ($other_info)
+        if ($other_info && $entry !~ /^...(UP|ROOT).../)
         {
-            display($dbg_pop+2,1,"found other info=$other_info");
-
             if (!$info->{is_dir} && !$other_info->{is_dir})
             {
                 if ($info->{ts} gt $other_info->{ts})
@@ -523,9 +540,11 @@ sub compareLists
                 $info->{compare} = 2;
             }
         }
+
+		display($dbg_comp,1,"comp $entry = ".compareType($info->{compare}));
     }
 
-    display($dbg_pop+1,1,"compareLists() returning");
+    display($dbg_comp+1,1,"compareLists() returning");
 
     return $other;
 
@@ -533,92 +552,53 @@ sub compareLists
 
 
 
-sub addListRow
-    # called to add, or refresh a given list row
+sub setListRow
+    # Create a new, or modify an existing list_ctrl row
 {
-    my ($this,$list,$row,$set_only) = @_;
+    my ($this,$row,$entry) = @_;
     my $ctrl = $this->{list_ctrl};
+	my $is_new = $entry ? 1 : 0;
+	$entry ||= $ctrl->GetItemText($row);
+	my $info = $this->{hash}->{$entry};
 
-	# if set only, get the index into OUR list
-	# from the control (otherwise we are creating
-	# the list with proper indexes)
-
-	$set_only ||= 0;
-
-	my $id = $row;
-    my $info = $$list[$row];
-    my $entry = $info->{entry};
     my $is_dir = $info->{is_dir} || '';
-	my $compare = $info->{compare} || '';
+    my $compare_type = compareType($info->{compare});
 
-    my $compare_type = !$compare ? '' :
-        $compare == 3 ? 'newer' :
-        $compare == 2 ? 'same' :
-        $compare == 1 ? 'older' : '';
-    display($dbg_pop+1,0,"addListRow($row,$is_dir,$compare_type,$set_only,$entry)");
+    display($dbg_pop+1,0,"setListRow($is_new) row($row) isdir($is_dir) comp($compare_type) entry=$entry)");
 
-    # create the item (if !set_only)
+	# prep
 
-    if (!$set_only)
-    {
-        $ctrl->InsertStringItem($row,$entry);
-        $ctrl->SetItemData($row,$id);
-
-        # add main fields ...
-
-        $ctrl->SetItem($row,3,($is_dir?'':$info->{size}));
-        $ctrl->SetItem($row,4,$info->{ts});	# gmtToLocalTime($info->{ts}));
-    }
-	else
-	{
-		$id = $ctrl->GetItemData($row);
-		display($dbg_pop+2,0,"addListRow mapping row($row) to $id");
-	}
-
-    # display/add fields that might have changed due to
-    # RENAME or the other guy changing.
-
-	my $ext = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
-    $ctrl->SetItem($id,1,$ext);
-    $ctrl->SetItem($id,2,$is_dir?'':$compare_type);
-
-    # set the color and font
-
-    my $font = $normal_font;
-    if ($is_dir)
-    {
-        $font = $bold_font;
-    }
-
+    my $font = $is_dir ? $bold_font : $normal_font;
+	my $ext = !$is_dir && $entry =~ /^.*\.(.+)$/ ? $1 : '';
     my $color =
         $compare_type eq 'newer' ? $color_newer :
         $compare_type eq 'same'  ? $color_same :
         $compare_type eq 'older' ? $color_older :
         $color_missing;
 
-    # can't get it to set just one row's format
+    # create the row if needed
 
-    my $item = Wx::ListItem->new();
-        # $ctrl->GetItem($row,0);
+    if ($is_new)
+    {
+        $ctrl->InsertStringItem($row,$entry);
+		$ctrl->SetItemData($row,$row);
+			# the index into $this->{list} is persistent
+			# and passed back in sort
+		$ctrl->SetItem($row,3,($is_dir?'':$info->{size}));
+		$ctrl->SetItem($row,4,$info->{ts} || '');	# PRH - need gmtToLocalTime($info->{ts}));
+	}
 
-    $item->SetId($id);
-    #$item->SetText('blah');
-    #$item->SetMask(wxLIST_MASK_FORMAT|wxLIST_MASK_TEXT);
-    $item->SetMask(wxLIST_MASK_FORMAT);
+	# things that might have changed due to rename
 
-    $item->SetColumn(0);
+	$ctrl->SetItem($row,1,$ext);
+	$ctrl->SetItem($row,2,$is_dir?'':$compare_type);
+
+    # set the color and font
+
+    my $item = $ctrl->GetItem($row);
     $item->SetFont($font);
     $item->SetTextColour($color);
-    $ctrl->SetItem($item);
-
-
-    if (0)  # some test code
-    {
-        $item->SetColumn(1);
-        $item->SetTextColour($color_missing);
-        $ctrl->SetItem($item);
-    }
-
+	$ctrl->SetItem($item);
 
 }   # addListRow()
 
@@ -656,16 +636,20 @@ sub setContents
 
 	# add ...UP... or ...ROOT...
 
-	push @list,
+	my $dir_entry_name = $dir eq "/" ? '...ROOT...' : '...UP...';
+	my $dir_info_entry =
 	{
 		is_dir      => 1,
 		dir         => '',
-		ts   		=> '',
+		ts   		=> $dir_info->{ts},
 		size        => '',
-		entry		=> $dir eq "/" ? '...ROOT...' : '...UP...',
+		entry		=> $dir_entry_name,
 		compare     => '',
 		entries     => {}
 	};
+
+	push @list,$dir_info_entry;
+	$hash{$dir_entry_name} = $dir_info_entry;
 
 	for my $entry (sort {lc($a) cmp lc($b)} (keys %{$dir_info->{entries}}))
 	{
@@ -693,7 +677,6 @@ sub populate
 {
     my ($this,$from_other) = @_;
     my $dir = $this->{dir};
-    my $ctrl = $this->{list_ctrl};
 
     $from_other ||= 0;
 
@@ -704,6 +687,7 @@ sub populate
     if (!$this->{is_local} && !$this->{session}->isConnected())
     {
         $this->{title_ctrl}->SetLabel($this->{not_connected_msg});
+		return;
     }
     else
     {
@@ -714,20 +698,18 @@ sub populate
 
     my $other = $this->compareLists();
 
-	# if the data has changed, repopulate the control
-
-    # if the data has not changed, and we
-    # are being called from 'other', then
-    # we need to call addListRow with
-    # set_only == !changed to set the colors appropriately
+	# if the data has changed, fully repopulate the control
+    # if the data has not changed, we don't pass in an entry
+	# we use the number of items in our list cuz the control
+	#	  might not have any yet
 
     if ($this->{changed} || $from_other)
     {
-        my $list = $this->{list};
-        $ctrl->DeleteAllItems() if $this->{changed};
-        for my $row (0..@$list-1)
+        $this->{list_ctrl}->DeleteAllItems() if $this->{changed};
+        for my $row (0..@{$this->{list}}-1)
         {
-            $this->addListRow($list,$row,!$this->{changed});
+			my $use_entry = $this->{changed} ? $this->{list}->[$row]->{entry} : 0;
+            $this->setListRow($row,$use_entry);
         }
     }
 
@@ -737,7 +719,6 @@ sub populate
 
     # if we changed, then tell the
     # other window to compareLists and populate ..
-    # the 1 is recursion protection
 
     if ($this->{changed})
     {
@@ -747,7 +728,6 @@ sub populate
     }
 
     # finished
-    # Refresh is not always needed
 
     $this->Refresh();
 
@@ -922,6 +902,7 @@ sub doMakeDir
 }
 
 
+
 sub doRename
 {
     my ($this) = @_;
@@ -948,7 +929,6 @@ sub doRename
 }
 
 
-
 sub onBeginEditLabel
 {
     my ($ctrl,$event) = @_;
@@ -972,6 +952,7 @@ sub onBeginEditLabel
 		$event->Skip();
     }
 }
+
 
 sub onEndEditLabel
 {
@@ -997,7 +978,6 @@ sub onEndEditLabel
 
     if (!$is_cancelled && $entry ne $save_entry)
     {
-        # my $info = $this->{session}->renameItem(
         my $info = $this->{session}->doCommand($SESSION_COMMAND_RENAME,
             $this->{is_local},
             $this->{dir},
@@ -1012,7 +992,6 @@ sub onEndEditLabel
         {
             # error("renameItem failed!!");
             $event->Veto();
-
             my $new_event = Wx::CommandEvent->new(
                 wxEVT_COMMAND_MENU_SELECTED,
                 $COMMAND_RENAME);
@@ -1020,27 +999,12 @@ sub onEndEditLabel
             return;
         }
 
-        # fix up the entry of dirs, reset the
-        # hash and list members, and maybe tell the
-        # list it is not sorted any more (if it
-        # was sorted by name or ext)
+        # fix up the $this->{list} and $this->{hash}
+		# invalidate the sort if they are sorted by name or ext
 
         my $index = $ctrl->GetItemData($row);
         my $list = $this->{list};
         my $hash = $this->{hash};
-
-        display($dbg_ops,2,"renameItem re-setting list[$index]=$$list[$index] and $hash\{$save_entry}=$$hash{$save_entry}");
-
-        # the ext and entry for dirs
-        # could be set in base class and from_text constructors
-
-        if ($info->{is_dir})
-        {
-            my $d = $info->{dir};
-            $d =~ s/$this->{dir}//;
-            $d =~ s/^\///;
-            $info->{entry} = $d;
-        }
 
         $info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
 
@@ -1049,8 +1013,8 @@ sub onEndEditLabel
         $$hash{$entry} = $info;
         $this->{last_sortcol} = -1 if ($this->{last_sortcol} <= 1);
 
-        # sort does not work from within the
-        # event, as wx has not finalized it's edit
+        # sort does not work from within the event,
+		# as wx has not finalized it's edit
         # so we chain another event to repopulate
 
         my $new_event = Wx::CommandEvent->new(
@@ -1065,42 +1029,6 @@ sub onEndEditLabel
 #--------------------------------------------------------------
 # doCommandSelected
 #--------------------------------------------------------------
-
-sub doUICommandRecursive
-	# mostly exists to wrap the command
-	# in a progress dialog
-{
-    my ($this,
-		$what,
-		$num_files,
-		$num_dirs,
-		$entries,			# entries upon which to operate
-		$subdir,			# hash telling if entries are subdirs
-        $local,				# constant
-        $opts) = @_;		# reference
-
-	my $progress = fileProgressDialog->new(
-		undef,
-		$what,
-		$num_files,
-		$num_dirs);
-
-	for my $entry (@$entries)
-	{
-		last if !$this->{session}->doCommandRecursive(
-			$local,
-			$subdir->{$entry} ? 1:0,
-			$opts,
-			$this->{dir},
-			$entry,
-			$progress);
-	}
-
-	$progress->Destroy();
-}
-
-
-
 
 sub doCommandSelected
 {
@@ -1205,9 +1133,11 @@ sub doCommandSelected
 		undef);						# progress
 
 	# We repopulate regardless of the command result
+	# For Xfer the directory returned is the one that was modified
 
 	my $update_win = $id == $COMMAND_DELETE ?
 		$this : $other;
+
 	$update_win->setContents($rslt);
 	$update_win->populate();
 
