@@ -43,6 +43,8 @@ our $dbg_commands:shared = -1;
 	# -2 = show command details
 our $dbg_recurse:shared = 0;
 
+my $DEFAULT_TIMEOUT = 15;
+
 
 BEGIN {
     use Exporter qw( import );
@@ -88,6 +90,8 @@ sub new
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $DEFAULT_PORT if !defined($params->{PORT});
 	$params->{WHO} ||= $params->{IS_SERVER}?"SERVER":"CLIENT";
+	$params->{TIMEOUT} ||= $DEFAULT_TIMEOUT;
+
 	my $this = { %$params };
 	bless $this,$class;
 	return if $this->{PORT} && !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
@@ -153,7 +157,9 @@ sub connect
     my @psock = (
         PeerAddr => "$host:$port",
         PeerPort => "http($port)",
-        Proto    => 'tcp' );
+        Proto    => 'tcp',
+		Timeout  => $DEFAULT_TIMEOUT);
+
     my $sock = IO::Socket::INET->new(@psock);
 
     if (!$sock)
@@ -227,7 +233,6 @@ sub sendPacket
 sub getPacket
 	# The protocol passes in $is_protocol, which blocks and prevents other
 	# callers from getting packets.  Otherwise, the method does not block.
-	# PRH - implement a timeout in getPacket()
 {
     my ($this,$is_protocol) = @_;
 	$is_protocol ||= 0;
@@ -241,10 +246,23 @@ sub getPacket
 	return if !$is_protocol && $this->{IN_PROTOCOL};
 	$this->{IN_PROTOCOL} = $is_protocol;
 
-	if (!$is_protocol)
+	# if !protocol, return immediately
+	# if protcol, watch for timeouts
+
+	my $started = time();
+	my $select = IO::Select->new($sock);
+	while (1)
 	{
-		my $select = IO::Select->new($sock);
-		return if !$select->can_read(0.1);
+		my $can_read = $select->can_read(0.1);
+		last if $can_read;
+
+		return if !$is_protocol;
+
+		if (time() > $started + $this->{TIMEOUT})
+		{
+			$this->session_error("getPacket timed out");
+			return;
+		}
 	}
 
 	my $CRLF = "\015\012";

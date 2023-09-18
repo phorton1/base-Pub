@@ -40,6 +40,9 @@ use base qw(Pub::FS::Session);
 
 our $dbg_request:shared = 0;
 
+my $REMOTE_TIMEOUT = 15;
+	# timeout, in seconds, to wait for a file_reply
+
 BEGIN {
     use Exporter qw( import );
 	our @EXPORT = (
@@ -112,8 +115,26 @@ sub doRemoteRequest
 	$file_server_request = $request;
 	$file_reply_pending = 1;
 
+	my $started = time();
 	while ($file_reply_pending)
 	{
+		my $ok = 1;
+		if (!$remote_connected)
+		{
+			$this->session_error("remote not connected in doRemoteRequest()");
+			$ok = 0;;
+		}
+		if ($ok && time() > $started + $REMOTE_TIMEOUT)
+		{
+			$this->session_error("doRemoteRequest() timed out");
+			$ok = 0;;
+		}
+		if (!$ok)
+		{
+			$file_server_request = '';
+			$file_reply_pending = 0;
+			return 0;
+		}
 		display($dbg_request+1,0,"doRemoteRequest() waiting for reply ...");
 		sleep(0.2);
 	}
