@@ -27,7 +27,8 @@ use base qw(Pub::FS::Server);
 BEGIN {
     use Exporter qw( import );
 	our @EXPORT = (
-		qw ( ),
+		qw (
+		),
 	    # forward base class exports
         @Pub::FS::Server::EXPORT,
 	);

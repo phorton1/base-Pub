@@ -124,7 +124,7 @@ sub textError
 sub isConnected
 {
     my ($this) = @_;
-    return $this->{SOCK};
+    return $this->{SOCK} ? 1 : 0;
 }
 
 

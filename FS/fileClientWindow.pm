@@ -2,9 +2,13 @@
 #------------------------------------------------------------
 # fileClientWindow
 #------------------------------------------------------------
-# This is a multiple instance window
-# who's data is the name of a host
-# in fileClientHostDialog.pm.
+# Creates a connection (SessionClient) to a RemoteServer
+# Handles asyncrhonouse messages from the RemoteServer
+# Is assumed to be Enabled upon connection.
+
+#    EXIT - close the window, and on the last window, closes the App
+#    DISABLE/ENABLE - posts a RED or GREEN message and enables or
+#    disables the remote pane
 
 
 package Pub::FS::fileClientWindow;
@@ -25,11 +29,16 @@ use base qw(Wx::Window Pub::WX::Window);
 
 
 our $dbg_fcw = 0;
+our $dbg_idle = 0;
 
-my $PAGE_TOP = 40;
+
+my $PAGE_TOP = 30;
 my $SPLITTER_WIDTH = 10;
+my $INITIAL_SPLITTER = 460;
 
 my $instance = 0;
+
+my $title_font = Wx::Font->new(9,wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_BOLD);
 
 
 #---------------------------
@@ -67,16 +76,23 @@ sub new
         return;
     }
 
-    # Create controls, windows, etc
 
-    $this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,10],[-1,-1]);
+	$this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,5],[-1,-1]);
+
+	# These follow the splitter
+
+	$this->{enabled_ctrl} = Wx::StaticText->new($this,-1,'',[$INITIAL_SPLITTER + 60,5]);
+	$this->{enabled_ctrl}->SetFont($title_font);
+
+	# Create splitter and panes
+
     $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
     $this->{pane1}    = Pub::FS::fileClientPane->new($this,$this->{splitter},$this->{session},1,$this->{local_dir});
     $this->{pane2}    = Pub::FS::fileClientPane->new($this,$this->{splitter},$this->{session},0,$this->{remote_dir});
 
     $this->{splitter}->SplitVertically(
         $this->{pane1},
-        $this->{pane2},460);
+        $this->{pane2},$INITIAL_SPLITTER);
 
     $this->doLayout();
 
@@ -121,6 +137,9 @@ sub doLayout
     my $width = $sz->GetWidth();
     my $height = $sz->GetHeight();
     $this->{splitter}->SetSize([$width,$height-$PAGE_TOP]);
+
+	my $sash_pos = $this->{splitter}->GetSashPosition();
+	$this->{enabled_ctrl}->Move($sash_pos+10,5);
 }
 
 
@@ -149,17 +168,25 @@ sub onIdle
 			my $packet = $this->{session}->getPacket();
 			if ($packet)
 			{
-				display($dbg_fcw,-1,"got packet $packet");
+				display($dbg_idle,-1,"got packet $packet");
 				if ($packet eq 'EXIT')
 				{
-					display($dbg_fcw,-1,"onIdle() EXIT");
+					display($dbg_idle,-1,"onIdle() EXIT");
 					$do_exit = 1;
+				}
+				elsif ($packet =~ /^(ENABLE|DISABLE) - (.*)$/)
+				{
+					my ($what,$msg) = ($1,$2);
+					$msg =~ s/\s+$//;
+					$this->{pane2}->setEnabled(
+						$what eq 'ENABLE' ? 1 : 0,
+						$msg);
 				}
 			}
 		}
 		else
 		{
-			display($dbg_fcw,-1,"fileClientWindow lost SOCKET");
+			display($dbg_idle,-1,"fileClientWindow lost SOCKET");
 			$do_exit = 1;
 		}
 	}

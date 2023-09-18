@@ -70,6 +70,11 @@ my $color_missing = Wx::Colour->new(0x00 ,0x00, 0x00);  # black
 my $color_older   = Wx::Colour->new(0xff, 0x00, 0xff);  # purple
 my $color_newer   = Wx::Colour->new(0xff ,0x00, 0x00);  # red
 
+my $color_red     = Wx::Colour->new(0xc0 ,0x00, 0x00);  # red
+my $color_green   = Wx::Colour->new(0x00 ,0x90, 0x00);  # green
+my $color_blue    = Wx::Colour->new(0x00 ,0x00, 0xc0);  # blue
+
+
 sub compareType
 {
 	my ($comp_value) = @_;
@@ -89,12 +94,17 @@ sub new
     my ($class,$parent,$splitter,$session,$is_local,$dir) = @_;
     my $this = $class->SUPER::new($splitter);
 
-    $this->{parent}   = $parent;
-    $this->{session}  = $session;
-    $this->{is_local} = $is_local;
-    $this->{dir}      = $dir;
-    $this->{title_ctrl} = Wx::StaticText->new($this,-1,'',[0,0]);
-    $this->{title_ctrl}->SetFont($title_font);
+    $this->{parent}    = $parent;
+    $this->{session}   = $session;
+    $this->{is_local}  = $is_local;
+    $this->{dir}       = $dir;
+
+	$this->{connected} = 1;
+	$this->{enabled}   = 1;
+	$this->{got_list}  = 0;
+
+    $this->{dir_ctrl} = Wx::StaticText->new($this,-1,'',[10,0]);
+    $this->{dir_ctrl}->SetFont($title_font);
 
     # set up the list control
 
@@ -110,14 +120,16 @@ sub new
         $ctrl->InsertColumn($i,$field,$align,$width);
     }
 
-    # a message that gets displayed in populate if not connected
-
-    $this->setConnectMsg('NO CONNECTION');
+    # show connection state
+	# $this->setConnectMsg($color_green,'SERVER');
 
     # finished - layout & setContents
 
     $this->{sort_col} = 0;
     $this->{sort_desc} = 0;
+	$this->{last_sortcol} = -1;
+	$this->{last_desc} = -1;
+
     $this->doLayout();
     $this->setContents();
 
@@ -146,6 +158,8 @@ sub onSize
 {
     my ($this,$event) = @_;
 	$this->doLayout();
+	$this->{parent}->onSize($event);
+		# to adjust the enabled_ctrl
     $event->Skip();
 }
 
@@ -241,21 +255,21 @@ sub onCommandUI
     elsif ($id == $COMMAND_REFRESH ||
            $id == $COMMAND_MKDIR)
     {
-        $enabled = $local || $connected;
+        $enabled = $local || ($this->{enabled} && $connected);
     }
 
     # xfer requires both sides and some stuff
 
     elsif ($id == $COMMAND_XFER)
     {
-        $enabled = $connected && $ctrl->GetSelectedItemCount();
+        $enabled = $connected && $this->{enabled} && $ctrl->GetSelectedItemCount();
     }
 
     # rename requires exactly one selected item
 
     elsif ($id == $COMMAND_RENAME)
     {
-        $enabled = ($local || $connected) &&
+        $enabled = ($local || ($this->{enabled} && $connected)) &&
             $ctrl->GetSelectedItemCount() == 1;
     }
 
@@ -263,7 +277,7 @@ sub onCommandUI
 
     elsif ($id == $COMMAND_DELETE)
     {
-        $enabled = ($local || $connected) &&
+        $enabled = ($local || ($this->{enabled} && $connected)) &&
             $ctrl->GetSelectedItemCount();
     }
 
@@ -277,47 +291,86 @@ sub onCommandUI
 # connection utilities
 #----------------------------------------------
 
+sub setEnabled
+{
+	my ($this,$enable,$msg) = @_;
+	return if $this->{is_local};
+	if ($this->{enabled} != $enable)
+	{
+		$this->Enable($enable);
+		$this->{enabled} = $enable;
+		$this->{parent}->{enabled_ctrl}->SetLabel($enable ? '' : $msg);
+		$this->{parent}->{enabled_ctrl}->SetForegroundColour(
+			$enable ? $color_green : $color_blue);
+
+		# this snippet repopulates if it has never been done successfully
+
+		if ($enable && !$this->{got_list})
+		{
+			$this->setContents();
+			$this->populate();
+		}
+	}
+}
+
+
 sub setConnectMsg
 {
-    my ($this,$msg) = @_;
-    $this->{not_connected_msg} = $msg;
-    $this->{title_ctrl}->SetLabel($this->{not_connected_msg});
+    my ($this,$color,$msg) = @_;
+	return if $this->{is_local};
+    $this->{parent}->{connected_ctrl}->SetLabel($msg);
+	$this->{parent}->{connected_ctrl}->SetForegroundColour($color);
 }
 
 
 sub checkConnected
 {
     my ($this) = @_;
-    return 1 if $this->{is_local} || $this->{session}->isConnected();
-    error("Not connected!");
-    return 0;
+    return 1 if $this->{is_local};
+	my $connected = $this->{session}->isConnected();
+	if ($this->{connected} != $connected)
+	{
+		$this->{connected} = $connected;
+		if ($connected)
+		{
+			display($dbg_life,-1,"Connected");
+			$this->setEnabled(1,'');
+		}
+		else
+		{
+			error("Not connected!");
+			$this->setEnabled(0,'NO CONNECTION');
+		}
+	}
+    return $connected;
 }
 
 
 sub disconnect
 {
     my ($this) = @_;
+	return if $this->{is_local};
     return if (!$this->checkConnected());
     display($dbg_life,0,"Disconnecting...");
-    $this->setConnectMsg('DISCONNECTED');
     $this->{session}->disconnect();
-    $this->populate();
+	$this->checkConnected();
+	# $this->populate();
 }
 
 
 sub connect
 {
     my ($this) = @_;
+	return if $this->{is_local};
     $this->disconnect() if ($this->{session}->isConnected());
-    $this->setConnectMsg('CONNECTING ...');
+    # $this->setConnectMsg($color_green,'CONNECTING ...');
     display($dbg_life,0,"Connecting...");
-    if (!$this->{session}->connect())
+    my $connected = $this->{session}->connect();
+	if ($this->checkConnected())
     {
-        error("Could not connect!");
-        return;
-    }
-    $this->setContents();
-    $this->populate();
+		$this->setContents();
+		$this->populate();
+	}
 }
 
 
@@ -631,8 +684,14 @@ sub setContents
 		    # $local ?
 			# $this->{session}->_listLocalDir($dir) :
 			# $this->{session}->_listRemoteDir($dir);
-		return if !$dir_info;
+		if (!$dir_info)
+		{
+			$this->setEnabled(0,"Could not get directory listing");
+			return;
+		}
 	}
+
+	$this->{got_list} = 1;
 
 	# add ...UP... or ...ROOT...
 
@@ -686,12 +745,11 @@ sub populate
 
     if (!$this->{is_local} && !$this->{session}->isConnected())
     {
-        $this->{title_ctrl}->SetLabel($this->{not_connected_msg});
 		return;
     }
     else
     {
-        $this->{title_ctrl}->SetLabel($dir);
+        $this->{dir_ctrl}->SetLabel($dir);
     }
 
     # compare the two lists before displaying
@@ -776,11 +834,11 @@ sub onDoubleClick
         $this->{dir} = $entry;
 
         my $follow = $this->{parent}->{follow_dirs}->GetValue();
+
         my $other = $this->{is_local} ?
             $this->{parent}->{pane2}  :
             $this->{parent}->{pane1}  ;
-
-        $this->setContents();
+		$this->setContents();
 
         if ($follow)
         {

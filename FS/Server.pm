@@ -34,6 +34,7 @@ our $dbg_server:shared =  0;
 	# -1 for forking/threading details
 	# -2 null reads
 	# -9 for connection waiting loop
+our $dbg_notifications = 0;
 
 
 BEGIN
@@ -41,11 +42,42 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw(
 		$dbg_server
+		$dbg_notifications
 		$ACTUAL_SERVER_PORT
+		notifyAll
 	);
 }
 
+
 our $ACTUAL_SERVER_PORT:shared;
+
+my $num_notify_all:shared = 0;
+my $notify_all:shared = shared_clone({});
+	# a list of packets to asynchronously send to all connected threads
+	# simpler said than done.
+	# How do we know when all threads have been notified and
+	# what prevents the messages from being sent multiple times?
+
+	# one idea:
+	#     the entry consists of the message and a hash of connection numbers
+	#     that have sent the message, this at least prevents re-sends.
+	# then we need second idea
+	#     a shared hash of all connection numbers that are still connected
+	#     which is cleared when the threads terminate
+	# then the main server thread could check if the message can be
+	#     deleted by comparing them.
+my $active_connections = shared_clone({});
+
+sub notifyAll
+{
+	my ($msg) = @_;
+	display($dbg_notifications,-2,"notifyAll($msg)");
+	my $num = $num_notify_all++;
+	$notify_all->{$num} = shared_clone({
+		msg => $msg,
+		notified => shared_clone({}),
+	});
+}
 
 
 # FINAL SUMMARY OF FORKING VERSUS THREADING AND VARIOUS OPTIONS in buddy
@@ -223,38 +255,6 @@ sub serverThread
     while ($this->{running}>1 || (
 		   $this->{running} && !$this->{stopping}))
     {
-        if ($USE_FORKING && ($HOW_KILL_FORK & ($KILL_WAIT | $KILL_KILL)))
-        {
-            if (opendir DIR,$temp_dir)
-            {
-                my @entries = readdir(DIR);
-                closedir DIR;
-                for my $entry (@entries)
-                {
-					if ($entry =~ /^((-)*\d+)\.$KILL_PID_EXT/)
-                    {
-						my $pid = $1;
-						if ($HOW_KILL_FORK & $KILL_KILL)
-						{
-							display($dbg_server,0,"KILLING CHILD PID $pid");
-							unlink "$temp_dir/$entry";
-							# This attempt to kill child process also,
-							# unfortunately, kills the buddy app ..
-							kill(15, $pid);		# SIGTERM
-						}
-						else	# $KILL_WAIT
-						{
-							display($dbg_server,0,"FS_FORK_WAITPID(pid=$pid)");
-							my $got = waitpid($pid,0);  # 0 == WNOHANG
-							if ($got && $got ==$pid)
-							{
-								unlink "$temp_dir/$entry";
-							}
-						}
-                    }
-                }
-            }
-        }
         if ($select->can_read($WAIT_ACCEPT))
         {
             $connect_num++;
@@ -334,6 +334,67 @@ sub serverThread
         {
             display($dbg_server+2,0,"not can_read()");
         }
+
+		# Server Idle Processing
+
+		# clear any finished pending notifyAll messages
+
+		for my $num (sort keys %$notify_all)
+		{
+			my $notify = $notify_all->{$num};
+			my $got_all = 1;
+			for my $c_num (keys %$active_connections)
+			{
+				if (!$notify->{notified}->{$c_num})
+				{
+					$got_all = 0;
+					last;
+				}
+			}
+
+			if ($got_all)
+			{
+				display($dbg_notifications,-1,"Clearing notifyAll: $notify->{msg}");
+				delete $notify_all->{$num};
+			}
+		}
+
+		# handle any pending FORK PID files
+
+        if ($USE_FORKING && ($HOW_KILL_FORK & ($KILL_WAIT | $KILL_KILL)))
+        {
+            if (opendir DIR,$temp_dir)
+            {
+                my @entries = readdir(DIR);
+                closedir DIR;
+                for my $entry (@entries)
+                {
+					if ($entry =~ /^((-)*\d+)\.$KILL_PID_EXT/)
+                    {
+						my $pid = $1;
+						if ($HOW_KILL_FORK & $KILL_KILL)
+						{
+							display($dbg_server,0,"KILLING CHILD PID $pid");
+							unlink "$temp_dir/$entry";
+							# This attempt to kill child process also,
+							# unfortunately, kills the buddy app ..
+							kill(15, $pid);		# SIGTERM
+						}
+						else	# $KILL_WAIT
+						{
+							display($dbg_server,0,"FS_FORK_WAITPID(pid=$pid)");
+							my $got = waitpid($pid,0);  # 0 == WNOHANG
+							if ($got && $got ==$pid)
+							{
+								unlink "$temp_dir/$entry";
+							}
+						}
+                    }
+                }
+            }
+        }
+
+
     }
 
     $server_socket->close();
@@ -354,6 +415,8 @@ sub sessionThread
 {
     my ($this,$connect_num,$client_socket,$peer_ip,$peer_port) = @_;
     display($dbg_server,-2,"SESSION THREAD($connect_num) WITH PID($$)");
+
+	$active_connections->{$connect_num} = 1;
 
 	my $session = $this->createSession($client_socket);
 
@@ -455,6 +518,20 @@ sub sessionThread
 		    display($dbg_server,0,"SESSION THREAD($connect_num) lost it's socket!");
 			last;
 		}
+
+		# send any pending notifyAll messages
+
+		for my $num (sort keys %$notify_all)
+		{
+			my $notify = $notify_all->{$num};
+			if (!$notify->{notified}->{$connect_num})
+			{
+				$notify->{notified}->{$connect_num} = 1;
+				display($dbg_notifications,-2,"THREAD($connect_num) sending $notify->{msg}");
+				$session->sendPacket($notify->{msg});
+			}
+		}
+
 	}	# while $ok && !stopping
 
 
@@ -467,6 +544,8 @@ sub sessionThread
 	}
 
 	# print "past the exit\n";
+
+	delete $active_connections->{$connect_num};
 
 	undef $session->{SOCK};
     $client_socket->close();

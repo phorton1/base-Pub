@@ -45,6 +45,7 @@ BEGIN {
 	our @EXPORT = (
 		qw (
 			$dbg_request
+			setRemoteSessionConnected
 			$file_server_request
 			$file_server_reply
 			$file_reply_pending
@@ -54,6 +55,8 @@ BEGIN {
 	);
 };
 
+
+our $remote_connected:shared = 0;
 
 our $file_server_request:shared = '';
 our $file_server_reply:shared = '';
@@ -69,7 +72,12 @@ sub new
 	return $this;
 }
 
-
+sub setRemoteSessionConnected
+{
+	my ($connected) = @_;
+	display($dbg_request,-1,"setRemoteSessionConnected($connected)");
+	$remote_connected = $connected;
+}
 
 
 #========================================================================================
@@ -92,6 +100,12 @@ sub doRemoteRequest
 			$show_request =~ s/\r/\r\n/g;
 			display($dbg_request,0,"doRemoteRequest($show_request)");
 		}
+	}
+
+	if (!$remote_connected)
+	{
+		$this->session_error("remote not connected in doRemoteRequest()");
+		return 0;
 	}
 
 	$file_server_reply = '';
