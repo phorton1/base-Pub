@@ -38,7 +38,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::Session;
 use base qw(Pub::FS::Session);
 
-our $dbg_request:shared = 1;
+our $dbg_request:shared = 0;
 
 BEGIN {
     use Exporter qw( import );
@@ -79,15 +79,21 @@ sub new
 
 sub doRemoteRequest
 {
-	my ($request) = @_;
-	if ($request =~ /BASE64/)
+	my ($this,$request) = @_;
+	if ($dbg_request <= 0)
 	{
-		display($dbg_request,0,"doRemoteRequest(BASE64) len=".length($request));
+		if ($request =~ /BASE64/)
+		{
+			display($dbg_request,0,"doRemoteRequest(BASE64) len=".length($request));
+		}
+		else
+		{
+			my $show_request = $request;
+			$show_request =~ s/\r/\r\n/g;
+			display($dbg_request,0,"doRemoteRequest($show_request)");
+		}
 	}
-	else
-	{
-		display($dbg_request,0,"doRemoteRequest($request)");
-	}
+
 	$file_server_reply = '';
 	$file_server_request = $request;
 	$file_reply_pending = 1;
@@ -98,11 +104,15 @@ sub doRemoteRequest
 		sleep(0.2);
 	}
 
-	display($dbg_request+1,0,"doRemoteRequest() got reply: '$file_server_reply'");
-	display($dbg_request,0,"doRemoteRequest() returning ".length($file_server_reply)." bytes");
+	if (!$file_server_reply)
+	{
+		$this->session_error("empty reply doRemoteRequest()") if !$file_server_reply;
+		return 0;
+	}
+
+	$this->sendPacket($file_server_reply);
+	return 1;
 }
-
-
 
 
 
@@ -110,45 +120,48 @@ sub _listRemoteDir
 {
     my ($this, $dir) = @_;
     display($dbg_commands,0,"_listRemoteDir($dir)");
-	doRemoteRequest("file_command:$SESSION_COMMAND_LIST\t$dir");
-	if (!$file_server_reply)
-	{
-		$this->session_error("_listRemoteDir() - empty reply - returning undef");
-		return undef;
-	}
-    $this->sendPacket($file_server_reply);
-    display($dbg_commands,0,"_listRemoteDir($dir) returning after sendPacket(".length($file_server_reply).")");
+	$this->doRemoteRequest("file_command:$SESSION_COMMAND_LIST\t$dir");
 	return '';
 }
+
 
 sub _mkRemoteDir
 {
     my ($this, $dir, $name) = @_;
     display($dbg_commands,0,"_mkRemoteDir($dir)");
-	doRemoteRequest("file_command:$SESSION_COMMAND_MKDIR\t$dir\t$name");
-	if (!$file_server_reply)
-	{
-		$this->session_error("_mkRemoteDir() - empty reply - returning undef");
-		return undef;
-	}
-    $this->sendPacket($file_server_reply);
+	$this->doRemoteRequest("file_command:$SESSION_COMMAND_MKDIR\t$dir\t$name");
 	return '';
 }
+
 
 sub _renameRemote
 {
     my ($this, $dir, $name1, $name2) = @_;
     display($dbg_commands,0,"_renameRemote($dir)");
-	doRemoteRequest("file_command:$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2");
-	if (!$file_server_reply)
-	{
-		$this->session_error("_renameRemote() - empty reply - returning undef");
-		return undef;
-	}
-    $this->sendPacket($file_server_reply);
+	$this->doRemoteRequestdoRemoteRequest("file_command:$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2");
 	return '';
 }
 
+
+# deleteRemotePacket() is called specifically for this
+# SessionRemote, because all we really want to do is send the
+# packet and monitor replies.  We may to sit in a loop and
+# monitor for PROGRESS MESSAGES PRH
+
+sub deleteRemotePacket
+{
+	my ($this,
+		$packet,				# MUST BE FULLY QUALIFIED
+		$entries ) = @_;
+	if ($dbg_commands <= 0)
+	{
+		my $show_packet = $packet;
+		$show_packet =~ s/\r/\r\n/g;
+		display($dbg_commands,0,"deleteRemotePacket($show_packet)");
+	}
+	$this->doRemoteRequest("file_command:$packet");
+	return '';
+}
 
 
 

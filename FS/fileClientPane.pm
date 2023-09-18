@@ -176,7 +176,7 @@ sub onKeyDown
 {
     my ($ctrl,$event) = @_;
     my $key_code = $event->GetKeyCode();
-    display($dbg_ops,0,"onKeyDown($key_code)");
+    display($dbg_ops+2,0,"onKeyDown($key_code)");
 
     # if it's the delete key, and there's some
     # items selected, pass the command to onCommand
@@ -706,12 +706,16 @@ sub populate
     if ($this->{changed} || $from_other)
     {
         $this->{list_ctrl}->DeleteAllItems() if $this->{changed};
-        for my $row (0..@{$this->{list}}-1)
-        {
-			my $use_entry = $this->{changed} ? $this->{list}->[$row]->{entry} : 0;
-            $this->setListRow($row,$use_entry);
-        }
-    }
+
+		if ($this->{list})
+		{
+			for my $row (0..@{$this->{list}}-1)
+			{
+				my $use_entry = $this->{changed} ? $this->{list}->[$row]->{entry} : 0;
+				$this->setListRow($row,$use_entry);
+			}
+		}
+	}
 
     # sort the control, which is already optimized
 

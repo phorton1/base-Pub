@@ -100,12 +100,22 @@ sub session_error
     # server errors are capitalized!
 {
     my ($this,$msg) = @_;
-	error($msg);
+	error($msg,1);
     if ($this->{IS_SERVER} && $this->{SOCK})
     {
-        $msg = "ERROR $msg";
+        $msg = "ERROR - $msg";
         $this->sendPacket($msg);
 		sleep(1);
+	}
+}
+
+sub textError
+{
+	my ($this,$text) = @_;
+	if ($text =~ s/^ERROR - //)
+	{
+		$this->session_error($text);
+		return 1;
 	}
 }
 
@@ -180,14 +190,19 @@ sub sendPacket
 {
     my ($this,$packet) = @_;
 
-    if (length($packet) > 100)
-    {
-        display($dbg_packets,-1,"$this->{WHO} --> ".length($packet)." bytes",1);
-    }
-    else
-    {
-        display($dbg_packets,-1,"$this->{WHO} --> $packet",1);
-    }
+	if ($dbg_packets <= 0)
+	{
+		if (length($packet) > 100)
+		{
+			display($dbg_packets,-1,"$this->{WHO} --> ".length($packet)." bytes",1);
+		}
+		else
+		{
+			my $show_packet = $packet;
+			$show_packet =~ s/\r/\r\n/g;
+			display($dbg_packets,-1,"$this->{WHO} --> $show_packet",1);
+		}
+	}
 
     my $sock = $this->{SOCK};
     if (!$sock)
@@ -212,7 +227,7 @@ sub sendPacket
 sub getPacket
 	# The protocol passes in $is_protocol, which blocks and prevents other
 	# callers from getting packets.  Otherwise, the method does not block.
-
+	# PRH - implement a timeout in getPacket()
 {
     my ($this,$is_protocol) = @_;
 	$is_protocol ||= 0;
@@ -256,14 +271,19 @@ sub getPacket
         return;
     }
 
-    if (length($packet) > 100)
-    {
-        display($dbg_packets,-1,"$this->{WHO} <-- ".length($packet)." bytes",1);
-    }
-    else
-    {
-        display($dbg_packets,-1,"$this->{WHO} <-- $packet",1);
-    }
+	if ($dbg_packets <= 0)
+	{
+		if (length($packet) > 100)
+		{
+			display($dbg_packets,-1,"$this->{WHO} <-- ".length($packet)." bytes",1);
+		}
+		else
+		{
+			my $show_packet = $packet;
+			$show_packet =~ s/\r/\r\n/g;
+			display($dbg_packets,-1,"$this->{WHO} <-- $show_packet",1);
+		}
+	}
 
 	$this->{IN_PROTOCOL} = 0;
     return $packet;
@@ -302,17 +322,7 @@ sub textToList
 	# returns a FS_INFO which is the base directory
 {
     my ($this,$text) = @_;
-	if ($text =~ s/^ERROR - //)
-	{
-		# ok, just to remember, here is how this gets to the UI.
-		# in Pub::Utils all errors() are reported to any UI
-		# via getAppFrame() and getAppFrame()->can("ShowError").
-		# So, we strip off the leading "ERROR - " and just call
-		# error() with the message and it shows up in the UI.
-
-		$this->session_error($text);
-		return;
-	}
+	return if $this->textError($text);
 
 	# the first directory listed is the base directory
 	# all sub-entries go into it's {entries} member
@@ -395,6 +405,60 @@ sub _renameRemote
 	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
 		if $rslt;
     return $rslt;
+}
+
+
+sub _deleteRemote			# RECURSES!!
+{
+	my ($this,
+		$dir,				# MUST BE FULLY QUALIFIED
+		$entries,
+		$progress ) = @_;
+
+	if ($dbg_commands < 0)
+	{
+		my $show_entries = ref($entries) ? '' : $entries;
+		display($dbg_commands,0,"_deleteRemote($dir,$show_entries)");
+	}
+
+    my $command = "$SESSION_COMMAND_DELETE\t$dir";
+
+	if (!ref($entries))
+	{
+		$command .= "\t$entries";	# single filename version
+	}
+	else	# full version
+	{
+		$command .= "\r";
+		for my $entry (sort keys %$entries)
+		{
+			my $info = $entries->{$entry};
+			my $text = $info->to_text();
+			display($dbg_commands,1,"entry=$text");
+			$command .= "$text\r" if $info;
+		}
+	}
+
+    return if !$this->sendPacket($command);
+
+	# so here we have the prototype of a progressy remote command
+	# note that an abort or any errors currently leaves the client
+	# remote listing unchanged
+
+	while (1)
+	{
+		my $text = $this->getPacket(1);
+		return if $this->textError($text);
+
+		if ($text =~ /^PROGRESS/)
+		{
+
+		}
+		else
+		{
+			return $this->textToList($text);
+		}
+	}
 }
 
 
@@ -616,6 +680,29 @@ sub _deleteLocal			# RECURSES!!
 
 
 
+#------------------------------------------------------
+# _doXFER
+#------------------------------------------------------
+# This base class implements _doXFER assuming that it
+# is a long distances socket, as in My::FS.
+#
+# The SessionClient must know if it is talking to a local
+# RemoteServer (maybe call it ServerSerial)
+# that should handle the request instead. ....
+#
+# It is written in such a way that the RemoteServer can
+# utilize the protocol herein, for it's half of the work,
+# the basic idea being that we don't want to pass all that
+# junk over the socket to the windows app.
+#
+# XFER($local) = PUT (upload)
+# XFER(!$local) = GET (download)
+
+
+
+
+
+
 
 
 #------------------------------------------------------
@@ -671,10 +758,13 @@ sub doCommand
 	elsif ($command eq $SESSION_COMMAND_DELETE)			# $dir, $entries_or_filename, undef, $progress
 	{
 		# returns new dir_info with entries
-		return $this->_deleteRemote($param1,$param3,$param2)
+		return $this->_deleteRemote($param1,$param2,$progress)
 			if !$local;
 
-		if (!ref($param2))		# single fully qualified filename
+		# single fully qualified filename is handled specially
+		# since _deleteLocal expects a list of entries for recursion
+
+		if (!ref($param2))
 		{
 			my $path = "$param1/$param2";
 			display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");

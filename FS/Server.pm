@@ -392,6 +392,7 @@ sub sessionThread
 			{
 				if ($packet =~ /^ABORT/)
 				{
+					$this->session_error("operation($this->{IS_REMOTE}) ABORTED by remote");
 					next;
 				}
 				elsif ($packet =~ /^EXIT/)
@@ -400,9 +401,47 @@ sub sessionThread
 				}
 				elsif ($packet)
 				{
-					my @params = split(/\t/,$packet);
+					my @lines = split(/\n/,$packet);
+					my $line = shift @lines;
+					my @params = split(/\t/,$line);
+						# LIST 		$dir
+						# MKDIR 	$dir $dirname
+						# RENAME 	$dir $name1 $name2
+						# DELETE 	$dir [$singe_filename]
+						# XFER      $dir, $local, $target_dir
+						# BASE_64   $data
+						# PROGRESS  TBD
+					my $entries = $params[2];
+
+					# DELETE is passed directly back to the SessionRemote,
+					# which also handles PROGRESS and ABORT
+
+					my $rslt;
+					if ($this->{IS_REMOTE} && $params[0] eq $SESSION_COMMAND_DELETE)
+					{
+						$rslt = $session->deleteRemotePacket($packet)
+					}
+
+					# XFER and DELETE take $entries from multiple_lines.
+
+					else
+					{
+						if (@lines)
+						{
+							$entries = {};
+							for my $line (@lines)
+							{
+								my $info = Pub::FS::FileInfo->from_text($this,$line);
+								$entries->{$info->{entry}} = $info;
+							}
+						}
+
+						$rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$entries,$params[3]);
+					}
+
 					# print "SERVER PACKET $packet\n";
-					my $rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$params[2],$params[3]);
+
+					$rslt ||= '';
 					my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
 					last if $packet && !$session->sendPacket($packet);
 				}
