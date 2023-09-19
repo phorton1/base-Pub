@@ -338,7 +338,7 @@ sub error
 
     my $app_frame = getAppFrame();
 	$app_frame->showError("Error: ".$msg) if
-		$app_frame && $app_frame->can('showError');
+		$app_frame && ref($app_frame)=~/HASH/ && $app_frame->can('showError');
 
 	return undef;
 }
