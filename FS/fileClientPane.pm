@@ -44,6 +44,16 @@ my $dbg_ops  = -1;		# commands
 	# -1, -2 = more detail
 
 
+BEGIN {
+    use Exporter qw( import );
+	our @EXPORT = qw (
+		$progress
+	);
+}
+
+our $progress;
+
+
 #-----------------------------------
 # configuration vars
 #-----------------------------------
@@ -84,6 +94,7 @@ sub compareType
     return 'older' if $comp_value == 1;
 	return '';	# JIC
 }
+
 
 #-----------------------------------
 # new
@@ -1126,7 +1137,6 @@ sub doCommandSelected
 	my $entries = $dir_info->{entries};
 
 	my $first_entry;
-	my $first_is_file = 0;
     for (my $i=1; $i<$num; $i++)
     {
         if ($ctrl->GetItemState($i,wxLIST_STATE_SELECTED))
@@ -1137,7 +1147,6 @@ sub doCommandSelected
 			if (!$first_entry)
 			{
 				$first_entry = $entry;
-				$first_is_file = !$info->{is_dir};
 			}
             display($dbg_ops+1,2,"selected=$info->{entry}");
 
@@ -1179,11 +1188,16 @@ sub doCommandSelected
 		$SESSION_COMMAND_DELETE;
 	my $target_dir =
 
+	$progress = Pub::FS::fileProgressDialog->new(
+		undef,
+		uc($display_command))
+		if $num_dirs || $num_files>1;
+
 	# call the command processor
 	# no progress dialog at this time
 	# note special case of single file
 
-	my $param2 = $first_is_file ?
+	my $param2 = !$num_dirs && $num_files == 1 ?
 		$first_entry :
 		$dir_info->{entries};
 	my $rslt = $this->{session}->doCommand(
@@ -1192,7 +1206,10 @@ sub doCommandSelected
 		$this->{dir},
 		$param2,					# info-list or single filename
 		$other->{dir},				# target dir
-		undef);						# progress
+		$progress);					# progress
+
+	$progress->Destroy() if $progress;
+	$progress = undef;
 
 	# We repopulate regardless of the command result
 	# For Xfer the directory returned is the one that was modified

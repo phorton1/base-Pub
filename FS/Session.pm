@@ -27,10 +27,16 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use Time::HiRes qw( sleep  );
 use IO::Select;
 use IO::Socket::INET;
 use Pub::Utils;
 use Pub::FS::FileInfo;
+
+
+our $test_sleep:shared = 0;
+	# delay certain operatios to test progress stuff
+	# set this to 1 or 2 seconds to slow things down for testing
 
 our $dbg_session:shared = 1;
 our $dbg_packets:shared = 0;
@@ -42,6 +48,8 @@ our $dbg_commands:shared = -1;
 	# -1 = show command header
 	# -2 = show command details
 our $dbg_recurse:shared = 0;
+our $dbg_progress:shared = 0;
+
 
 my $DEFAULT_TIMEOUT = 15;
 
@@ -50,11 +58,14 @@ BEGIN {
     use Exporter qw( import );
 	our @EXPORT = qw (
 
+		$test_sleep
+
 		$dbg_session
 		$dbg_packets
 		$dbg_lists
 		$dbg_commands
 		$dbg_recurse
+		$dbg_progress
 
 		$DEFAULT_PORT
 		$DEFAULT_HOST
@@ -109,7 +120,9 @@ sub session_error
     {
         $msg = "ERROR - $msg";
         $this->sendPacket($msg);
-		sleep(1);
+		sleep(0.5);
+			# to allow packet to be sent
+			# in case we are shutting down
 	}
 }
 
@@ -123,6 +136,29 @@ sub textError
 	}
 }
 
+sub handleProgress
+{
+	my ($this,$packet,$progress) = @_;
+
+	if ($packet =~ s/^PROGRESS\t(.*?)\t//)
+	{
+		my $command = $1;
+		$packet =~ s/\s+$//g;
+		display($dbg_progress,-1,"handleProgress() PROGRESS($command) $packet");
+		if ($progress)
+		{
+			my @params = split(/\t/,$packet);
+			$progress->addDirsAndFiles($params[0],$params[1])
+				if $command eq 'ADD';
+			$progress->setDone($params[0])
+				if $command eq 'DONE';
+			$progress->setEntry($params[0])
+				if $command eq 'ENTRY';
+		}
+		return 1;
+	}
+	return 0;
+}
 
 
 sub isConnected
@@ -241,9 +277,9 @@ sub getPacket
     if (!$sock)
     {
         $this->session_error("$this->{WHO} no socket in getPacket");
-        return;
+        return '';
     }
-	return if !$is_protocol && $this->{IN_PROTOCOL};
+	return '' if !$is_protocol && $this->{IN_PROTOCOL};
 	$this->{IN_PROTOCOL} = $is_protocol;
 
 	# if !protocol, return immediately
@@ -256,13 +292,15 @@ sub getPacket
 		my $can_read = $select->can_read(0.1);
 		last if $can_read;
 
-		return if !$is_protocol;
+		return '' if !$is_protocol;
 
 		if (time() > $started + $this->{TIMEOUT})
 		{
 			$this->session_error("getPacket timed out");
-			return;
+			return '';
 		}
+
+		# sleep(0.01);
 	}
 
 	my $CRLF = "\015\012";
@@ -277,7 +315,7 @@ sub getPacket
 			$this->{IN_PROTOCOL} = 0;
 			$this->session_error("$this->{WHO} no response from peer");
 		}
-		return;
+		return '';
     }
 
     $packet =~ s/(\r|\n)$//g;
@@ -286,7 +324,7 @@ sub getPacket
     {
 		$this->{IN_PROTOCOL} = 0;
         $this->session_error("$this->{WHO} empty response from peer");
-        return;
+        return '';
     }
 
 	if ($dbg_packets <= 0)
@@ -465,16 +503,11 @@ sub _deleteRemote			# RECURSES!!
 
 	while (1)
 	{
-		my $text = $this->getPacket(1);
-		return if $this->textError($text);
-
-		if ($text =~ /^PROGRESS/)
+		my $packet = $this->getPacket(1);
+		return if $this->textError($packet);
+		if (!$this->handleProgress($packet,$progress))
 		{
-
-		}
-		else
-		{
-			return $this->textToList($text);
+			return $this->textToList($packet);
 		}
 	}
 }
@@ -583,6 +616,8 @@ sub _deleteLocal			# RECURSES!!
 
 	display($dbg_recurse,-2-$level,"_deleteLocal($dir,$level)");
 	return if $progress && $progress->aborted();
+	sleep($test_sleep) if $test_sleep;
+
 
 	#----------------------------------------------------
 	# scan directory of any dir entries
@@ -601,7 +636,6 @@ sub _deleteLocal			# RECURSES!!
 		{
 			my $dir_path = "$dir/$entry";
 			my $dir_entries = $entry_info->{entries};
-			$progress->incNumDirs() if $progress;
 
 			if (!opendir DIR,$dir_path)
 			{
@@ -629,10 +663,14 @@ sub _deleteLocal			# RECURSES!!
 		}
 		else
 		{
-			$progress->incNumFiles() if $progress;
 			$files->{$entry} = $entry_info;
 		}
 	}
+
+	$progress->addDirsAndFiles(
+		scalar(keys %$subdirs),
+		scalar(keys %$files))
+		if scalar(keys %$subdirs) || scalar(keys %$files);
 
 	#-------------------------------------------
 	# depth first recurse thru subdirs
@@ -656,18 +694,20 @@ sub _deleteLocal			# RECURSES!!
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$files)
 	{
 		return if $progress && $progress->aborted();
+		sleep($test_sleep) if $test_sleep;
+
 		my $info = $entries->{$entry};
 		if (!$info->{is_dir})
 		{
-			$progress->incFilesDone($entry) if $progress;
-
 			my $path = "$dir/$entry";
+			$progress->setEntry($path) if $progress;
 			display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local file: $path");
 			if (!unlink $path)
 			{
 				$this->session_error("$this->{WHO} Could not delete local file $path");
 				return;
 			}
+			$progress->setDone(0) if $progress;
 		}
 	}
 
@@ -679,20 +719,21 @@ sub _deleteLocal			# RECURSES!!
 	if ($level)
 	{
 		return if $progress && $progress->aborted();
+		sleep($test_sleep) if $test_sleep;
+
+		$progress->setEntry($dir) if $progress;
 		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local dir: $dir");
 		if (!rmdir $dir)
 		{
 			$this->session_error("$this->{WHO} Could not delete local file $dir");
 			return;
 		}
-		$progress->incDirsDone($dir) if $progress;
-
+		$progress->setDone(1) if $progress;
 		return 1;
 	}
 
 	# level 0 returns a directory listing on success
 
-	$progress->done() if $progress;
 	return $this->_listLocalDir($dir);
 }
 

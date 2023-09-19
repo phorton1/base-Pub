@@ -87,24 +87,9 @@ sub setRemoteSessionConnected
 # Command Processor
 #========================================================================================
 
-
-sub doRemoteRequest
+sub waitReply
 {
-	my ($this,$request) = @_;
-	if ($dbg_request <= 0)
-	{
-		if ($request =~ /BASE64/)
-		{
-			display($dbg_request,0,"doRemoteRequest(BASE64) len=".length($request));
-		}
-		else
-		{
-			my $show_request = $request;
-			$show_request =~ s/\r/\r\n/g;
-			display($dbg_request,0,"doRemoteRequest($show_request)");
-		}
-	}
-
+	my ($this) = @_;
 	if (!$remote_connected)
 	{
 		$this->session_error("remote not connected in doRemoteRequest()");
@@ -112,7 +97,6 @@ sub doRemoteRequest
 	}
 
 	$file_server_reply = '';
-	$file_server_request = $request;
 	$file_reply_pending = 1;
 
 	my $started = time();
@@ -132,6 +116,7 @@ sub doRemoteRequest
 		if (!$ok)
 		{
 			$file_server_request = '';
+			$file_server_reply = '';
 			$file_reply_pending = 0;
 			return 0;
 		}
@@ -141,11 +126,45 @@ sub doRemoteRequest
 
 	if (!$file_server_reply)
 	{
+		$file_server_request = '';
+		$file_server_reply = '';
+		$file_reply_pending = 0;
 		$this->session_error("empty reply doRemoteRequest()") if !$file_server_reply;
 		return 0;
 	}
 
+	$file_server_request = '';
+	$file_server_reply =~ s/\s+$//g;
 	$this->sendPacket($file_server_reply);
+	return 1;
+}
+
+
+
+sub doRemoteRequest
+{
+	my ($this,$request) = @_;
+	if ($dbg_request <= 0)
+	{
+		if ($request =~ /BASE64/)
+		{
+			display($dbg_request,0,"doRemoteRequest(BASE64) len=".length($request));
+		}
+		else
+		{
+			my $show_request = $request;
+			$show_request =~ s/\r/\r\n/g;
+			display($dbg_request,0,"doRemoteRequest($show_request)");
+		}
+	}
+
+	$file_server_request = $request;
+	return if !$this->waitReply();
+
+	while ($file_server_reply =~ /^PROGRESS/)
+	{
+		return if !$this->waitReply();
+	}
 	return 1;
 }
 

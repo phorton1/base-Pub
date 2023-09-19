@@ -19,12 +19,15 @@
 package Pub::FS::fileProgressDialog;
 use strict;
 use warnings;
+use Time::HiRes qw( sleep );
 use Wx qw(:everything);
 use Wx::Event qw(EVT_CLOSE EVT_BUTTON);
 use Pub::Utils qw(getAppFrame display);
 use base qw(Wx::Dialog);
 
 
+my $ID_WINDOW = 18000;
+my $ID_GUAGE = 18001;
 my $ID_CANCEL = 4567;
 
 my $dbg_fpd = 1;
@@ -35,34 +38,40 @@ sub new
     my ($class,
 		$parent,
 		$what,
-		$num_files,
-		$num_dirs ) = @_;
+		$num_dirs,
+		$num_files) = @_;
+
+	$num_files ||= 0;
+	$num_dirs ||= 0;
 
 	display($dbg_fpd,0,"fileProgressDialog::new($what,$num_files,$num_dirs)");
 
 	$parent = getAppFrame() if !$parent;
 	$parent->Enable(0) if $parent;
 
-    my $this = $class->SUPER::new($parent,-1,'',[-1,-1],[500,230]);
+    my $this = $class->SUPER::new($parent,$ID_WINDOW,'',[-1,-1],[500,230]);
 
 	$this->{parent} 	= $parent;
 	$this->{what} 		= $what;
-	$this->{num_files} 	= $num_files;
 	$this->{num_dirs} 	= $num_dirs;
+	$this->{num_files} 	= $num_files;
 	$this->{entry}      = '';
-	$this->{cancelled}  = 0;
+	$this->{aborted}    = 0;
 	$this->{files_done} = 0;
 	$this->{dirs_done} 	= 0;
 	$this->{sub_range}  = 0;
 	$this->{sub_done}   = 0;
 	$this->{sub_msg}    = '';
 
-	$this->{what_msg} 	= Wx::StaticText->new($this,-1,$what,	[20,10],  [170,20]);
-	$this->{file_msg} 	= Wx::StaticText->new($this,-1,'',		[200,10], [120,20]);
-	$this->{dir_msg} 	= Wx::StaticText->new($this,-1,'',		[340,10], [120,20]);
-	$this->{entry_msg} 	= Wx::StaticText->new($this,-1,'',		[20,30],  [470,20]);
-    $this->{gauge} 		= Wx::Gauge->new($this,-1,$num_files+$num_dirs,[20,60],[455,20]);
-	$this->{sub_ctrl} 	= Wx::StaticText->new($this,-1,'',[20,100],[455,20]);
+	$this->{range}      = $num_files+$num_dirs-1;
+	$this->{value}		= 0;
+
+	$this->{what_msg} 	= Wx::StaticText->new($this,-1,$what,	 [20,10],  [170,20]);
+	$this->{dir_msg} 	= Wx::StaticText->new($this,-1,'',		 [200,10], [120,20]);
+	$this->{file_msg} 	= Wx::StaticText->new($this,-1,'',		 [340,10], [120,20]);
+	$this->{entry_msg} 	= Wx::StaticText->new($this,-1,'',		 [20,30],  [470,20]);
+    $this->{gauge} 		= Wx::Gauge->new($this,$ID_GUAGE,0,		 [20,60],[455,20]);
+	$this->{sub_ctrl} 	= Wx::StaticText->new($this,-1,'', 		 [20,100],[455,20]);
     $this->{sub_gauge} 	= Wx::Gauge->new($this,-1,$num_files+$num_dirs,[20,130],[455,16]);
 	$this->{sub_gauge}->Hide();
 
@@ -79,12 +88,19 @@ sub new
 }
 
 
+sub aborted()
+{
+	my ($this) = @_;
+	# $this->update();
+		# to try to fix guage problem
+	return $this->{aborted};
+}
 
 sub onClose
 {
     my ($this,$event) = @_;
 	display($dbg_fpd,0,"fileProgressDialog::onClose()");
-    $event->Veto() if !$this->{cancelled};
+    $event->Veto() if !$this->{aborted};
 }
 
 
@@ -105,7 +121,7 @@ sub onButton
 {
     my ($this,$event) = @_;
 	display($dbg_fpd,0,"fileProgressDialog::onButton()");
-    $this->{cancelled} = 1;
+    $this->{aborted} = 1;
     $event->Skip();
 }
 
@@ -121,23 +137,49 @@ sub update
 	my ($this) = @_;
 	display($dbg_fpd,0,"fileProgressDialog::update()");
 
-	my $num_files 	= $this->{num_files};
 	my $num_dirs 	= $this->{num_dirs};
-	my $files_done 	= $this->{files_done};
+	my $num_files 	= $this->{num_files};
 	my $dirs_done 	= $this->{dirs_done};
+	my $files_done 	= $this->{files_done};
 
 	my $title = "$this->{what} ";
-	$title .= "$num_files files " if $num_files;
-	$title .= "and " if $num_files && $num_dirs;
 	$title .= "$num_dirs directories " if $num_dirs;
+	$title .= "and " if $num_files && $num_dirs;
+	$title .= "$num_files files " if $num_files;
 
 	$this->SetLabel($title);
-	$this->{file_msg}->SetLabel("$files_done/$num_files files") if $num_files;
 	$this->{dir_msg}->SetLabel("$dirs_done/$num_dirs dirs") if $num_dirs;
+	$this->{file_msg}->SetLabel("$files_done/$num_files files") if $num_files;
 	$this->{entry_msg}->SetLabel($this->{entry});
 
-	$this->{gauge}->SetRange($num_files + $num_dirs);
-	$this->{gauge}->SetValue($files_done + $dirs_done);
+	if ($this->{range} != $num_dirs + $num_files - 1)
+	{
+		$this->{range} = $num_dirs + $num_files - 1;
+		$this->{gauge}->SetRange($this->{range});
+	}
+	if ($this->{value} != $dirs_done + $files_done)
+	{
+		$this->{value} = $dirs_done + $files_done;
+		$this->{gauge}->SetValue($this->{value});
+
+		# hmmm .. the guage doesn't update till the second call to this method
+		# and nothing seeed to make it better (including yields and sleeps here
+		# and in other objects).
+		#
+		# In lieu of figuring out a solution, I decremented the range by one
+		# so that it sort of looks right
+        #
+		# $this->{gauge}->Refresh();
+		# $this->{gauge}->Update();
+		# $this->Refresh();
+		# $this->Update();
+        #
+		# my $new_event = Wx::CommandEvent->new($ID_GUAGE);
+        # $this->AddPendingEvent($new_event);
+        #
+		# my $new_event2 = Wx::CommandEvent->new($ID_WINDOW);
+        # $this->AddPendingEvent($new_event2);
+	}
 
 	$this->{sub_ctrl}->SetLabel($this->{sub_msg});
 
@@ -152,10 +194,16 @@ sub update
 		$this->{sub_gauge}->Hide();
 	}
 
+	# yield occasionally
+
 	Wx::App::GetInstance()->Yield();
+	# sleep(0.2);
+	# Wx::App::GetInstance()->Yield();
+
+
 	display($dbg_fpd,0,"fileProgressDialog::update() finished");
 
-	return !$this->{cancelled};
+	return !$this->{aborted};
 }
 
 
@@ -164,13 +212,13 @@ sub update
 #----------------------------------------------------
 
 
-sub addFilesAndDirs
+sub addDirsAndFiles
 {
-	my ($this,$num_files,$num_dirs) = @_;
-	display($dbg_fpd,0,"addFilesAndDirs($num_files,$num_dirs)");
+	my ($this,$num_dirs,$num_files,) = @_;
+	display($dbg_fpd,0,"addDirsAndFiles($num_dirs,$num_files)");
 
-	$this->{num_files} += $num_files;
 	$this->{num_dirs} += $num_dirs;
+	$this->{num_files} += $num_files;
 	return $this->update();
 }
 
