@@ -8,6 +8,8 @@
 package Pub::FS::FileInfo;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Pub::Utils;
 
 our $dbg_info = 1;
@@ -55,11 +57,10 @@ sub new
 
 	display($dbg_info,0,"FileInfo->new($is_dir,$is_dir,$dir,$entry)");
 
-    my $this = {
-        session   => $session,
+    my $this = shared_clone({
         is_dir    => $is_dir,
-        entry     => $entry };
-    $this->{entries} = {} if ($is_dir);
+        entry     => $entry });
+    $this->{entries} = shared_clone({}) if ($is_dir);
 
     bless $this,$class;
     return $this if ($no_checks);
@@ -127,9 +128,8 @@ sub makepath
 sub from_text
 {
     my ($class,$session,$string,$use_dir) = @_;
-    my $this = {};
+    my $this = shared_clone({});
     bless $this,$class;
-    $this->{session} = $session;
     display($dbg_info,0,"from_text($string)");
     for my $field (@fields)
     {
@@ -142,7 +142,7 @@ sub from_text
 		$this->{$field} =  $value;
     }
 	$this->{dir} = $use_dir if $use_dir;
-	$this->{entries} = {} if $this->{is_dir};
+	$this->{entries} = shared_clone({}) if $this->{is_dir};
 	display_hash($dbg_info+1,1,"from_text",$this);
 
 	bless $this,$class;
