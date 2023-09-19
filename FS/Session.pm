@@ -85,7 +85,7 @@ our $SESSION_COMMAND_MKDIR = "MKDIR";
 our $SESSION_COMMAND_DELETE = "DELETE";
 our $SESSION_COMMAND_XFER = "XFER";
 
-my $in_protocol = 0;
+# my $in_protocol = 0;
 
 
 #------------------------------------------------
@@ -136,31 +136,6 @@ sub textError
 		return 1;
 	}
 }
-
-sub handleProgress
-{
-	my ($this,$packet,$progress) = @_;
-
-	if ($packet =~ s/^PROGRESS\t(.*?)\t//)
-	{
-		my $command = $1;
-		$packet =~ s/\s+$//g;
-		display($dbg_progress,-1,"handleProgress() PROGRESS($command) $packet");
-		if ($progress)
-		{
-			my @params = split(/\t/,$packet);
-			$progress->addDirsAndFiles($params[0],$params[1])
-				if $command eq 'ADD';
-			$progress->setDone($params[0])
-				if $command eq 'DONE';
-			$progress->setEntry($params[0])
-				if $command eq 'ENTRY';
-		}
-		return 1;
-	}
-	return 0;
-}
-
 
 sub isConnected
 {
@@ -233,7 +208,7 @@ sub connect
 sub sendPacket
 {
     my ($this,$packet) = @_;
-	display($dbg_packets+1,0,"sendPacket($in_protocol)")
+	display($dbg_packets+2,0,"sendPacket()")	# $in_protocol)")
 		if !$this->{IS_SERVER};
 	if ($dbg_packets <= 0)
 	{
@@ -249,11 +224,11 @@ sub sendPacket
 		}
 	}
 
-	if ($in_protocol)
-	{
-		error("sendPacket while in_protocol=$in_protocol");
-		return 0;
-	}
+	# if ($in_protocol)
+	# {
+	# 	error("sendPacket while in_protocol=$in_protocol");
+	# 	return 0;
+	# }
 
     my $sock = $this->{SOCK};
     if (!$sock)
@@ -282,7 +257,7 @@ sub getPacket
     my ($this,$is_protocol) = @_;
 	$is_protocol ||= 0;
 
-	display($dbg_packets-1,0,"getPacket($is_protocol,$in_protocol)")
+	display($dbg_packets-1,0,"getPacket($is_protocol)")		# ,$in_protocol)")
 		if !$this->{IS_SERVER} && $is_protocol;
 
     my $sock = $this->{SOCK};
@@ -292,11 +267,11 @@ sub getPacket
         return '';
     }
 
-	if ($is_protocol && $in_protocol > 1)
-	{
-		error("getPacket re-entered IN_PROTOCOL=$in_protocol") if $is_protocol;
-		return '';
-	}
+	# if ($is_protocol && $in_protocol > 1)
+	# {
+	# 	error("getPacket re-entered IN_PROTOCOL=$in_protocol") if $is_protocol;
+	# 	return '';
+	# }
 
 	# if !protocol, return immediately
 	# if protcol, watch for timeouts
@@ -438,9 +413,9 @@ sub _listRemoteDir
 
     return if !$this->sendPacket($command);
 
-	$in_protocol++;
+	# $in_protocol++;
     my $text = $this->getPacket(1);
-	$in_protocol--;
+	# $in_protocol--;
     return if (!$text);
 
     my $rslt = $this->textToList($text);
@@ -458,9 +433,9 @@ sub _mkRemoteDir
     my $command = "$SESSION_COMMAND_MKDIR\t$dir\t$subdir";
 
     return if !$this->sendPacket($command);
-	$in_protocol++;
+	# $in_protocol++;
     my $text = $this->getPacket(1);
-	$in_protocol--;
+	# $in_protocol--;
     return if (!$text);
 
     my $rslt = $this->textToList($text);
@@ -478,9 +453,9 @@ sub _renameRemote
     my $command = "$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2";
 
     return if !$this->sendPacket($command);
-	$in_protocol++;
+	# $in_protocol++;
     my $text = $this->getPacket(1);
-	$in_protocol--;
+	# $in_protocol--;
     return if (!$text);
 
     my $rslt = $this->textToList($text);
@@ -488,6 +463,43 @@ sub _renameRemote
 		if $rslt;
     return $rslt;
 }
+
+
+
+
+
+
+sub handleProgress
+{
+	my ($this,$packet,$progress) = @_;
+
+	if ($packet =~ s/^PROGRESS\t(.*?)\t//)
+	{
+		my $command = $1;
+		$packet =~ s/\s+$//g;
+		display($dbg_progress,-1,"handleProgress() PROGRESS($command) $packet");
+
+		# PRH hmm ..
+		# these methods are on the fileClientPane for threaded requests
+		# which pushes them onto a shared list which is processed by?!?
+		# onIdle() ?!?!
+
+		if ($progress)
+		{
+			my @params = split(/\t/,$packet);
+			$progress->addDirsAndFiles($params[0],$params[1])
+				if $command eq 'ADD';
+			$progress->setDone($params[0])
+				if $command eq 'DONE';
+			$progress->setEntry($params[0])
+				if $command eq 'ENTRY';
+		}
+		return 1;
+	}
+	return 0;
+}
+
+
 
 
 sub _deleteRemote			# RECURSES!!
@@ -527,7 +539,7 @@ sub _deleteRemote			# RECURSES!!
 	# note that an abort or any errors currently leaves the client
 	# remote listing unchanged
 
-	$in_protocol++;
+	# $in_protocol++;
 	my $retval = '';
 
 	while (1)
@@ -542,7 +554,7 @@ sub _deleteRemote			# RECURSES!!
 		}
 	}
 
-	$in_protocol--;
+	# $in_protocol--;
 	return $retval;
 
 }
