@@ -24,6 +24,8 @@
 package Pub::WX::Notebook;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::AUI;
 use Wx::Event qw(
@@ -191,8 +193,8 @@ sub getConfigStr
 # 		display($dbg_nb,0,"$this AddPage($page)");
 # 		my $rslt = $this->SUPER::AddPage($page,$caption,$select,@params);
 # 	}
-# 	
-# 	
+#
+#
 # 	sub RemovePage
 # 		# overidden so we can update the title
 # 		# when a page is added or deleted

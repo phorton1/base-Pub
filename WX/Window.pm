@@ -32,6 +32,8 @@
 
 package Pub::WX::Window;
 use strict;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(EVT_CHILD_FOCUS EVT_CLOSE);
 use Pub::Utils;

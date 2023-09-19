@@ -7,6 +7,8 @@
 
 package Pub::WX::Dialogs;
 use strict;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(EVT_BUTTON);
 use Pub::Utils;
@@ -133,6 +135,8 @@ sub onButton
 package Pub::WX::DialogToast;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(EVT_IDLE);
 use base qw(Wx::Dialog);
@@ -174,6 +178,8 @@ sub onIdle
 package Pub::WX::ProgressDialog;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(
 	EVT_CLOSE

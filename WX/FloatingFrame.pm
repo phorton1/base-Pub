@@ -7,6 +7,8 @@
 package Pub::WX::FloatingFrame;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Pub::Utils;
 use Pub::WX::Resources;
@@ -107,7 +109,7 @@ sub onCloseFrame
 			$pane->DESTROY();
 		}
 	}
-	
+
 	if ($rslt)
 	{
 		display($dbg_ff,2,"detaching frame($this->{instance}) $book->{name}");
@@ -118,7 +120,7 @@ sub onCloseFrame
 		$this->DESTROY();
 		$event->Skip();
 	}
-	
+
 
 }	# Pub::WX::FloatingFrame::onCloseFrame
 

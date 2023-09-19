@@ -5,6 +5,8 @@
 
 package Pub::WX::Main;
 use strict;
+use threads;
+use threads::shared;
 use Error qw(:try);
 use Wx qw(wxOK wxICON_EXCLAMATION);
 use Pub::Utils;

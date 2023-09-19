@@ -4,6 +4,8 @@
 package Pub::WX::Frame;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(
     EVT_MENU

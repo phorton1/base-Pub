@@ -10,6 +10,8 @@
 package Pub::WX::Resources;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 
 
 BEGIN

@@ -10,6 +10,8 @@
 package Pub::FS::fileClientResources;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Pub::WX::Resources;
 
 BEGIN

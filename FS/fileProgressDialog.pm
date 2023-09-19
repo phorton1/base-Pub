@@ -19,6 +19,8 @@
 package Pub::FS::fileProgressDialog;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Time::HiRes qw( sleep );
 use Wx qw(:everything);
 use Wx::Event qw(EVT_CLOSE EVT_BUTTON);

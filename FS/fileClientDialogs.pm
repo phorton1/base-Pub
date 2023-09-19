@@ -6,6 +6,8 @@
 package mkdirDialog;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(EVT_BUTTON EVT_TEXT_ENTER);	# EVT_CHAR);
 use Pub::Utils;

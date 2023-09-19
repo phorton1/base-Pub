@@ -4,6 +4,8 @@
 package Pub::WX::Menu;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(
     wxITEM_RADIO
     wxITEM_CHECK

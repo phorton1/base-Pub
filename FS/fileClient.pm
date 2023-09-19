@@ -6,6 +6,8 @@
 package Pub::FS::fileClientAppFrame;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(EVT_MENU);
 use Pub::Utils;
@@ -81,6 +83,8 @@ sub commandConnect
 package Pub::FS::fileClientApp;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Pub::Utils;
 use Pub::WX::Main;
 use base 'Wx::App';
