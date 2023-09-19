@@ -2,6 +2,8 @@
 #--------------------------------------------------------
 # Pub::Utils.pm
 #--------------------------------------------------------
+# These output routines are definitely not multi-process
+# safe, and they do not currently support STD_ERR for services
 
 package Pub::Utils;
 use strict;
@@ -10,8 +12,7 @@ use threads;
 use threads::shared;
 use Cava::Packager;
 use Win32::Console;
-
-
+use Win32::Mutex;
 
 our $debug_level = 0;
 
@@ -26,6 +27,11 @@ BEGIN
         $data_dir
         $logfile
 		$resource_dir
+
+		createSTDOUTSemaphore
+		openSTDOUTSemaphore
+		waitSTDOUTSemaphore
+		releaseSTDOUTSemaphore
 
 		setAppFrame
 		getAppFrame
@@ -66,9 +72,8 @@ our $resource_dir    = '';
 
 my $CHARS_PER_INDENT = 2;
 my $WITH_TIMESTAMPS = 0;
-my $WITH_PROCESS_INFO = 0;
+my $WITH_PROCESS_INFO = 1;
 my $PAD_FILENAMES = 30;
-
 
 my $fg_lightgray = 7;
 my $fg_lightred = 12;
@@ -80,12 +85,52 @@ our $DISPLAY_COLOR_LOG  	= 1;
 our $DISPLAY_COLOR_WARNING 	= 2;
 our $DISPLAY_COLOR_ERROR 	= 3;
 
-
 my $STD_OUTPUT_HANDLE = -11;
 my $CONSOLE_STDOUT = Win32::Console->new($STD_OUTPUT_HANDLE);
-
 # my $STD_ERROR_HANDLE = -12;
 # my $CONSOLE_STDERR = Win32::Console->new($STD_OUTPUT_HANDLE);
+
+
+my $WITH_SEMAPHORES = 0;
+my $STD_OUT_SEM;
+my $MUTEX_TIMEOUT = 1000;
+
+
+sub createSTDOUTSemaphore
+	# $process_group_name is for a group of processes that
+	# share STDOUT.  The inntial process calls this method.
+{
+	my ($process_group_name) = @_;
+	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
+	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
+	error("Could not CREATE $process_group_name SEMAPHORE") if !$STD_OUT_SEM;
+
+}
+
+sub openSTDOUTSemaphore
+	# $process_group_name is for a group of processes that
+	# share STDOUT.  The inntial process calls this method.
+{
+	my ($process_group_name) = @_;
+	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
+	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
+	error("Could not OPEN $process_group_name SEMAPHORE") if !$STD_OUT_SEM;
+}
+
+sub waitSTDOUTSemaphore
+{
+	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
+}
+
+sub releaseSTDOUTSemaphore
+{
+	$STD_OUT_SEM->release() if $STD_OUT_SEM;
+}
+
+
+
+
+
 
 sub setAppFrame
 {
@@ -246,9 +291,11 @@ sub _output
 		}
 	}
 
+	my $got_sem = waitSTDOUTSemaphore();
 	_setColor($color_const);
 	print STDOUT $full_message."\n";
 	_setColor($DISPLAY_COLOR_NONE);
+	releaseSTDOUTSemaphore() if $got_sem;
 
 	return 1;
 }

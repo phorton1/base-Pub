@@ -33,14 +33,14 @@ use base qw(Wx::Window);
 
 
 my $dbg_life = 0;		# life_cycle
-my $dbg_pop  = 1;		# populate
+my $dbg_pop  = 0;		# populate
 	# -1 = addItem
 	# -2 = addItem idx mapping
 my $dbg_comp = 1;		# compare colors
 	# -1 = entries
 my $dbg_sort = 1;		# sorting
 	# =1 = details
-my $dbg_ops  = -1;		# commands
+my $dbg_ops  = 0;		# commands
 	# -1, -2 = more detail
 
 
@@ -169,7 +169,7 @@ sub onSize
 {
     my ($this,$event) = @_;
 	$this->doLayout();
-	$this->{parent}->onSize($event);
+	# $this->{parent}->onSize($event);
 		# to adjust the enabled_ctrl
     $event->Skip();
 }
@@ -182,6 +182,9 @@ sub doLayout
     my $width = $sz->GetWidth();
     my $height = $sz->GetHeight();
     $this->{list_ctrl}->SetSize([$width,$height-$PANE_TOP]);
+
+	my $sash_pos = $this->{parent}->{splitter}->GetSashPosition();
+	$this->{parent}->{enabled_ctrl}->Move($sash_pos+10,5);
 }
 
 
@@ -695,12 +698,20 @@ sub setContents
 		    # $local ?
 			# $this->{session}->_listLocalDir($dir) :
 			# $this->{session}->_listRemoteDir($dir);
+
 		if (!$dir_info)
 		{
-			$this->setEnabled(0,"Could not get directory listing");
+			$this->{parent}->{enabled_ctrl}->SetLabel("Could not get directory listing");
+			$this->{parent}->{enabled_ctrl}->SetForegroundColour($color_red);
+			$this->{list} = \@list;
+			$this->{hash} = \%hash;
+			$this->{list_ctrl}->DeleteAllItems();
+			$this->{changed} = 1;
+			# $this->setEnabled(0,"Could not get directory listing");
 			return;
 		}
 	}
+	$this->{parent}->{enabled_ctrl}->SetLabel("");
 
 	$this->{got_list} = 1;
 
@@ -753,6 +764,7 @@ sub populate
     # debug and display title
 
     display($dbg_pop,0,"populate($from_other) local=$this->{is_local} dir=$dir");
+	display($dbg_pop,1,"this changed ...") if $this->{changed};
 
     if (!$this->{is_local} && !$this->{session}->isConnected())
     {
@@ -796,7 +808,6 @@ sub populate
     if ($this->{changed})
     {
         $this->{changed} = 0;
-        display($dbg_pop,0,"this changed ...");
         $other->populate(1) if (!$from_other);
     }
 

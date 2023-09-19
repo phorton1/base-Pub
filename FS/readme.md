@@ -81,19 +81,3 @@ while looking for ABORT and processing PROGRESS messages.
 
 Server sends PROGRESS messages as it recurses new directories
 and counts their entries, and per each item deleted.
-
-
-
-
-
-
-
-
-
-
-
-### Timeouts needed
-
-- getPacket
-- sendPacket
-- doRemoteRequest

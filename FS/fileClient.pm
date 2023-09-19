@@ -85,6 +85,8 @@ use Pub::Utils;
 use Pub::WX::Main;
 use base 'Wx::App';
 
+openSTDOUTSemaphore("buddySTDOUT");
+
 
 my $frame;
 

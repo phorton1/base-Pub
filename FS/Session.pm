@@ -34,21 +34,21 @@ use Pub::Utils;
 use Pub::FS::FileInfo;
 
 
-our $test_sleep:shared = 0;
+my $TEST_DELAY:shared = 0;
 	# delay certain operatios to test progress stuff
 	# set this to 1 or 2 seconds to slow things down for testing
 
+
 our $dbg_session:shared = 1;
-our $dbg_packets:shared = 0;
+our $dbg_packets:shared = -1;
 our $dbg_lists:shared = 1;
 	# 0 = show lists encountered
 	# -1 = show teztToList final hash
-our $dbg_commands:shared = -1;
+our $dbg_commands:shared = 0;
 	# 0 = show atomic commands
-	# -1 = show command header
-	# -2 = show command details
+	# -1 = show command header and return resu;ts
 our $dbg_recurse:shared = 0;
-our $dbg_progress:shared = 0;
+our $dbg_progress:shared = 1;
 
 
 my $DEFAULT_TIMEOUT = 15;
@@ -57,8 +57,6 @@ my $DEFAULT_TIMEOUT = 15;
 BEGIN {
     use Exporter qw( import );
 	our @EXPORT = qw (
-
-		$test_sleep
 
 		$dbg_session
 		$dbg_packets
@@ -87,6 +85,8 @@ our $SESSION_COMMAND_MKDIR = "MKDIR";
 our $SESSION_COMMAND_DELETE = "DELETE";
 our $SESSION_COMMAND_XFER = "XFER";
 
+my $in_protocol = 0;
+
 
 #------------------------------------------------
 # lifecycle
@@ -104,6 +104,7 @@ sub new
 	$params->{TIMEOUT} ||= $DEFAULT_TIMEOUT;
 
 	my $this = { %$params };
+
 	bless $this,$class;
 	return if $this->{PORT} && !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
 	return $this;
@@ -131,7 +132,7 @@ sub textError
 	my ($this,$text) = @_;
 	if ($text =~ s/^ERROR - //)
 	{
-		$this->session_error($text);
+		error($text);
 		return 1;
 	}
 }
@@ -200,11 +201,12 @@ sub connect
 
     if (!$sock)
     {
-        $this->session_error("$this->{WHO} could not connect to PORT $port")
-			if !$this->{NO_CONNECT_ERROR};
+        error("$this->{WHO} could not connect to PORT $port");
     }
     else
     {
+		my $rcv_buf_size = 10240;
+		$sock->sockopt(SO_RCVBUF, $rcv_buf_size);
  		display($dbg_session,-1,"$this->{WHO} CONNECTED to PORT $port");
         $this->{SOCK} = $sock;
 
@@ -213,7 +215,7 @@ sub connect
 
         if ($line !~ /^WASSUP/)
         {
-            $this->session_error("$this->{WHO} unexpected response from server: $line");
+            error("$this->{WHO} unexpected response from server: $line");
             return;
         }
     }
@@ -231,7 +233,8 @@ sub connect
 sub sendPacket
 {
     my ($this,$packet) = @_;
-
+	display($dbg_packets+1,0,"sendPacket($in_protocol)")
+		if !$this->{IS_SERVER};
 	if ($dbg_packets <= 0)
 	{
 		if (length($packet) > 100)
@@ -246,17 +249,23 @@ sub sendPacket
 		}
 	}
 
+	if ($in_protocol)
+	{
+		error("sendPacket while in_protocol=$in_protocol");
+		return 0;
+	}
+
     my $sock = $this->{SOCK};
     if (!$sock)
     {
-        $this->session_error("$this->{WHO} no socket in sendPacket");
+        error("$this->{WHO} no socket in sendPacket");
         return;
     }
 
     if (!$sock->send($packet."\r\n"))
     {
         $this->{SOCK} = undef;
-        $this->session_error("$this->{WHO} could not write to socket $sock");
+        error("$this->{WHO} could not write to socket $sock");
         return;
     }
 
@@ -273,75 +282,85 @@ sub getPacket
     my ($this,$is_protocol) = @_;
 	$is_protocol ||= 0;
 
+	display($dbg_packets-1,0,"getPacket($is_protocol,$in_protocol)")
+		if !$this->{IS_SERVER} && $is_protocol;
+
     my $sock = $this->{SOCK};
     if (!$sock)
     {
-        $this->session_error("$this->{WHO} no socket in getPacket");
+        error("$this->{WHO} no socket in getPacket");
         return '';
     }
-	return '' if !$is_protocol && $this->{IN_PROTOCOL};
-	$this->{IN_PROTOCOL} = $is_protocol;
+
+	if ($is_protocol && $in_protocol > 1)
+	{
+		error("getPacket re-entered IN_PROTOCOL=$in_protocol") if $is_protocol;
+		return '';
+	}
 
 	# if !protocol, return immediately
 	# if protcol, watch for timeouts
 
+	my $can_read;
+	my $packet = '';
 	my $started = time();
 	my $select = IO::Select->new($sock);
 	while (1)
 	{
-		my $can_read = $select->can_read(0.1);
+		$can_read = $select->can_read(0.1);
 		last if $can_read;
-
-		return '' if !$is_protocol;
-
+		last if !$is_protocol;
 		if (time() > $started + $this->{TIMEOUT})
 		{
-			$this->session_error("getPacket timed out");
-			return '';
+			error("getPacket timed out");
+			last;
 		}
-
-		# sleep(0.01);
 	}
 
-	my $CRLF = "\015\012";
-	local $/ = $CRLF;
-
-    my $packet = <$sock>;
-    if (!defined($packet))
-    {
-		if ($is_protocol)
-        {
-			$this->{SOCK} = undef;
-			$this->{IN_PROTOCOL} = 0;
-			$this->session_error("$this->{WHO} no response from peer");
-		}
-		return '';
-    }
-
-    $packet =~ s/(\r|\n)$//g;
-
-    if (!$packet)
-    {
-		$this->{IN_PROTOCOL} = 0;
-        $this->session_error("$this->{WHO} empty response from peer");
-        return '';
-    }
-
-	if ($dbg_packets <= 0)
+	if ($can_read)
 	{
-		if (length($packet) > 100)
+		my $CRLF = "\015\012";
+		local $/ = $CRLF;
+
+		$packet = <$sock>;
+		if (!defined($packet))
 		{
-			display($dbg_packets,-1,"$this->{WHO} <-- ".length($packet)." bytes",1);
+			if ($is_protocol)
+			{
+				$this->{SOCK} = undef;
+				error("$this->{WHO} no response from peer");
+			}
+			$packet = '';
 		}
 		else
 		{
-			my $show_packet = $packet;
-			$show_packet =~ s/\r/\r\n/g;
-			display($dbg_packets,-1,"$this->{WHO} <-- $show_packet",1);
-		}
-	}
+			$packet =~ s/(\r|\n)$//g;
+			if (!$packet)
+			{
+				error("$this->{WHO} empty response from peer");
+			}
+			else	# debugging only
+			{
+				if ($dbg_packets <= 0)
+				{
+					if (length($packet) > 100)
+					{
+						display($dbg_packets,-1,"$this->{WHO} <-- ".length($packet)." bytes",1);
+					}
+					else
+					{
+						my $show_packet = $packet;
+						$show_packet =~ s/\r/\r\n/g;
+						display($dbg_packets,-1,"$this->{WHO} <-- $show_packet",1);
+					}
 
-	$this->{IN_PROTOCOL} = 0;
+				}	# debugging only
+			}	# non-empty packet
+		}	# defined($packet)
+	}	# $can_read
+
+	display(0,0,"getPacket() returning")
+		if $is_protocol && !$this->{IS_SERVER};
     return $packet;
 }
 
@@ -418,11 +437,14 @@ sub _listRemoteDir
     my $command = "$SESSION_COMMAND_LIST\t$dir";
 
     return if !$this->sendPacket($command);
+
+	$in_protocol++;
     my $text = $this->getPacket(1);
+	$in_protocol--;
     return if (!$text);
 
     my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry}) returning",$rslt->{entries})
+	display_hash($dbg_commands+1,1,"_listRemoteDir($rslt->{entry}) returning",$rslt->{entries})
 		if $rslt;
     return $rslt;
 }
@@ -436,11 +458,13 @@ sub _mkRemoteDir
     my $command = "$SESSION_COMMAND_MKDIR\t$dir\t$subdir";
 
     return if !$this->sendPacket($command);
+	$in_protocol++;
     my $text = $this->getPacket(1);
+	$in_protocol--;
     return if (!$text);
 
     my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
+	display_hash($dbg_commands+1,1,"_mkRemoteDir($rslt->{entry} returning",$rslt->{entries})
 		if $rslt;
     return $rslt;
 }
@@ -454,11 +478,13 @@ sub _renameRemote
     my $command = "$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2";
 
     return if !$this->sendPacket($command);
+	$in_protocol++;
     my $text = $this->getPacket(1);
+	$in_protocol--;
     return if (!$text);
 
     my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_getRemoteDir($rslt->{entry} returning",$rslt->{entries})
+	display_hash($dbg_commands+1,1,"_renameRemote($rslt->{entry} returning",$rslt->{entries})
 		if $rslt;
     return $rslt;
 }
@@ -501,15 +527,24 @@ sub _deleteRemote			# RECURSES!!
 	# note that an abort or any errors currently leaves the client
 	# remote listing unchanged
 
+	$in_protocol++;
+	my $retval = '';
+
 	while (1)
 	{
 		my $packet = $this->getPacket(1);
-		return if $this->textError($packet);
+		last if $this->textError($packet);
+
 		if (!$this->handleProgress($packet,$progress))
 		{
-			return $this->textToList($packet);
+			$retval = $this->textToList($packet);
+			last;
 		}
 	}
+
+	$in_protocol--;
+	return $retval;
+
 }
 
 
@@ -537,7 +572,7 @@ sub _listLocalDir
     {
         next if ($entry =~ /^(\.|\.\.)$/);
         my $path = makepath($dir,$entry);
-        display($dbg_commands+2,1,"entry=$entry");
+        display($dbg_commands+1,1,"entry=$entry");
 		my $is_dir = -d $path ? 1 : 0;
 
 		my $info = Pub::FS::FileInfo->new($this,$is_dir,$dir,$entry);
@@ -616,7 +651,7 @@ sub _deleteLocal			# RECURSES!!
 
 	display($dbg_recurse,-2-$level,"_deleteLocal($dir,$level)");
 	return if $progress && $progress->aborted();
-	sleep($test_sleep) if $test_sleep;
+	sleep($TEST_DELAY) if $TEST_DELAY;
 
 
 	#----------------------------------------------------
@@ -694,7 +729,7 @@ sub _deleteLocal			# RECURSES!!
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$files)
 	{
 		return if $progress && $progress->aborted();
-		sleep($test_sleep) if $test_sleep;
+		sleep($TEST_DELAY) if $TEST_DELAY;
 
 		my $info = $entries->{$entry};
 		if (!$info->{is_dir})
@@ -719,7 +754,7 @@ sub _deleteLocal			# RECURSES!!
 	if ($level)
 	{
 		return if $progress && $progress->aborted();
-		sleep($test_sleep) if $test_sleep;
+		sleep($TEST_DELAY) if $TEST_DELAY;
 
 		$progress->setEntry($dir) if $progress;
 		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local dir: $dir");

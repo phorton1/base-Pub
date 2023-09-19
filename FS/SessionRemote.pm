@@ -39,9 +39,9 @@ use Pub::FS::Session;
 use base qw(Pub::FS::Session);
 
 our $dbg_request:shared = 0;
-
-my $REMOTE_TIMEOUT = 15;
-	# timeout, in seconds, to wait for a file_reply
+	# 0 = command, lifetime, and file_reply: and file_reply_end in buddy
+	# -1 = command sends in buddy
+	# -2 = waiting for reply loop (0.2 secs)
 
 BEGIN {
     use Exporter qw( import );
@@ -49,9 +49,10 @@ BEGIN {
 		qw (
 			$dbg_request
 			setRemoteSessionConnected
+
+			$in_remote_request
 			$file_server_request
-			$file_server_reply
-			$file_reply_pending
+			@file_server_replies
 		),
 	    # forward base class exports
         @Pub::FS::Session::EXPORT,
@@ -59,11 +60,15 @@ BEGIN {
 };
 
 
+my $REMOTE_TIMEOUT = 15;
+	# timeout, in seconds, to wait for a file_reply
+
 our $remote_connected:shared = 0;
 
+our $in_remote_request:shared = 0;
 our $file_server_request:shared = '';
-our $file_server_reply:shared = '';
-our $file_reply_pending:shared = 0;
+our @file_server_replies:shared = '';
+
 
 
 sub new
@@ -90,58 +95,50 @@ sub setRemoteSessionConnected
 sub waitReply
 {
 	my ($this) = @_;
+	display($dbg_request+1,0,"waitReply()");
 	if (!$remote_connected)
 	{
 		$this->session_error("remote not connected in doRemoteRequest()");
-		return 0;
+		return '';
 	}
 
-	$file_server_reply = '';
-	$file_reply_pending = 1;
-
 	my $started = time();
-	while ($file_reply_pending)
+	while (!@file_server_replies)
 	{
-		my $ok = 1;
 		if (!$remote_connected)
 		{
 			$this->session_error("remote not connected in doRemoteRequest()");
-			$ok = 0;;
+			return '';
 		}
-		if ($ok && time() > $started + $REMOTE_TIMEOUT)
+		if (time() > $started + $REMOTE_TIMEOUT)
 		{
 			$this->session_error("doRemoteRequest() timed out");
-			$ok = 0;;
+			return '';
 		}
-		if (!$ok)
-		{
-			$file_server_request = '';
-			$file_server_reply = '';
-			$file_reply_pending = 0;
-			return 0;
-		}
-		display($dbg_request+1,0,"doRemoteRequest() waiting for reply ...");
+		display($dbg_request+2,0,"doRemoteRequest() waiting for reply ...");
 		sleep(0.2);
 	}
 
-	if (!$file_server_reply)
+	my $packet = shift @file_server_replies;
+	if (!$packet)
 	{
-		$file_server_request = '';
-		$file_server_reply = '';
-		$file_reply_pending = 0;
-		$this->session_error("empty reply doRemoteRequest()") if !$file_server_reply;
-		return 0;
+		$this->session_error("empty reply doRemoteRequest()");
+		return '';
 	}
 
-	$file_server_request = '';
-	$file_server_reply =~ s/\s+$//g;
-	$this->sendPacket($file_server_reply);
-	return 1;
+	$packet =~ s/\s+$//g;
+	$this->sendPacket($packet);
+	return $packet;
 }
 
 
 
 sub doRemoteRequest
+	# weirdly, these want to be thread specific as it is easy
+	# to imagine being in the middle of one when another one happens.
+	# The C++ side is safe cuz it can only do one at a time, but
+	# there are thread re-entrancy issues here.  What we will do,
+	# instead, is have another timer loop while $in_remote_server.
 {
 	my ($this,$request) = @_;
 	if ($dbg_request <= 0)
@@ -158,14 +155,31 @@ sub doRemoteRequest
 		}
 	}
 
-	$file_server_request = $request;
-	return if !$this->waitReply();
-
-	while ($file_server_reply =~ /^PROGRESS/)
+	if ($in_remote_request)
 	{
-		return if !$this->waitReply();
+		warning(0,-1,"doRemoteRequest blocking while another operation in progress");
+		while ($in_remote_request)
+		{
+			sleep(1);
+		}
+		warning(0,-2,"doRemoteRequest done waiting");
 	}
-	return 1;
+
+
+	@file_server_replies = ();
+	$file_server_request = $request;
+	$in_remote_request = 1;
+
+	my $packet = $this->waitReply();
+	while ($packet && $packet =~ /^PROGRESS/)
+	{
+		$packet = $this->waitReply();
+	}
+
+	$in_remote_request = 0;
+	my $retval = $packet ? 1 : 0;
+	display($dbg_request,0,"doRemoteRequest() returning $retval");
+	return $retval;
 }
 
 
