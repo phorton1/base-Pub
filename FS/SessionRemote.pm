@@ -38,7 +38,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::Session;
 use base qw(Pub::FS::Session);
 
-our $dbg_request:shared = 0;
+our $dbg_request:shared = -1;
 	# 0 = command, lifetime, and file_reply: and file_reply_end in buddy
 	# -1 = command sends in buddy
 	# -2 = waiting for reply loop (0.2 secs)
@@ -50,9 +50,9 @@ BEGIN {
 			$dbg_request
 			setRemoteSessionConnected
 
-			$in_remote_request
 			$file_server_request
-			@file_server_replies
+			%file_server_reply
+			%file_server_reply_ready
 		),
 	    # forward base class exports
         @Pub::FS::Session::EXPORT,
@@ -65,9 +65,12 @@ my $REMOTE_TIMEOUT = 15;
 
 our $remote_connected:shared = 0;
 
-our $in_remote_request:shared = 0;
+
+my $request_number:shared = 0;
 our $file_server_request:shared = '';
-our @file_server_replies:shared = '';
+our %file_server_reply:shared;
+our %file_server_reply_ready:shared;
+
 
 
 
@@ -94,8 +97,8 @@ sub setRemoteSessionConnected
 
 sub waitReply
 {
-	my ($this) = @_;
-	display($dbg_request+1,0,"waitReply()");
+	my ($this,$req_num) = @_;
+	display($dbg_request+1,0,"waitReply($req_num)");
 	if (!$remote_connected)
 	{
 		$this->session_error("remote not connected in doRemoteRequest()");
@@ -103,7 +106,7 @@ sub waitReply
 	}
 
 	my $started = time();
-	while (!@file_server_replies)
+	while (!$file_server_reply_ready{$req_num})
 	{
 		if (!$remote_connected)
 		{
@@ -119,7 +122,7 @@ sub waitReply
 		sleep(0.2);
 	}
 
-	my $packet = shift @file_server_replies;
+	my $packet = $file_server_reply{$req_num};
 	if (!$packet)
 	{
 		$this->session_error("empty reply doRemoteRequest()");
@@ -128,6 +131,9 @@ sub waitReply
 
 	$packet =~ s/\s+$//g;
 	$this->sendPacket($packet);
+	$file_server_reply{$req_num} = '';
+	$file_server_reply_ready{$req_num} = 0;
+
 	return $packet;
 }
 
@@ -155,10 +161,10 @@ sub doRemoteRequest
 		}
 	}
 
-	if ($in_remote_request)
+	if ($file_server_request)
 	{
 		warning(0,-1,"doRemoteRequest blocking while another operation in progress");
-		while ($in_remote_request)
+		while ($file_server_request)
 		{
 			sleep(1);
 		}
@@ -166,17 +172,23 @@ sub doRemoteRequest
 	}
 
 
-	@file_server_replies = ();
-	$file_server_request = $request;
-	$in_remote_request = 1;
+	my $req_num = $request_number++;
+	$request = "file_command($req_num):$request";
 
-	my $packet = $this->waitReply();
+	$file_server_reply{$req_num} = '';
+	$file_server_reply_ready{$req_num} = 0;
+	$file_server_request = $request;
+
+	my $packet = $this->waitReply($req_num);
 	while ($packet && $packet =~ /^PROGRESS/)
 	{
-		$packet = $this->waitReply();
+		$packet = $this->waitReply($req_num);
 	}
 
-	$in_remote_request = 0;
+
+	delete $file_server_reply_ready{$req_num};
+	delete $file_server_reply{$req_num};
+
 	my $retval = $packet ? 1 : 0;
 	display($dbg_request,0,"doRemoteRequest() returning $retval");
 	return $retval;
@@ -188,7 +200,7 @@ sub _listRemoteDir
 {
     my ($this, $dir) = @_;
     display($dbg_commands,0,"_listRemoteDir($dir)");
-	$this->doRemoteRequest("file_command:$SESSION_COMMAND_LIST\t$dir");
+	$this->doRemoteRequest("$SESSION_COMMAND_LIST\t$dir");
 	return '';
 }
 
@@ -197,7 +209,7 @@ sub _mkRemoteDir
 {
     my ($this, $dir, $name) = @_;
     display($dbg_commands,0,"_mkRemoteDir($dir)");
-	$this->doRemoteRequest("file_command:$SESSION_COMMAND_MKDIR\t$dir\t$name");
+	$this->doRemoteRequest("$SESSION_COMMAND_MKDIR\t$dir\t$name");
 	return '';
 }
 
@@ -206,7 +218,7 @@ sub _renameRemote
 {
     my ($this, $dir, $name1, $name2) = @_;
     display($dbg_commands,0,"_renameRemote($dir)");
-	$this->doRemoteRequestdoRemoteRequest("file_command:$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2");
+	$this->doRemoteRequestdoRemoteRequest("$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2");
 	return '';
 }
 
@@ -227,7 +239,7 @@ sub deleteRemotePacket
 		$show_packet =~ s/\r/\r\n/g;
 		display($dbg_commands,0,"deleteRemotePacket($show_packet)");
 	}
-	$this->doRemoteRequest("file_command:$packet");
+	$this->doRemoteRequest($packet);
 	return '';
 }
 
