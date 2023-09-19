@@ -7,6 +7,8 @@
 package Pub::FS::fileClientPane;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(
     EVT_SIZE
@@ -19,7 +21,8 @@ use Wx::Event qw(
     EVT_LIST_ITEM_SELECTED
     EVT_LIST_ITEM_ACTIVATED
     EVT_LIST_BEGIN_LABEL_EDIT
-    EVT_LIST_END_LABEL_EDIT );
+    EVT_LIST_END_LABEL_EDIT
+	EVT_COMMAND );
 use Pub::Utils;
 use Pub::WX::Resources;
 use Pub::WX::Menu;
@@ -51,7 +54,9 @@ BEGIN {
 	);
 }
 
-our $progress;
+
+
+my $THREAD_EVENT:shared = Wx::NewEventType;
 
 
 #-----------------------------------
@@ -155,6 +160,8 @@ sub new
     EVT_LIST_ITEM_ACTIVATED($ctrl,-1,\&onDoubleClick);
     EVT_LIST_BEGIN_LABEL_EDIT($ctrl,-1,\&onBeginEditLabel);
     EVT_LIST_END_LABEL_EDIT($ctrl,-1,\&onEndEditLabel);
+
+	EVT_COMMAND($this, -1, $THREAD_EVENT, \&onThreadEvent );
 
     return $this;
 
@@ -694,23 +701,26 @@ sub setContents
 
     if (!$dir_info)
     {
-        $dir_info = $this->{session}->doCommand($SESSION_COMMAND_LIST,$local,$dir);
-		    # $local ?
-			# $this->{session}->_listLocalDir($dir) :
-			# $this->{session}->_listRemoteDir($dir);
-
-		if (!$dir_info)
-		{
-			$this->{parent}->{enabled_ctrl}->SetLabel("Could not get directory listing");
-			$this->{parent}->{enabled_ctrl}->SetForegroundColour($color_red);
-			$this->{list} = \@list;
-			$this->{hash} = \%hash;
-			$this->{list_ctrl}->DeleteAllItems();
-			$this->{changed} = 1;
-			# $this->setEnabled(0,"Could not get directory listing");
-			return;
-		}
+		$dir_info = $this->doCommand('setContents',$SESSION_COMMAND_LIST,$local,$dir);
+		return if defined($dir_info) && $dir_info eq '-2';
+			# PRH -2 indicates a threaded command underway
 	}
+
+	# PRH - called back, -1 indicates threaded command failed
+
+	if (!$dir_info || $dir_info eq '-1')
+	{
+		$this->{parent}->{enabled_ctrl}->SetLabel("Could not get directory listing");
+		$this->{parent}->{enabled_ctrl}->SetForegroundColour($color_red);
+		$this->{list} = \@list;
+		$this->{hash} = \%hash;
+		$this->{list_ctrl}->DeleteAllItems();
+		$this->{changed} = 1;
+		# $this->setEnabled(0,"Could not get directory listing");
+		return;
+	}
+
+
 	$this->{parent}->{enabled_ctrl}->SetLabel("");
 
 	$this->{got_list} = 1;
@@ -874,6 +884,7 @@ sub onDoubleClick
     else   # double click on file
     {
         $this->doCommandSelected($COMMAND_XFER);
+			# PRH COMMAND_XFER not implemented yet
     }
 }
 
@@ -974,11 +985,14 @@ sub doMakeDir
 
     # Do the command (locally or remotely)
 
-    return if $rslt == wxID_OK &&
-		!$this->{session}->doCommand($SESSION_COMMAND_MKDIR,
-            $this->{is_local},
-            $this->{dir},
-            $new_name);
+    if ($rslt == wxID_OK)
+	{
+		my $rslt = !$this->doCommand('doMakeDir',$SESSION_COMMAND_MKDIR,
+			$this->{is_local},
+			$this->{dir},
+			$new_name);
+		return if !$rslt || (defined($rslt) && $rslt eq '-2');
+	}
 
     $this->setContents();
     $this->populate();
@@ -1062,11 +1076,19 @@ sub onEndEditLabel
 
     if (!$is_cancelled && $entry ne $save_entry)
     {
-        my $info = $this->{session}->doCommand($SESSION_COMMAND_RENAME,
+        my $info = $this->doCommand('onEndEditLabel',$SESSION_COMMAND_RENAME,
             $this->{is_local},
             $this->{dir},
             $save_entry,
             $entry);
+
+		return if defined($info) && $info eq '-2';
+			# PRH -2 indicates threaded command underway
+
+		# PRH The below code is difficult, or impossible, to change into
+		# an asynchronous model inamuch as it uses $event ....
+		# Since this is *nearly* an atomic operation, perhaps I
+		# can leave it in the main thread ...
 
         # if the rename failed, the error was already reported
 		# to the UI via Session::textToList().
@@ -1113,6 +1135,10 @@ sub onEndEditLabel
 #--------------------------------------------------------------
 # doCommandSelected
 #--------------------------------------------------------------
+
+
+
+
 
 sub doCommandSelected
 {
@@ -1199,7 +1225,7 @@ sub doCommandSelected
 		$SESSION_COMMAND_DELETE;
 	my $target_dir =
 
-	$progress = Pub::FS::fileProgressDialog->new(
+	$this->{progress} = Pub::FS::fileProgressDialog->new(
 		undef,
 		uc($display_command))
 		if $num_dirs || $num_files>1;
@@ -1211,16 +1237,21 @@ sub doCommandSelected
 	my $param2 = !$num_dirs && $num_files == 1 ?
 		$first_entry :
 		$dir_info->{entries};
-	my $rslt = $this->{session}->doCommand(
+	my $rslt = $this->doCommand(
+		'doCommandSelected',
 		$command,
 		$this->{is_local},
 		$this->{dir},
 		$param2,					# info-list or single filename
 		$other->{dir},				# target dir
-		$progress);					# progress
+		$this->{progress});					# progress
 
-	$progress->Destroy() if $progress;
-	$progress = undef;
+	return if defined($rslt) && $rslt eq '-2';
+		# PRH -2 means threaded command underway
+
+
+	$this->{progress}->Destroy() if $this->{progress};
+	$this->{progress} = undef;
 
 	# We repopulate regardless of the command result
 	# For Xfer the directory returned is the one that was modified
@@ -1232,6 +1263,200 @@ sub doCommandSelected
 	$update_win->populate();
 
 }   # doCommandSelected()
+
+
+#--------------------------------------------------------
+# doCommand
+#--------------------------------------------------------
+# implements threading for non-local commands
+
+
+sub doCommand
+{
+    my ($this,
+		$caller,
+		$command,
+        $local,
+        $param1,
+        $param2,
+        $param3,
+		$progress) = @_;
+
+	if ($local)
+	{
+		return $this->{session}->doCommand(
+			$command,
+			$local,
+			$param1,
+			$param2,
+			$param3,
+			$progress);
+	}
+
+
+	@_ = ();	# necessary to avoid "Scalars leaked"
+	my $thread = threads->create(\&doCommandThreaded,
+		$this,
+		$caller,
+		$command,
+        $local,
+        $param1,
+        $param2,
+        $param3);
+	# $thread->detach();  may cause the scalar leaked message
+	return -2;		# PRH -2 indicates threaded command in progress
+}
+
+
+
+sub doCommandThreaded
+{
+    my ($this,
+		$caller,
+		$command,
+        $local,
+        $param1,
+        $param2,
+        $param3) = @_;
+
+	warning(0,-1,"doCommandThreaded($caller,$command,$local) called");
+
+	my $rslt = $this->{session}->doCommand(
+		$command,
+		$local,
+		$param1,
+		$param2,
+		$param3,
+		$this);
+
+	warning(0,-1,"doCommandThreaded($caller) got rslt=$rslt");
+
+	# display(0,0,"workerThread() count=$count");
+	# my $data:shared = "count=".$count++;
+    #
+	# if ($win)
+	# {
+	# 	display(0,0,"workerThread() sending data=$data");
+	# 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $data );
+	# 	Wx::PostEvent( $win, $evt );
+	# }
+
+
+	my $msg:shared = $rslt;
+	if ($msg && ref($msg))
+	{
+		$msg->{caller} = $caller;
+		my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
+		Wx::PostEvent( $this, $evt );
+	}
+}
+
+
+sub onThreadEvent
+{
+	my($this, $event ) = @_;
+	$event ||= '';
+	warning(0,0,"onThreadEvent($event) ref=".ref($event));
+
+	if ($event)
+	{
+		my $rslt = $event->GetData();
+		display(0,1,"onThreadEvent rslt=$rslt ref=".ref($rslt));
+
+		if (ref($rslt) =~ /Pub::FS::FileInfo/)
+		{
+			display(0,1,"onThreadEvent caller($rslt->{caller})");
+
+			if ($rslt->{caller} eq 'setContents')
+			{
+				$this->setContents($rslt);
+				$this->populate();
+			}
+
+			# i though MKDIR was supposed to return a DIR_LIST?!
+			elsif ($rslt->{caller} eq 'doMakeDir')
+			{
+				$this->setContents();
+				$this->populate();
+			}
+			elsif ($rslt->{caller} eq 'doCommandSelected')
+			{
+				# currently only !local DELETE supported
+				$this->{progress}->Destroy() if $this->{progress};
+				$this->{progress} = undef;
+				$this->setContents($rslt);
+				$this->populate();
+			}
+
+		}
+		elsif ($rslt =~ /^PROGRESS/)
+		{
+			if ($this->{progress})
+			{
+
+				my @params = split(/\t/,$rslt);
+				shift @params;	# ditch the 'PROGRESS'
+				my $command = shift(@params);
+
+				$params[0] = '' if !defined($params[0]);
+				$params[1] = '' if !defined($params[1]);
+				display(0,1,"onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
+
+				$this->{progress}->addDirsAndFiles($params[0],$params[1])
+					if $command eq 'ADD';
+				$this->{progress}->setDone($params[0])
+					if $command eq 'DONE';
+				$this->{progress}->setEntry($params[0])
+					if $command eq 'ENTRY';
+
+				# $this->{progress}->Refresh();
+				# $this->{progress}->Update();
+				Wx::App::GetInstance()->Yield();
+			}
+		}
+	}
+
+	# calling $this->setContents(-1) will cause it to show
+	# could not get dircectory listing message
+
+	# needs to deal with $this->{progress)
+}
+
+
+
+# $this is now a progress like thing
+
+sub addDirsAndFiles
+{
+	my ($this,$num_dirs,$num_files) = @_;
+	display(0,-1,"THIS->addDirsAndFiles($num_dirs,$num_files)");
+	my $rslt:shared = "PROGRESS\tADD\t$num_dirs\t$num_files";
+	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
+	Wx::PostEvent( $this, $evt );
+	# Wx::App::GetInstance()->Yield();
+}
+sub setDone
+{
+	my ($this,$is_dir) = @_;
+	display(0,-1,"THIS->setDone($is_dir)");
+	my $rslt:shared = "PROGRESS\tDONE\t$is_dir";
+	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
+	Wx::PostEvent( $this, $evt );
+	# Wx::App::GetInstance()->Yield();
+}
+sub setEntry
+{
+	my ($this,$entry) = @_;
+	display(0,-1,"THIS->setEntry($entry)");
+	my $rslt:shared = "PROGRESS\tENTRY\t$entry";
+	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
+	Wx::PostEvent( $this, $evt );
+	# Wx::App::GetInstance()->Yield();
+}
+
+
+
+
 
 
 
