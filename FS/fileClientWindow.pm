@@ -14,6 +14,8 @@
 package Pub::FS::fileClientWindow;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(
 	EVT_SIZE
@@ -104,7 +106,7 @@ sub new
     # Finished
 
 	EVT_CLOSE($this,\&onClose);
-	EVT_IDLE($this,\&onIdle);
+	# EVT_IDLE($this,\&onIdle);   # temorarily disabled
     EVT_SIZE($this,\&onSize);
 	return $this;
 }
