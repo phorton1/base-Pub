@@ -70,12 +70,12 @@ sub new
     if ($is_dir && !(-d $filename))
     {
         $session->session_error("directory $filename not found");
-        return;
+		return;
     }
     if (!$is_dir && !(-e $filename))
     {
         $session->session_error("file $filename not found");
-        return;
+		return;
     }
 
 	my ($dev,$ino,$in_mode,$nlink,$uid,$gid,$rdev,$size,
@@ -87,7 +87,7 @@ sub new
 
 	if (!$mtime)
     {
-        error("Could not stat ".($is_dir?'directory':'file')." $filename");
+        $session->session_error("Could not stat ".($is_dir?'directory':'file')." $filename");
         return;
     }
 

@@ -38,7 +38,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::Session;
 use base qw(Pub::FS::Session);
 
-our $dbg_request:shared = -1;
+our $dbg_request:shared = 0;
 	# 0 = command, lifetime, and file_reply: and file_reply_end in buddy
 	# -1 = command sends in buddy
 	# -2 = waiting for reply loop (0.2 secs)
@@ -101,8 +101,7 @@ sub waitReply
 	display($dbg_request+1,0,"waitReply($req_num)");
 	if (!$remote_connected)
 	{
-		$this->session_error("remote not connected in doRemoteRequest()");
-		return '';
+		return $this->session_error("remote not connected in doRemoteRequest()");
 	}
 
 	my $started = time();
@@ -110,13 +109,11 @@ sub waitReply
 	{
 		if (!$remote_connected)
 		{
-			$this->session_error("remote not connected in doRemoteRequest()");
-			return '';
+			return $this->session_error("remote not connected in doRemoteRequest()");
 		}
 		if (time() > $started + $REMOTE_TIMEOUT)
 		{
-			$this->session_error("doRemoteRequest() timed out");
-			return '';
+			return $this->session_error("doRemoteRequest() timed out");
 		}
 		display($dbg_request+2,0,"doRemoteRequest() waiting for reply ...");
 		sleep(0.2);
@@ -125,8 +122,7 @@ sub waitReply
 	my $packet = $file_server_reply{$req_num};
 	if (!$packet)
 	{
-		$this->session_error("empty reply doRemoteRequest()");
-		return '';
+		return $this->session_error("empty reply doRemoteRequest()");
 	}
 
 	$packet =~ s/\s+$//g;
@@ -173,7 +169,9 @@ sub doRemoteRequest
 
 
 	my $req_num = $request_number++;
-	$request = "file_command($req_num):$request";
+	$request = "$req_num\t$request";
+	my $len = length($request);
+	$request = "file_command\t$len\t$request\n";
 
 	$file_server_reply{$req_num} = '';
 	$file_server_reply_ready{$req_num} = 0;
@@ -218,7 +216,7 @@ sub _renameRemote
 {
     my ($this, $dir, $name1, $name2) = @_;
     display($dbg_commands,0,"_renameRemote($dir)");
-	$this->doRemoteRequestdoRemoteRequest("$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2");
+	$this->doRemoteRequest("$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2");
 	return '';
 }
 

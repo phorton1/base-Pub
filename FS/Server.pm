@@ -445,6 +445,7 @@ sub sessionThread
 
     my $rslt = -1;
 	my $select = IO::Select->new($client_socket);
+    my $got_exit = 0;
     while ($ok && !$this->{stopping})
     {
 		if ($select->can_read(0.1))
@@ -460,6 +461,7 @@ sub sessionThread
 				}
 				elsif ($packet =~ /^EXIT/)
 				{
+					$got_exit = 1;
 					last;
 				}
 				elsif ($packet)
@@ -535,12 +537,15 @@ sub sessionThread
 	}	# while $ok && !stopping
 
 
-    display($dbg_server,0,"SESSION THREAD($connect_num) terminating");
+    display($dbg_server,0,"SESSION THREAD($connect_num) terminating ".
+		"SOCK(".($session->{SOCK}?1:0).") SEND_EXIT($this->{SEND_EXIT}) GOT_EXIT($got_exit)");
 
-	if ($session->{SOCK} && $this->{SEND_EXIT})
+	if (!$got_exit &&
+		$session->{SOCK} &&
+		$this->{SEND_EXIT})
 	{
 		$session->sendPacket("EXIT");
-		# sleep(2);
+		sleep(0.2);
 	}
 
 	# print "past the exit\n";

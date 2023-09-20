@@ -48,6 +48,7 @@ our $dbg_commands:shared = 0;
 	# 0 = show atomic commands
 	# -1 = show command header and return resu;ts
 our $dbg_recurse:shared = 0;
+	# show recursive command execution (like DELETE)
 our $dbg_progress:shared = 1;
 
 
@@ -85,8 +86,16 @@ our $SESSION_COMMAND_MKDIR = "MKDIR";
 our $SESSION_COMMAND_DELETE = "DELETE";
 our $SESSION_COMMAND_XFER = "XFER";
 
-# my $in_protocol = 0;
+# Each thread has a separate SOCK from the Server
+#    and getPacket cannot be re-entered by them.
+# There can be upto two WX thread per SOCK in each fileClientWindow.
+#    One for the main process, which can be protocol, or not,
+#    and one for a threadedCommand underway.
+# The session ctor from the fileClientWindow passes
+#    in the non-zero instance number
 
+my $instance_in_protocol:shared = shared_clone({});
+	# re-entrancy protection for fileClientWindows
 
 #------------------------------------------------
 # lifecycle
@@ -102,8 +111,11 @@ sub new
 	$params->{PORT} ||= $DEFAULT_PORT if !defined($params->{PORT});
 	$params->{WHO} ||= $params->{IS_SERVER}?"SERVER":"CLIENT";
 	$params->{TIMEOUT} ||= $DEFAULT_TIMEOUT;
-
+	$params->{INSTANCE} ||= 0;
 	my $this = { %$params };
+
+	$instance_in_protocol->{$this->{INSTANCE}} = 0
+		if $this->{INSTANCE};
 
 	bless $this,$class;
 	return if $this->{PORT} && !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
@@ -117,6 +129,7 @@ sub session_error
 {
     my ($this,$msg) = @_;
 	error($msg,1);
+
     if ($this->{IS_SERVER} && $this->{SOCK})
     {
         $msg = "ERROR - $msg";
@@ -125,16 +138,25 @@ sub session_error
 			# to allow packet to be sent
 			# in case we are shutting down
 	}
+
+	# if in a WX thread we return the error message
+	# otherwise we return blank
+
+	if (getAppFrame() && threads->tid())
+	{
+		return "ERROR - $msg";
+	}
+	else
+	{
+		return ''
+	}
 }
 
 sub textError
 {
 	my ($this,$text) = @_;
-	if ($text =~ s/^ERROR - //)
-	{
-		error($text);
-		return 1;
-	}
+	return $this->session_error($text) if $text =~ s/^ERROR - //;
+	return ''
 }
 
 sub isConnected
@@ -208,7 +230,7 @@ sub connect
 sub sendPacket
 {
     my ($this,$packet) = @_;
-	display($dbg_packets+2,0,"sendPacket()")	# $in_protocol)")
+	display($dbg_packets+2,0,"sendPacket()")
 		if !$this->{IS_SERVER};
 	if ($dbg_packets <= 0)
 	{
@@ -224,11 +246,17 @@ sub sendPacket
 		}
 	}
 
-	# if ($in_protocol)
-	# {
-	# 	error("sendPacket while in_protocol=$in_protocol");
-	# 	return 0;
-	# }
+	my $instance = $this->{INSTANCE};
+	if ($instance)
+	{
+		my $in_protocol = $instance_in_protocol->{$instance};
+		if ($in_protocol)
+		{
+			error("sendPacket() while in_protocol=$in_protocol ".
+			  "for instance=$instance");
+			return;
+		}
+	}
 
     my $sock = $this->{SOCK};
     if (!$sock)
@@ -249,6 +277,16 @@ sub sendPacket
 }
 
 
+sub getPacketInstance
+{
+	my ($this,$is_protocol) = @_;
+	my $instance = $this->{INSTANCE};
+	$instance_in_protocol->{$instance}++ if $instance;
+    my $packet = $this->getPacket(1);
+	$instance_in_protocol->{$instance}-- if $instance;
+	return $packet;
+}
+
 
 sub getPacket
 	# The protocol passes in $is_protocol, which blocks and prevents other
@@ -267,11 +305,22 @@ sub getPacket
         return '';
     }
 
-	# if ($is_protocol && $in_protocol > 1)
-	# {
-	# 	error("getPacket re-entered IN_PROTOCOL=$in_protocol") if $is_protocol;
-	# 	return '';
-	# }
+
+	my $instance = $this->{INSTANCE};
+	if ($instance)
+
+	{
+		my $in_protocol = $instance_in_protocol->{$instance};
+		return if !$is_protocol && $in_protocol;
+
+		if ($is_protocol && $in_protocol > 1)
+		{
+			error("getPacket(1) while in_protocol=$in_protocol ".
+				  "for instance=$instance");
+			return '';
+		}
+	}
+
 
 	# if !protocol, return immediately
 	# if protcol, watch for timeouts
@@ -372,7 +421,8 @@ sub textToList
 	# returns a FS_INFO which is the base directory
 {
     my ($this,$text) = @_;
-	return if $this->textError($text);
+	my $err = $this->textError($text);
+	return $err if $err;
 
 	# the first directory listed is the base directory
 	# all sub-entries go into it's {entries} member
@@ -412,15 +462,18 @@ sub _listRemoteDir
     my $command = "$SESSION_COMMAND_LIST\t$dir";
 
     return if !$this->sendPacket($command);
+    my $packet = $this->getPacketInstance(1);
+    return if (!$packet);
 
-	# $in_protocol++;
-    my $text = $this->getPacket(1);
-	# $in_protocol--;
-    return if (!$text);
-
-    my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_listRemoteDir($rslt->{entry}) returning",$rslt->{entries})
-		if $rslt;
+    my $rslt = $this->textToList($packet);
+	if (ref($rslt))
+	{
+		display_hash($dbg_commands+1,1,"_listRemoteDir($dir) returning",$rslt->{entries})
+	}
+	else
+	{
+		display($dbg_commands+1,1,"_listRemoteDir($dir}) returning $rslt");
+	}
     return $rslt;
 }
 
@@ -433,14 +486,18 @@ sub _mkRemoteDir
     my $command = "$SESSION_COMMAND_MKDIR\t$dir\t$subdir";
 
     return if !$this->sendPacket($command);
-	# $in_protocol++;
-    my $text = $this->getPacket(1);
-	# $in_protocol--;
-    return if (!$text);
+    my $packet = $this->getPacketInstance(1);
+    return if (!$packet);
 
-    my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_mkRemoteDir($rslt->{entry} returning",$rslt->{entries})
-		if $rslt;
+    my $rslt = $this->textToList($packet);
+	if (ref($rslt))
+	{
+		display_hash($dbg_commands+1,1,"_mkRemoteDir($dir) returning",$rslt->{entries})
+	}
+	else
+	{
+		display($dbg_commands+1,1,"_mkRemoteDir($dir}) returning $rslt");
+	}
     return $rslt;
 }
 
@@ -453,14 +510,18 @@ sub _renameRemote
     my $command = "$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2";
 
     return if !$this->sendPacket($command);
-	# $in_protocol++;
-    my $text = $this->getPacket(1);
-	# $in_protocol--;
-    return if (!$text);
+    my $packet = $this->getPacketInstance(1);
+    return if (!$packet);
 
-    my $rslt = $this->textToList($text);
-	display_hash($dbg_commands+1,1,"_renameRemote($rslt->{entry} returning",$rslt->{entries})
-		if $rslt;
+    my $rslt = $this->textToList($packet);
+	if (ref($rslt))
+	{
+		display_hash($dbg_commands+1,1,"_renameRemote($dir) returning",$rslt->{entries})
+	}
+	else
+	{
+		display($dbg_commands+1,1,"_renameRemote($dir}) returning $rslt");
+	}
     return $rslt;
 }
 
@@ -535,18 +596,23 @@ sub _deleteRemote			# RECURSES!!
 
     return if !$this->sendPacket($command);
 
+	my $instance = $this->{INSTANCE};
+	$instance_in_protocol->{$instance}++ if $instance;
+
 	# so here we have the prototype of a progressy remote command
 	# note that an abort or any errors currently leaves the client
 	# remote listing unchanged
 
-	# $in_protocol++;
 	my $retval = '';
-
 	while (1)
 	{
 		my $packet = $this->getPacket(1);
-		last if $this->textError($packet);
-
+		my $err = $this->textError($packet);
+		if ($err)
+		{
+			$retval = $err;
+			last;
+		}
 		if (!$this->handleProgress($packet,$progress))
 		{
 			$retval = $this->textToList($packet);
@@ -554,7 +620,7 @@ sub _deleteRemote			# RECURSES!!
 		}
 	}
 
-	# $in_protocol--;
+	$instance_in_protocol->{$instance}-- if $instance;
 	return $retval;
 
 }
@@ -577,8 +643,7 @@ sub _listLocalDir
 
     if (!opendir(DIR,$dir))
     {
-        $this->session_error("$this->{WHO} could not opendir $dir");
-		return;
+        return $this->session_error("$this->{WHO} could not opendir $dir");
     }
     while (my $entry=readdir(DIR))
     {
@@ -611,10 +676,9 @@ sub _mkLocalDir
     my $path = makepath($dir,$subdir);
 	if (!mkdir($path))
 	{
-		$this->session_error("Could not mkdir $path");
-		return;
+		return $this->session_error("Could not mkdir $path");
 	}
-	return Pub::FS::FileInfo->new($this,1,$dir,$subdir);
+	return $this->_listLocalDir($dir);
 }
 
 
@@ -633,18 +697,15 @@ sub _renameLocal
 
 	if (!-e $path1)
 	{
-		$this->session_error("$this->{WHO} file/dir $path1 not found");
-		return;
+		return $this->session_error("$this->{WHO} file/dir $path1 not found");
 	}
 	if (-e $path2)
 	{
-		$this->session_error("$this->{WHO} file/dir $path2 already exists");
-		return;
+		return $this->session_error("$this->{WHO} file/dir $path2 already exists");
 	}
 	if (!rename($path1,$path2))
 	{
-		$this->session_error("$this->{WHO} Could not rename $path1 to $path2");
-		return;
+		return $this->session_error("$this->{WHO} Could not rename $path1 to $path2");
 	}
 
 	return Pub::FS::FileInfo->new($this,$is_dir,$dir,$name2);
@@ -664,7 +725,6 @@ sub _deleteLocal			# RECURSES!!
 	display($dbg_recurse,-2-$level,"_deleteLocal($dir,$level)");
 	return if $progress && $progress->aborted();
 	sleep($TEST_DELAY) if $TEST_DELAY;
-
 
 	#----------------------------------------------------
 	# scan directory of any dir entries
@@ -686,8 +746,7 @@ sub _deleteLocal			# RECURSES!!
 
 			if (!opendir DIR,$dir_path)
 			{
-				$this->session_error("_deleteLocal($level) could not opendir($dir)");
-				return;
+				return $this->session_error("_deleteLocal($level) could not opendir($dir)");
 			}
 			while (my $dir_entry=readdir(DIR))
 			{
@@ -733,7 +792,6 @@ sub _deleteLocal			# RECURSES!!
 			$level + 1);
 	}
 
-
 	#-------------------------------------------
 	# iterate the flat files in the directory
 	#-------------------------------------------
@@ -751,8 +809,7 @@ sub _deleteLocal			# RECURSES!!
 			display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local file: $path");
 			if (!unlink $path)
 			{
-				$this->session_error("$this->{WHO} Could not delete local file $path");
-				return;
+				return $this->session_error("$this->{WHO} Could not delete local file $path");
 			}
 			$progress->setDone(0) if $progress;
 		}
@@ -783,31 +840,6 @@ sub _deleteLocal			# RECURSES!!
 
 	return $this->_listLocalDir($dir);
 }
-
-
-
-#------------------------------------------------------
-# _doXFER
-#------------------------------------------------------
-# This base class implements _doXFER assuming that it
-# is a long distances socket, as in My::FS.
-#
-# The SessionClient must know if it is talking to a local
-# RemoteServer (maybe call it ServerSerial)
-# that should handle the request instead. ....
-#
-# It is written in such a way that the RemoteServer can
-# utilize the protocol herein, for it's half of the work,
-# the basic idea being that we don't want to pass all that
-# junk over the socket to the windows app.
-#
-# XFER($local) = PUT (upload)
-# XFER(!$local) = GET (download)
-
-
-
-
-
 
 
 
@@ -876,16 +908,14 @@ sub doCommand
 			display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");
 			if (!unlink $path)
 			{
-				$this->session_error("$this->{WHO} Could not delete single local file $path");
-				return;
+				return $this->session_error("$this->{WHO} Could not delete single local file $path");
 			}
 			return $this->_listLocalDir($param1);
 		}
 		return $this->_deleteLocal($param1,$param2,$progress);
 	}
 
-	$this->session_error("$this->{WHO} unsupported command: $command");
-	return;
+	return $this->session_error("$this->{WHO} unsupported command: $command");
 }
 
 

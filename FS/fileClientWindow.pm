@@ -71,7 +71,9 @@ sub new
 
 	my $port = $ARGV[0] || $DEFAULT_PORT;
 	display($dbg_fcw,0,"creating session on port($port)");
-    $this->{session} = Pub::FS::SessionClient->new({ PORT => $port });
+    $this->{session} = Pub::FS::SessionClient->new({
+		PORT => $port,
+		INSTANCE => $instance });
     if (!$this->{session})
     {
         error("Could not create client session!");
@@ -106,7 +108,7 @@ sub new
     # Finished
 
 	EVT_CLOSE($this,\&onClose);
-	# EVT_IDLE($this,\&onIdle);   # temorarily disabled
+	EVT_IDLE($this,\&onIdle);
     EVT_SIZE($this,\&onSize);
 	return $this;
 }
@@ -125,6 +127,11 @@ sub onClose
 	{
 		display($dbg_fcw,-1,"Exiting Program as last window");
 		exit(0);
+	}
+	if (!$this->{GOT_EXIT})
+	{
+		$this->{GOT_EXIT} = 1;
+		$this->{session}->sendPacket("EXIT")
 	}
 	$this->SUPER::onClose();
 	$event->Skip();
@@ -174,6 +181,7 @@ sub onIdle
 				if ($packet eq 'EXIT')
 				{
 					display($dbg_idle,-1,"onIdle() EXIT");
+					$this->{GOT_EXIT} = 1;
 					$do_exit = 1;
 				}
 				elsif ($packet =~ /^(ENABLE|DISABLE) - (.*)$/)

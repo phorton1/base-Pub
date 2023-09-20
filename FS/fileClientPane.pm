@@ -45,6 +45,7 @@ my $dbg_sort = 1;		# sorting
 	# =1 = details
 my $dbg_ops  = 0;		# commands
 	# -1, -2 = more detail
+my $dbg_threaded_commands = 0;
 
 
 BEGIN {
@@ -210,6 +211,9 @@ sub onRepopulate
 sub onKeyDown
 {
     my ($ctrl,$event) = @_;
+	my $this = $ctrl->{parent};
+	return if $this->{parent}->{thread};
+
     my $key_code = $event->GetKeyCode();
     display($dbg_ops+2,0,"onKeyDown($key_code)");
 
@@ -235,6 +239,8 @@ sub onContextMenu
 {
     my ($ctrl,$event) = @_;
     my $this = $ctrl->{parent};
+	return if $this->{parent}->{thread};
+
     display($dbg_ops,0,"filePane::onContextMenu()");
     my $cmd_data = $$resources{command_data}->{$COMMAND_XFER};
     $$cmd_data[0] = $this->{is_local} ? "Upload" : "Download";
@@ -302,6 +308,7 @@ sub onCommandUI
             $ctrl->GetSelectedItemCount();
     }
 
+	$enabled = 0 if $this->{parent}->{thread};
     $event->Enable($enabled);
 }
 
@@ -405,6 +412,7 @@ sub onClickColHeader
     my ($ctrl,$event) = @_;
     my $this = $ctrl->{parent};
     return if (!$this->checkConnected());
+	return if $this->{parent}->{thread};
 
     my $col = $event->GetColumn();
     my $prev_col = $this->{sort_col};
@@ -702,7 +710,7 @@ sub setContents
     if (!$dir_info)
     {
 		$dir_info = $this->doCommand('setContents',$SESSION_COMMAND_LIST,$local,$dir);
-		return if defined($dir_info) && $dir_info eq '-2';
+		return if $dir_info && $dir_info eq '-2';
 			# PRH -2 indicates a threaded command underway
 	}
 
@@ -719,7 +727,6 @@ sub setContents
 		# $this->setEnabled(0,"Could not get directory listing");
 		return;
 	}
-
 
 	$this->{parent}->{enabled_ctrl}->SetLabel("");
 
@@ -840,6 +847,8 @@ sub onDoubleClick
     my ($ctrl,$event) = @_;
     my $this = $ctrl->{parent};
     return if (!$this->checkConnected());
+	return if $this->{parent}->{thread};
+			# free up for more commands
 
     my $item = $event->GetItem();
     my $index = $item->GetData();
@@ -979,23 +988,22 @@ sub doMakeDir
     # Bring up a self-checking dialog box for accepting the new name
 
     my $dlg = mkdirDialog->new($this);
-    my $rslt = $dlg->ShowModal();
+    my $dlg_rslt = $dlg->ShowModal();
     my $new_name = $dlg->getResults();
     $dlg->Destroy();
 
     # Do the command (locally or remotely)
 
-    if ($rslt == wxID_OK)
+    if ($dlg_rslt == wxID_OK)
 	{
-		my $rslt = !$this->doCommand('doMakeDir',$SESSION_COMMAND_MKDIR,
+		my $rslt = $this->doCommand('doMakeDir',$SESSION_COMMAND_MKDIR,
 			$this->{is_local},
 			$this->{dir},
 			$new_name);
-		return if !$rslt || (defined($rslt) && $rslt eq '-2');
+		return if $rslt && $rslt eq '-2';
+		$this->setContents($rslt);
+		$this->populate();
 	}
-
-    $this->setContents();
-    $this->populate();
     return 1;
 }
 
@@ -1009,21 +1017,16 @@ sub doRename
 
     # get the item to edit
 
-    my $i;
-    for ($i=1; $i<$num; $i++)
+    my $edit_item;
+    for ($edit_item=1; $edit_item<$num; $edit_item++)
     {
-        last if $ctrl->GetItemState($i,wxLIST_STATE_SELECTED);
-    }
-    if ($i >= $num)
-    {
-        error("No items selected!");
-        return;
+        last if $ctrl->GetItemState($edit_item,wxLIST_STATE_SELECTED);
     }
 
     # start editing the item in place ...
 
-    display($dbg_ops,1,"doRename($i) starting edit ...");
-    $ctrl->EditLabel($i);
+    display($dbg_ops,1,"doRename($edit_item) starting edit ...");
+    $ctrl->EditLabel($edit_item);
 }
 
 
@@ -1031,24 +1034,15 @@ sub onBeginEditLabel
 {
     my ($ctrl,$event) = @_;
     my $row = $event->GetIndex();
-    my $col = 0;  # $event->GetColumn();
 
-    display($dbg_ops,1,"onBeginEditLabel($row,$col)");
+    display($dbg_ops,1,"onBeginEditLabel($row)");
 
-    # - deselect the file extension if any
-
-    if (!$row || $col)
-    {
-        $event->Veto();
-    }
-    else
-    {
-        my $this = $ctrl->{parent};
-        my $entry = $ctrl->GetItem($row,$col)->GetText();
-        $this->{save_entry} = $entry;
-        display($dbg_ops,2,"save_entry=$entry  list_index=".$ctrl->GetItemData($row));
-		$event->Skip();
-    }
+	my $this = $ctrl->{parent};
+	my $entry = $ctrl->GetItem($row,0)->GetText();
+	$this->{edit_row} = $row;
+	$this->{save_entry} = $entry;
+	display($dbg_ops,2,"save_entry=$entry  list_index=".$ctrl->GetItemData($row));
+	$event->Skip();
 }
 
 
@@ -1057,77 +1051,88 @@ sub onEndEditLabel
     my ($ctrl,$event) = @_;
     my $this = $ctrl->{parent};
     my $row = $event->GetIndex();
-    my $col = $event->GetColumn();
     my $entry = $event->GetLabel();
-    my $save_entry = $this->{save_entry};
     my $is_cancelled = $event->IsEditCancelled() ? 1 : 0;
-    $this->{save_entry} = '';
+	$this->{new_edit_name} = $entry;
 
     # can't rename to a blank
+	# could do a local check for same name existing
 
     if (!$entry || $entry eq '')
     {
+		error("new name must be specified");
         $event->Veto();
         return;
     }
 
-    display($dbg_ops,1,"onEndEditLabel($row,$col) cancelled=$is_cancelled entry=$entry save=$save_entry");
+    display($dbg_ops,1,"onEndEditLabel($row) cancelled=$is_cancelled entry=$entry save=$this->{save_entry}");
     display($dbg_ops+1,2,"ctrl=$ctrl this=$this session=$this->{session}");
 
-    if (!$is_cancelled && $entry ne $save_entry)
-    {
-        my $info = $this->doCommand('onEndEditLabel',$SESSION_COMMAND_RENAME,
-            $this->{is_local},
-            $this->{dir},
-            $save_entry,
-            $entry);
+	return if $is_cancelled || $entry eq $this->{save_entry};
 
-		return if defined($info) && $info eq '-2';
-			# PRH -2 indicates threaded command underway
+	my $info = $this->doCommand('doRename',$SESSION_COMMAND_RENAME,
+		$this->{is_local},
+		$this->{dir},
+		$this->{save_entry},
+		$entry);
 
-		# PRH The below code is difficult, or impossible, to change into
-		# an asynchronous model inamuch as it uses $event ....
-		# Since this is *nearly* an atomic operation, perhaps I
-		# can leave it in the main thread ...
+	return if $info && $info eq '-2';
+		# PRH -2 indicates threaded command underway
 
-        # if the rename failed, the error was already reported
-		# to the UI via Session::textToList().
-        # Here we add a pending event to start editing again ...
+	$this->endRename($info,$event);
+}
 
-        if (!$info)
-        {
-            # error("renameItem failed!!");
-            $event->Veto();
-            my $new_event = Wx::CommandEvent->new(
-                wxEVT_COMMAND_MENU_SELECTED,
-                $COMMAND_RENAME);
-            $this->AddPendingEvent($new_event);
-            return;
-        }
 
-        # fix up the $this->{list} and $this->{hash}
-		# invalidate the sort if they are sorted by name or ext
+sub endRename
+{
+	my ($this,$info,$event) = @_;
+	my $ctrl = $this->{list_ctrl};
+	$info ||= '';
+	display($dbg_ops,0,"endRename($info)");
 
-        my $index = $ctrl->GetItemData($row);
-        my $list = $this->{list};
-        my $hash = $this->{hash};
+	# if the rename failed, the error was already reported
+	# Here we add a pending event to start editing again ...
 
-        $info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
+	if (!$info)
+	{
+		if ($event)
+		{
+			$event->Veto() ;
+		}
+		else
+		{
+			display($dbg_ops,0,"resetting itemText($this->{edit_row},0,$this->{save_entry})");
+			$ctrl->SetItem($this->{edit_row},0,$this->{save_entry});
+		}
+		my $new_event = Wx::CommandEvent->new(
+			wxEVT_COMMAND_MENU_SELECTED,
+			$COMMAND_RENAME);
+		$this->AddPendingEvent($new_event);
+		return;
+	}
 
-        $$list[$index] = $info;
-        delete $$hash{$save_entry};
-        $$hash{$entry} = $info;
-        $this->{last_sortcol} = -1 if ($this->{last_sortcol} <= 1);
+	# fix up the $this->{list} and $this->{hash}
+	# invalidate the sort if they are sorted by name or ext
 
-        # sort does not work from within the event,
-		# as wx has not finalized it's edit
-        # so we chain another event to repopulate
+	my $index = $ctrl->GetItemData($this->{edit_row});
+	my $list = $this->{list};
+	my $hash = $this->{hash};
 
-        my $new_event = Wx::CommandEvent->new(
-            wxEVT_COMMAND_MENU_SELECTED,
-            $COMMAND_REPOPULATE);
-        $this->AddPendingEvent($new_event);
-    }
+	$info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
+
+	$list->[$index] = $info;
+	delete $hash->{$this->{save_entry}};
+	$hash->{$this->{new_edit_name}} = $info;
+	$this->{last_sortcol} = -1 if ($this->{last_sortcol} <= 1);
+
+	# sort does not work from within the event,
+	# as wx has not finalized it's edit
+	# so we chain another event to repopulate
+
+	my $new_event = Wx::CommandEvent->new(
+		wxEVT_COMMAND_MENU_SELECTED,
+		$COMMAND_REPOPULATE);
+	$this->AddPendingEvent($new_event);
 }
 
 
@@ -1135,10 +1140,6 @@ sub onEndEditLabel
 #--------------------------------------------------------------
 # doCommandSelected
 #--------------------------------------------------------------
-
-
-
-
 
 sub doCommandSelected
 {
@@ -1246,7 +1247,7 @@ sub doCommandSelected
 		$other->{dir},				# target dir
 		$this->{progress});					# progress
 
-	return if defined($rslt) && $rslt eq '-2';
+	return if $rslt && $rslt eq '-2';
 		# PRH -2 means threaded command underway
 
 
@@ -1303,7 +1304,13 @@ sub doCommand
         $param1,
         $param2,
         $param3);
-	# $thread->detach();  may cause the scalar leaked message
+	$this->{parent}->{thread} = $thread;
+		# to prevent commands while in threaded command
+
+	# $thread->detach();
+		# prevents messages about unjoined threads at program termination
+		# but causes scalars leaked message
+
 	return -2;		# PRH -2 indicates threaded command in progress
 }
 
@@ -1319,7 +1326,7 @@ sub doCommandThreaded
         $param2,
         $param3) = @_;
 
-	warning(0,-1,"doCommandThreaded($caller,$command,$local) called");
+	warning($dbg_threaded_commands,-1,"doCommandThreaded($caller,$command,$local) called");
 
 	my $rslt = $this->{session}->doCommand(
 		$command,
@@ -1329,97 +1336,107 @@ sub doCommandThreaded
 		$param3,
 		$this);
 
-	warning(0,-1,"doCommandThreaded($caller) got rslt=$rslt");
+	warning($dbg_threaded_commands,-1,"doCommandThreaded($caller) got rslt=$rslt");
 
-	# display(0,0,"workerThread() count=$count");
-	# my $data:shared = "count=".$count++;
-    #
-	# if ($win)
-	# {
-	# 	display(0,0,"workerThread() sending data=$data");
-	# 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $data );
-	# 	Wx::PostEvent( $win, $evt );
-	# }
+	# scalar result can be an error message
+	# and we still want to pass caller for doRename
 
-
-	my $msg:shared = $rslt;
-	if ($msg && ref($msg))
+	if ($rslt && !ref($rslt) && $caller eq 'doRename')
 	{
-		$msg->{caller} = $caller;
-		my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-		Wx::PostEvent( $this, $evt );
+		display($dbg_threaded_commands,-2,"setting rename_error=$rslt");
+		$rslt = shared_clone({ rename_error => $rslt })
 	}
+
+	# we want to pass a bare hash, with the caller, if there was no result
+
+	$rslt ||= shared_clone({});
+	$rslt->{caller} = $caller if ref($rslt);
+	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
+	Wx::PostEvent( $this, $evt );
 }
 
 
 sub onThreadEvent
 {
 	my($this, $event ) = @_;
-	$event ||= '';
-	warning(0,0,"onThreadEvent($event) ref=".ref($event));
-
-	if ($event)
+	if (!$event)
 	{
-		my $rslt = $event->GetData();
-		display(0,1,"onThreadEvent rslt=$rslt ref=".ref($rslt));
-
-		if (ref($rslt) =~ /Pub::FS::FileInfo/)
-		{
-			display(0,1,"onThreadEvent caller($rslt->{caller})");
-
-			if ($rslt->{caller} eq 'setContents')
-			{
-				$this->setContents($rslt);
-				$this->populate();
-			}
-
-			# i though MKDIR was supposed to return a DIR_LIST?!
-			elsif ($rslt->{caller} eq 'doMakeDir')
-			{
-				$this->setContents();
-				$this->populate();
-			}
-			elsif ($rslt->{caller} eq 'doCommandSelected')
-			{
-				# currently only !local DELETE supported
-				$this->{progress}->Destroy() if $this->{progress};
-				$this->{progress} = undef;
-				$this->setContents($rslt);
-				$this->populate();
-			}
-
-		}
-		elsif ($rslt =~ /^PROGRESS/)
-		{
-			if ($this->{progress})
-			{
-
-				my @params = split(/\t/,$rslt);
-				shift @params;	# ditch the 'PROGRESS'
-				my $command = shift(@params);
-
-				$params[0] = '' if !defined($params[0]);
-				$params[1] = '' if !defined($params[1]);
-				display(0,1,"onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
-
-				$this->{progress}->addDirsAndFiles($params[0],$params[1])
-					if $command eq 'ADD';
-				$this->{progress}->setDone($params[0])
-					if $command eq 'DONE';
-				$this->{progress}->setEntry($params[0])
-					if $command eq 'ENTRY';
-
-				# $this->{progress}->Refresh();
-				# $this->{progress}->Update();
-				Wx::App::GetInstance()->Yield();
-			}
-		}
+		error("No event in onThreadEvent!!",0);
+		return;
 	}
 
-	# calling $this->setContents(-1) will cause it to show
-	# could not get dircectory listing message
+	my $rslt = $event->GetData();
 
-	# needs to deal with $this->{progress)
+	if (ref($rslt))
+	{
+		my $caller = $rslt->{caller};
+		display($dbg_threaded_commands,1,"onThreadEvent caller($caller)");
+		$this->{progress}->Destroy() if $this->{progress};
+		$this->{progress} = undef;
+
+		# we need to report rename errors separately here
+
+		error($rslt->{rename_error})
+			if $rslt->{rename_error} &&
+			   $rslt->{rename_error} =~ s/ERROR - //;
+
+		# success if it's a FileInfo
+
+		my $is_ref = ref($rslt) =~ /Pub::FS::FileInfo/;
+
+		$rslt = -1 if !$is_ref && $caller eq 'setContents';
+		$rslt = '' if !$is_ref;
+
+		if ($caller eq 'doRename')
+		{
+			$this->endRename($rslt);
+		}
+		elsif ($rslt)
+		{
+			$this->setContents($rslt);
+			$this->populate();
+		}
+
+		delete $this->{parent}->{thread};
+			# free up for more commands
+
+		return;
+	}
+
+	# text results
+	# they can theoretically currently re-enter on remote commands
+	# as we don't disable the window in doCommandThreaded!
+
+	display($dbg_threaded_commands,1,"onThreadEvent rslt=$rslt");
+
+	if ($rslt =~ s/^ERROR - //)
+	{
+		error($rslt);
+		delete $this->{parent}->{thread};
+			# free up for more commands
+	}
+	elsif ($rslt =~ /^PROGRESS/)
+	{
+		if ($this->{progress})
+		{
+			my @params = split(/\t/,$rslt);
+			shift @params;	# ditch the 'PROGRESS'
+			my $command = shift(@params);
+
+			$params[0] = '' if !defined($params[0]);
+			$params[1] = '' if !defined($params[1]);
+			display($dbg_threaded_commands,1,"onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
+
+			$this->{progress}->addDirsAndFiles($params[0],$params[1])
+				if $command eq 'ADD';
+			$this->{progress}->setDone($params[0])
+				if $command eq 'DONE';
+			$this->{progress}->setEntry($params[0])
+				if $command eq 'ENTRY';
+
+			Wx::App::GetInstance()->Yield();
+		}
+	}
 }
 
 
@@ -1429,7 +1446,7 @@ sub onThreadEvent
 sub addDirsAndFiles
 {
 	my ($this,$num_dirs,$num_files) = @_;
-	display(0,-1,"THIS->addDirsAndFiles($num_dirs,$num_files)");
+	display($dbg_threaded_commands,-1,"THIS->addDirsAndFiles($num_dirs,$num_files)");
 	my $rslt:shared = "PROGRESS\tADD\t$num_dirs\t$num_files";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
@@ -1438,7 +1455,7 @@ sub addDirsAndFiles
 sub setDone
 {
 	my ($this,$is_dir) = @_;
-	display(0,-1,"THIS->setDone($is_dir)");
+	display($dbg_threaded_commands,-1,"THIS->setDone($is_dir)");
 	my $rslt:shared = "PROGRESS\tDONE\t$is_dir";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
@@ -1447,7 +1464,7 @@ sub setDone
 sub setEntry
 {
 	my ($this,$entry) = @_;
-	display(0,-1,"THIS->setEntry($entry)");
+	display($dbg_threaded_commands,-1,"THIS->setEntry($entry)");
 	my $rslt:shared = "PROGRESS\tENTRY\t$entry";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
