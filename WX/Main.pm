@@ -11,6 +11,7 @@ use Error qw(:try);
 use Wx qw(wxOK wxICON_EXCLAMATION);
 use Pub::Utils;
 
+my $dbg_main = 0;
 
 use sigtrap 'handler', \&onSignal, 'normal-signals';
     # $SIG{INT} = \&onSignal; only catches ^c
@@ -25,7 +26,7 @@ sub onSignal
 sub run
 {
     my ($app) = @_;
-    LOG(0,"starting run()");
+    display($dbg_main,0,"starting run()");
 
     AFTER_EXCEPTION:
 

@@ -14,7 +14,7 @@ use Cava::Packager;
 use Win32::Console;
 use Win32::Mutex;
 
-our $debug_level = 0;
+our $debug_level = -3;
 
 BEGIN
 {
