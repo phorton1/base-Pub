@@ -10,11 +10,12 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use Scalar::Util qw(blessed);
 use Cava::Packager;
 use Win32::Console;
 use Win32::Mutex;
 
-our $debug_level = -3;
+our $debug_level = 0;
 
 BEGIN
 {
@@ -28,10 +29,6 @@ BEGIN
         $logfile
 		$resource_dir
 
-		createSTDOUTSemaphore
-		openSTDOUTSemaphore
-		waitSTDOUTSemaphore
-		releaseSTDOUTSemaphore
 
 		setAppFrame
 		getAppFrame
@@ -39,6 +36,12 @@ BEGIN
 		setStandardTempDir
 		setStandardDataDir
 		setStandardCavaResourceDir
+
+		createSTDOUTSemaphore
+		openSTDOUTSemaphore
+		waitSTDOUTSemaphore
+		releaseSTDOUTSemaphore
+
 
 		pad
 		pad2
@@ -63,6 +66,8 @@ BEGIN
 }
 
 my $app_frame;
+	# in multi-threaded WX apps, this is a weird scalar and
+	# cannot be used directly from threads
 
 our $temp_dir        = '';
 our $data_dir        = '';
@@ -91,58 +96,24 @@ my $CONSOLE_STDOUT = Win32::Console->new($STD_OUTPUT_HANDLE);
 # my $CONSOLE_STDERR = Win32::Console->new($STD_OUTPUT_HANDLE);
 
 
-my $WITH_SEMAPHORES = 0;
-my $STD_OUT_SEM;
-my $MUTEX_TIMEOUT = 1000;
-
-
-sub createSTDOUTSemaphore
-	# $process_group_name is for a group of processes that
-	# share STDOUT.  The inntial process calls this method.
-{
-	my ($process_group_name) = @_;
-	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
-	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
-	error("Could not CREATE $process_group_name SEMAPHORE") if !$STD_OUT_SEM;
-
-}
-
-sub openSTDOUTSemaphore
-	# $process_group_name is for a group of processes that
-	# share STDOUT.  The inntial process calls this method.
-{
-	my ($process_group_name) = @_;
-	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
-	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
-	error("Could not OPEN $process_group_name SEMAPHORE") if !$STD_OUT_SEM;
-}
-
-sub waitSTDOUTSemaphore
-{
-	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
-}
-
-sub releaseSTDOUTSemaphore
-{
-	$STD_OUT_SEM->release() if $STD_OUT_SEM;
-}
-
-
-
-
-
+#---------------
+# appFrame
+#---------------
 
 sub setAppFrame
 {
 	$app_frame = shift;
 }
 
-
 sub getAppFrame
 {
     return $app_frame;
 }
 
+
+#------------------------------
+# Standard directories
+#------------------------------
 
 sub setStandardTempDir
 	# The $temp_dir is not automatically cleaned up.
@@ -181,6 +152,46 @@ sub setStandardCavaResourceDir
 }
 
 
+#----------------------------------------------
+# STD_OUT Semaphore
+#----------------------------------------------
+
+my $WITH_SEMAPHORES = 0;
+my $STD_OUT_SEM;
+my $MUTEX_TIMEOUT = 1000;
+
+
+sub createSTDOUTSemaphore
+	# $process_group_name is for a group of processes that
+	# share STDOUT.  The inntial process calls this method.
+{
+	my ($process_group_name) = @_;
+	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
+	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
+	error("Could not CREATE $process_group_name SEMAPHORE") if !$STD_OUT_SEM;
+
+}
+
+sub openSTDOUTSemaphore
+	# $process_group_name is for a group of processes that
+	# share STDOUT.  The inntial process calls this method.
+{
+	my ($process_group_name) = @_;
+	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
+	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
+	error("Could not OPEN $process_group_name SEMAPHORE") if !$STD_OUT_SEM;
+}
+
+sub waitSTDOUTSemaphore
+{
+	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
+}
+
+sub releaseSTDOUTSemaphore
+{
+	$STD_OUT_SEM->release() if $STD_OUT_SEM;
+}
+
 
 #----------------------------------
 # Display Utilities
@@ -193,7 +204,6 @@ sub _def
     return defined($var) ? $var : 'undef';
 }
 
-
 sub pad
 {
 	my ($s,$len) = @_;
@@ -205,14 +215,12 @@ sub pad
 	return $s;
 }
 
-
 sub pad2
 {
 	my ($d) = @_;
 	$d = '0'.$d if (length($d)<2);
 	return $d;
 }
-
 
 sub get_indent
 {
@@ -244,8 +252,6 @@ sub get_indent
     }
 }
 
-
-
 sub _setColor
 {
 	my ($color_const) = @_;
@@ -258,6 +264,9 @@ sub _setColor
 }
 
 
+#----------------------
+# _output
+#----------------------
 
 sub _output
 {
@@ -301,7 +310,6 @@ sub _output
 }
 
 
-
 #---------------------------------------------------------------
 # High Level Display Routines
 #---------------------------------------------------------------
@@ -319,7 +327,6 @@ sub display
 	return $rslt;
 }
 
-
 sub LOG
 {
     my ($indent_level,$msg,$call_level) = @_;
@@ -328,8 +335,6 @@ sub LOG
 	return $rslt;
 }
 
-
-
 sub error
 {
     my ($msg,$call_level) = @_;
@@ -337,12 +342,15 @@ sub error
 	_output(-1,"ERROR: $msg",$DISPLAY_COLOR_ERROR,$call_level+1);
 
     my $app_frame = getAppFrame();
+
 	$app_frame->showError("Error: ".$msg) if
-		$app_frame && ref($app_frame)=~/HASH/ && $app_frame->can('showError');
+		$app_frame &&
+		!threads->tid() &&
+		blessed($app_frame) &&
+		$app_frame->can('showError');
 
 	return undef;
 }
-
 
 sub warning
 {
@@ -355,7 +363,6 @@ sub warning
 	}
 	return $rslt;
 }
-
 
 
 sub display_hash
@@ -373,7 +380,6 @@ sub display_hash
 	}
 	return 1;
 }
-
 
 sub display_bytes
 	# does not currently work through whole display system
@@ -419,8 +425,6 @@ sub display_bytes
 	print "\n" ;
 }
 
-
-
 sub CapFirst
 	# changed implementation on 2014/07/19
 {
@@ -456,7 +460,6 @@ sub today
     return $time;
 }
 
-
 sub now
     # returns the current local time in the
     # format hh::mm:ss
@@ -491,11 +494,9 @@ sub mergeHash
 }
 
 
-
 #----------------------------------------------------------
 # File Routines
 #----------------------------------------------------------
-
 
 sub filenameFromWin
 {
@@ -504,7 +505,6 @@ sub filenameFromWin
 	$filename =~ s/\\/\//g;
 	return $filename;
 }
-
 
 sub getTextFile
 {
@@ -519,8 +519,6 @@ sub getTextFile
     }
     return $text;
 }
-
-
 
 sub printVarToFile
 {
