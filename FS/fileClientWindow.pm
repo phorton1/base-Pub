@@ -26,6 +26,7 @@ use Pub::WX::Window;
 use Pub::FS::SessionClient;
 use Pub::FS::fileClientResources;
 use Pub::FS::fileClientPane;
+use Pub::FS::fileClientCommands;
 use Pub::FS::fileClientHostDialog;
 use base qw(Wx::Window Pub::WX::Window);
 
