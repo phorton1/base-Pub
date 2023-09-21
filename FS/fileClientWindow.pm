@@ -128,7 +128,7 @@ sub onClose
 		display($dbg_fcw,-1,"Exiting Program as last window");
 		exit(0);
 	}
-	if (!$this->{GOT_EXIT})
+	if ($this->{session}->{SOCK} && !$this->{GOT_EXIT})
 	{
 		$this->{GOT_EXIT} = 1;
 		$this->{session}->sendPacket("EXIT")
@@ -194,7 +194,7 @@ sub onIdle
 				}
 			}
 		}
-		else
+		elsif (!$this->{disconnected_by_pane})
 		{
 			display($dbg_idle,-1,"fileClientWindow lost SOCKET");
 			$do_exit = 1;

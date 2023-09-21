@@ -137,9 +137,6 @@ sub new
         $ctrl->InsertColumn($i,$field,$align,$width);
     }
 
-    # show connection state
-	# $this->setConnectMsg($color_green,'SERVER');
-
     # finished - layout & setContents
 
     $this->{sort_col} = 0;
@@ -267,7 +264,7 @@ sub onCommandUI
 
     if ($id == $COMMAND_RECONNECT)
     {
-        $enabled = !$local;
+        $enabled = 1; # !$local;
     }
 
     # other connection commands
@@ -322,7 +319,8 @@ sub onCommandUI
 sub setEnabled
 {
 	my ($this,$enable,$msg) = @_;
-	return if $this->{is_local};
+	$msg ||= '';
+	# return if $this->{is_local};
 	if ($this->{enabled} != $enable)
 	{
 		$this->Enable($enable);
@@ -342,15 +340,6 @@ sub setEnabled
 }
 
 
-sub setConnectMsg
-{
-    my ($this,$color,$msg) = @_;
-	return if $this->{is_local};
-    $this->{parent}->{connected_ctrl}->SetLabel($msg);
-	$this->{parent}->{connected_ctrl}->SetForegroundColour($color);
-}
-
-
 sub checkConnected
 {
     my ($this) = @_;
@@ -362,11 +351,12 @@ sub checkConnected
 		if ($connected)
 		{
 			display($dbg_life,-1,"Connected");
+			$this->{parent}->{disconnected_by_pane} = 0;
 			$this->setEnabled(1,'');
 		}
 		else
 		{
-			error("Not connected!");
+			warning($dbg_life,-1,"Not connected!");
 			$this->setEnabled(0,'NO CONNECTION');
 		}
 	}
@@ -380,6 +370,7 @@ sub disconnect
 	return if $this->{is_local};
     return if (!$this->checkConnected());
     display($dbg_life,0,"Disconnecting...");
+	$this->{parent}->{disconnected_by_pane} = 1;
     $this->{session}->disconnect();
 	$this->checkConnected();
 	# $this->populate();
@@ -389,15 +380,19 @@ sub disconnect
 sub connect
 {
     my ($this) = @_;
-	return if $this->{is_local};
-    $this->disconnect() if ($this->{session}->isConnected());
-    # $this->setConnectMsg($color_green,'CONNECTING ...');
+	# return if $this->{is_local};
+
+	# can be called from either pane
+	my $pane2 = $this->{parent}->{pane2};
+
+    $pane2->disconnect() if ($pane2->{session}->isConnected());
     display($dbg_life,0,"Connecting...");
-    my $connected = $this->{session}->connect();
-	if ($this->checkConnected())
+    my $connected = $pane2->{session}->connect();
+	if ($pane2->checkConnected())
     {
-		$this->setContents();
-		$this->populate();
+		$pane2->setContents();
+		$pane2->populate();
+		$pane2->setEnabled(1);
 	}
 }
 
@@ -724,7 +719,6 @@ sub setContents
 		$this->{hash} = \%hash;
 		$this->{list_ctrl}->DeleteAllItems();
 		$this->{changed} = 1;
-		# $this->setEnabled(0,"Could not get directory listing");
 		return;
 	}
 

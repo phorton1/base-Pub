@@ -39,7 +39,7 @@ my $TEST_DELAY:shared = 0;
 	# set this to 1 or 2 seconds to slow things down for testing
 
 
-our $dbg_session:shared = 1;
+our $dbg_session:shared = -1;
 our $dbg_packets:shared = -1;
 our $dbg_lists:shared = 1;
 	# 0 = show lists encountered
@@ -185,39 +185,44 @@ sub connect
     my ($this) = @_;
 	my $host = $this->{HOST};
     my $port = $this->{PORT};
+	$this->{SOCK} = undef;
 
 	display($dbg_session+1,-1,"$this->{WHO} connecting to $host:$port");
 
-    my @psock = (
-        PeerAddr => "$host:$port",
+   $this->{SOCK} = IO::Socket::INET->new(
+		PeerAddr => "$host:$port",
         PeerPort => "http($port)",
         Proto    => 'tcp',
-		Timeout  => $DEFAULT_TIMEOUT);
+		Timeout  => $DEFAULT_TIMEOUT );
 
-    my $sock = IO::Socket::INET->new(@psock);
-
-    if (!$sock)
+    if (!$this->{SOCK})
     {
         error("$this->{WHO} could not connect to PORT $port");
     }
     else
     {
 		my $rcv_buf_size = 10240;
-		$sock->sockopt(SO_RCVBUF, $rcv_buf_size);
+		$this->{SOCK}->sockopt(SO_RCVBUF, $rcv_buf_size);
  		display($dbg_session,-1,"$this->{WHO} CONNECTED to PORT $port");
-        $this->{SOCK} = $sock;
-
-        return if !$this->sendPacket("HELLO");
-        return if !defined(my $line = $this->getPacket(1));
-
-        if ($line !~ /^WASSUP/)
-        {
-            error("$this->{WHO} unexpected response from server: $line");
-            return;
+		my $ok = $this->sendPacket("HELLO");
+		if ($ok)
+		{
+			my $line = $this->getPacket(1);
+			$ok = $line ? 1 : 0;
+			if ($ok && $line !~ /^WASSUP/)
+			{
+	            error("$this->{WHO} unexpected response from server: $line");
+				$ok = 0;
+			}
+		}
+		if (!$ok)
+		{
+			$this->{SOCK}->close();
+			$this->{SOCK} = undef;
         }
     }
 
-    return $sock ? 1 : 0;
+    return $this->{SOCK} ? 1 : 0;
 }
 
 
