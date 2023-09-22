@@ -2,7 +2,9 @@
 #-------------------------------------------
 # filePane
 #-------------------------------------------
-# The workhorse window of the application
+# The workhorse window of the application.
+# For a discussion if threads in wxPerl, see:
+# https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
 
 package Pub::FS::fileClientPane;
 use strict;
