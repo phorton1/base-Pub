@@ -427,14 +427,14 @@ sub sessionThread
         $session->session_error("EMPTY LOGIN");
 		$ok = 0;
 	}
-	elsif ($packet !~ /^HELLO/)
+	elsif ($packet !~ /^$PROTOCOL_HELLO/)
 	{
         $session->session_error("BAD LOGIN '$packet'");
 		$ok = 0;
 	}
-	if ($ok && !$session->sendPacket("WASSUP"))
+	if ($ok && !$session->sendPacket($PROTOCOL_WASSUP))
 	{
-        $session->session_error("COULD NOT SEND WASSUP");
+        $session->session_error("COULD NOT SEND $PROTOCOL_HELLO");
 		$ok = 0;
 	}
 
@@ -482,7 +482,7 @@ sub sessionThread
 					# which also handles PROGRESS and ABORT
 
 					my $rslt;
-					if ($this->{IS_REMOTE} && $params[0] eq $SESSION_COMMAND_DELETE)
+					if ($this->{IS_REMOTE} && $params[0] eq $PROTOCOL_DELETE)
 					{
 						$rslt = $session->deleteRemotePacket($packet)
 					}
@@ -544,7 +544,7 @@ sub sessionThread
 		$session->{SOCK} &&
 		$this->{SEND_EXIT})
 	{
-		$session->sendPacket("EXIT");
+		$session->sendPacket($PROTOCOL_EXIT);
 		sleep(0.2);
 	}
 

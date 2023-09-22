@@ -698,7 +698,7 @@ sub setContents
 
     if (!$dir_info)
     {
-		$dir_info = $this->doCommand('setContents',$SESSION_COMMAND_LIST,$local,$dir);
+		$dir_info = $this->doCommand('setContents',$PROTOCOL_LIST,$local,$dir);
 		return if $dir_info && $dir_info eq '-2';
 			# PRH -2 indicates a threaded command underway
 	}

@@ -26,7 +26,7 @@ use Pub::WX::Window;
 use Pub::FS::SessionClient;
 use Pub::FS::fileClientResources;
 use Pub::FS::fileClientPane;
-use Pub::FS::fileClientCommands;
+use Pub::FS::fileClientPane2;
 use Pub::FS::fileClientHostDialog;
 use base qw(Wx::Window Pub::WX::Window);
 
@@ -132,7 +132,7 @@ sub onClose
 	if ($this->{session}->{SOCK} && !$this->{GOT_EXIT})
 	{
 		$this->{GOT_EXIT} = 1;
-		$this->{session}->sendPacket("EXIT")
+		$this->{session}->sendPacket($PROTOCOL_EXIT)
 	}
 	$this->SUPER::onClose();
 	$event->Skip();
@@ -179,18 +179,18 @@ sub onIdle
 			if ($packet)
 			{
 				display($dbg_idle,-1,"got packet $packet");
-				if ($packet eq 'EXIT')
+				if ($packet eq $PROTOCOL_EXIT)
 				{
 					display($dbg_idle,-1,"onIdle() EXIT");
 					$this->{GOT_EXIT} = 1;
 					$do_exit = 1;
 				}
-				elsif ($packet =~ /^(ENABLE|DISABLE) - (.*)$/)
+				elsif ($packet =~ /^($PROTOCOL_ENABLE|$PROTOCOL_DISABLE)(.*)$/)
 				{
 					my ($what,$msg) = ($1,$2);
 					$msg =~ s/\s+$//;
 					$this->{pane2}->setEnabled(
-						$what eq 'ENABLE' ? 1 : 0,
+						$what eq $PROTOCOL_ENABLE ? 1 : 0,
 						$msg);
 				}
 			}

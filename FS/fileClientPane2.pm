@@ -79,7 +79,7 @@ sub doMakeDir
 
     if ($dlg_rslt == wxID_OK)
 	{
-		my $rslt = $this->doCommand('doMakeDir',$SESSION_COMMAND_MKDIR,
+		my $rslt = $this->doCommand('doMakeDir',$PROTOCOL_MKDIR,
 			$this->{is_local},
 			$this->{dir},
 			$new_name);
@@ -152,7 +152,7 @@ sub onEndEditLabel
 
 	return if $is_cancelled || $entry eq $this->{save_entry};
 
-	my $info = $this->doCommand('doRename',$SESSION_COMMAND_RENAME,
+	my $info = $this->doCommand('doRename',$PROTOCOL_RENAME,
 		$this->{is_local},
 		$this->{dir},
 		$this->{save_entry},
@@ -303,8 +303,8 @@ sub doCommandSelected
 		CapFirst($display_command)." Confirmation");
 
 	my $command = $id == $COMMAND_XFER ?
-		$SESSION_COMMAND_XFER :
-		$SESSION_COMMAND_DELETE;
+		$PROTOCOL_XFER :
+		$PROTOCOL_DELETE;
 	my $target_dir =
 
 	$this->{progress} = Pub::FS::fileProgressDialog->new(
@@ -331,6 +331,11 @@ sub doCommandSelected
 	return if $rslt && $rslt eq '-2';
 		# PRH -2 means threaded command underway
 
+	if ($rslt && $rslt =~ /^$PROTOCOL_ABORTED/)
+	{
+		okDialog(undef,"$command aborted by user","$command Aborted");
+		$rslt = '';
+	}
 
 	$this->{progress}->Destroy() if $this->{progress};
 	$this->{progress} = undef;
@@ -461,7 +466,7 @@ sub onThreadEvent
 
 		error($rslt->{rename_error})
 			if $rslt->{rename_error} &&
-			   $rslt->{rename_error} =~ s/ERROR - //;
+			   $rslt->{rename_error} =~ s/^$PROTOCOL_ERROR//;
 
 		# success if it's a FileInfo
 
@@ -492,7 +497,7 @@ sub onThreadEvent
 
 	display($dbg_thread,1,"onThreadEvent rslt=$rslt");
 
-	if ($rslt =~ s/^ERROR - //)
+	if ($rslt =~ s/^$PROTOCOL_ERROR//)
 	{
 		error($rslt);
 		delete $this->{parent}->{thread};
@@ -500,7 +505,7 @@ sub onThreadEvent
 		$this->{progress}->Destroy() if $this->{progress};
 		$this->{progress} = undef;
 	}
-	elsif ($rslt =~ /^PROGRESS/)
+	elsif ($rslt =~ /^$PROTOCOL_PROGRESS/)
 	{
 		if ($this->{progress})
 		{
@@ -533,7 +538,7 @@ sub addDirsAndFiles
 {
 	my ($this,$num_dirs,$num_files) = @_;
 	display($dbg_thread,-1,"THIS->addDirsAndFiles($num_dirs,$num_files)");
-	my $rslt:shared = "PROGRESS\tADD\t$num_dirs\t$num_files";
+	my $rslt:shared = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
 	# Wx::App::GetInstance()->Yield();
@@ -542,7 +547,7 @@ sub setDone
 {
 	my ($this,$is_dir) = @_;
 	display($dbg_thread,-1,"THIS->setDone($is_dir)");
-	my $rslt:shared = "PROGRESS\tDONE\t$is_dir";
+	my $rslt:shared = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
 	# Wx::App::GetInstance()->Yield();
@@ -551,7 +556,7 @@ sub setEntry
 {
 	my ($this,$entry) = @_;
 	display($dbg_thread,-1,"THIS->setEntry($entry)");
-	my $rslt:shared = "PROGRESS\tENTRY\t$entry";
+	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
 	# Wx::App::GetInstance()->Yield();

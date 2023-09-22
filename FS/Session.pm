@@ -69,22 +69,44 @@ BEGIN {
 		$DEFAULT_PORT
 		$DEFAULT_HOST
 
-		$SESSION_COMMAND_LIST
-		$SESSION_COMMAND_RENAME
-		$SESSION_COMMAND_MKDIR
-		$SESSION_COMMAND_DELETE
-		$SESSION_COMMAND_XFER
+		$PROTOCOL_HELLO
+        $PROTOCOL_WASSUP
+        $PROTOCOL_EXIT
+        $PROTOCOL_ENABLE
+        $PROTOCOL_DISABLE
+        $PROTOCOL_ERROR
+        $PROTOCOL_LIST
+        $PROTOCOL_RENAME
+        $PROTOCOL_MKDIR
+        $PROTOCOL_ABORT
+        $PROTOCOL_ABORTED
+        $PROTOCOL_PROGRESS
+        $PROTOCOL_DELETE
+        $PROTOCOL_XFER
+
 	);
 }
 
 our $DEFAULT_PORT = 5872;
 our $DEFAULT_HOST = "localhost";
 
-our $SESSION_COMMAND_LIST = "LIST";
-our $SESSION_COMMAND_RENAME = "RENAME";
-our $SESSION_COMMAND_MKDIR = "MKDIR";
-our $SESSION_COMMAND_DELETE = "DELETE";
-our $SESSION_COMMAND_XFER = "XFER";
+# Protocol Verbs
+
+our $PROTOCOL_HELLO		= "HELLO";
+our $PROTOCOL_WASSUP 	= "WASSUP";
+our $PROTOCOL_EXIT		= "EXIT";
+our $PROTOCOL_ENABLE    = "ENABLED - ";
+our $PROTOCOL_DISABLE   = "DISABLED - ";
+our $PROTOCOL_ERROR     = "ERROR - ";
+our $PROTOCOL_LIST 		= "LIST";
+our $PROTOCOL_RENAME 	= "RENAME";
+our $PROTOCOL_MKDIR 	= "MKDIR";
+our $PROTOCOL_ABORT		= "ABORT";
+our $PROTOCOL_ABORTED   = "ABORTED";
+our $PROTOCOL_PROGRESS  = "PROGRESS";
+our $PROTOCOL_DELETE 	= "DELETE";
+our $PROTOCOL_XFER 		= "XFER";
+
 
 # Each thread has a separate SOCK from the Server
 #    and getPacket cannot be re-entered by them.
@@ -132,7 +154,7 @@ sub session_error
 
     if ($this->{IS_SERVER} && $this->{SOCK})
     {
-        $msg = "ERROR - $msg";
+        $msg = $PROTOCOL_ERROR.$msg;
         $this->sendPacket($msg);
 		sleep(0.5);
 			# to allow packet to be sent
@@ -144,7 +166,7 @@ sub session_error
 
 	if (getAppFrame() && threads->tid())
 	{
-		return "ERROR - $msg";
+		return $PROTOCOL_ERROR.$msg;
 	}
 	else
 	{
@@ -155,7 +177,7 @@ sub session_error
 sub textError
 {
 	my ($this,$text) = @_;
-	return $this->session_error($text) if $text =~ s/^ERROR - //;
+	return $this->session_error($text) if $text =~ s/^$PROTOCOL_ERROR//;
 	return ''
 }
 
@@ -172,7 +194,7 @@ sub disconnect
     display($dbg_session,-1,"$this->{WHO} disconnect()");
     if ($this->{SOCK})
     {
-        $this->sendPacket('EXIT');
+        $this->sendPacket($PROTOCOL_EXIT);
 		close $this->{SOCK};
     }
     $this->{SOCK} = undef;
@@ -204,12 +226,12 @@ sub connect
 		my $rcv_buf_size = 10240;
 		$this->{SOCK}->sockopt(SO_RCVBUF, $rcv_buf_size);
  		display($dbg_session,-1,"$this->{WHO} CONNECTED to PORT $port");
-		my $ok = $this->sendPacket("HELLO");
+		my $ok = $this->sendPacket($PROTOCOL_HELLO);
 		if ($ok)
 		{
 			my $line = $this->getPacket(1);
 			$ok = $line ? 1 : 0;
-			if ($ok && $line !~ /^WASSUP/)
+			if ($ok && $line !~ /^$PROTOCOL_WASSUP/)
 			{
 	            error("$this->{WHO} unexpected response from server: $line");
 				$ok = 0;
@@ -464,7 +486,7 @@ sub _listRemoteDir
     my ($this, $dir) = @_;
     display($dbg_commands,0,"_listRemoteDir($dir)");
 
-    my $command = "$SESSION_COMMAND_LIST\t$dir";
+    my $command = "$PROTOCOL_LIST\t$dir";
 
     return if !$this->sendPacket($command);
     my $packet = $this->getPacketInstance(1);
@@ -488,7 +510,7 @@ sub _mkRemoteDir
     my ($this, $dir,$subdir) = @_;
     display($dbg_commands,0,"_mkRemoteDir($dir,$subdir)");
 
-    my $command = "$SESSION_COMMAND_MKDIR\t$dir\t$subdir";
+    my $command = "$PROTOCOL_MKDIR\t$dir\t$subdir";
 
     return if !$this->sendPacket($command);
     my $packet = $this->getPacketInstance(1);
@@ -512,7 +534,7 @@ sub _renameRemote
     my ($this,$dir,$name1,$name2) = @_;
     display($dbg_commands,0,"_renameRemote($dir,$name1,$name2)");
 
-    my $command = "$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2";
+    my $command = "$PROTOCOL_RENAME\t$dir\t$name1\t$name2";
 
     return if !$this->sendPacket($command);
     my $packet = $this->getPacketInstance(1);
@@ -581,7 +603,7 @@ sub _deleteRemote			# RECURSES!!
 		display($dbg_commands,0,"_deleteRemote($dir,$show_entries)");
 	}
 
-    my $command = "$SESSION_COMMAND_DELETE\t$dir";
+    my $command = "$PROTOCOL_DELETE\t$dir";
 
 	if (!ref($entries))
 	{
@@ -728,7 +750,7 @@ sub _deleteLocal			# RECURSES!!
 	$level ||= 0;
 
 	display($dbg_recurse,-2-$level,"_deleteLocal($dir,$level)");
-	return if $progress && $progress->aborted();
+	return $PROTOCOL_ABORTED if $progress && $progress->aborted();
 	sleep($TEST_DELAY) if $TEST_DELAY;
 
 	#----------------------------------------------------
@@ -803,8 +825,8 @@ sub _deleteLocal			# RECURSES!!
 
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$files)
 	{
-		return if $progress && $progress->aborted();
 		sleep($TEST_DELAY) if $TEST_DELAY;
+		return $PROTOCOL_ABORTED if $progress && $progress->aborted();
 
 		my $info = $entries->{$entry};
 		if (!$info->{is_dir})
@@ -827,8 +849,8 @@ sub _deleteLocal			# RECURSES!!
 
 	if ($level)
 	{
-		return if $progress && $progress->aborted();
 		sleep($TEST_DELAY) if $TEST_DELAY;
+		return $PROTOCOL_ABORTED if $progress && $progress->aborted();
 
 		$progress->setEntry($dir) if $progress;
 		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local dir: $dir");
@@ -873,21 +895,21 @@ sub doCommand
 
 	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
 
-	if ($command eq $SESSION_COMMAND_LIST)				# $dir
+	if ($command eq $PROTOCOL_LIST)				# $dir
 	{
 		# returns dir_info with entries
 		return $local ?
 			$this->_listLocalDir($param1) :
 			$this->_listRemoteDir($param1);
 	}
-	elsif ($command eq $SESSION_COMMAND_MKDIR)			# $dir, $subdir
+	elsif ($command eq $PROTOCOL_MKDIR)			# $dir, $subdir
 	{
 		# returns file_info for the new dir
 		return $local ?
 			$this->_mkLocalDir($param1,$param2) :
 			$this->_mkRemoteDir($param1,$param2);
 	}
-	elsif ($command eq $SESSION_COMMAND_RENAME)			# $dir, $old_name, $new_name
+	elsif ($command eq $PROTOCOL_RENAME)			# $dir, $old_name, $new_name
 	{
 		# returns file_info for the renamed item
 		return $local ?
@@ -898,7 +920,7 @@ sub doCommand
 	# for delete, a single filename name or list of entries
 	# may be passed in. A local single filename is handled specially.
 
-	elsif ($command eq $SESSION_COMMAND_DELETE)			# $dir, $entries_or_filename, undef, $progress
+	elsif ($command eq $PROTOCOL_DELETE)			# $dir, $entries_or_filename, undef, $progress
 	{
 		# returns new dir_info with entries
 		return $this->_deleteRemote($param1,$param2,$progress)

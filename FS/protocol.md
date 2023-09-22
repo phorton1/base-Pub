@@ -32,13 +32,14 @@ depend on the packet type.
 - HELLO
 - WASSUP
 - EXIT
-- ENABLED		msg
-- DISABLED		msg
-- ERROR	- msg
+- ENABLED 		- msg
+- DISABLED 		- msg
+- ERROR			- msg
 - LIST			dir
 - MKDIR			dir name
 - RENAME		dir name1 name2
 - ABORT
+- ABORTED
 - PROGRESS		ADD 	num_dirs num_files
 - PROGRESS		DONE 	is_dir
 - PROGRESS		ENTRY 	entry
@@ -151,8 +152,8 @@ EXIT message back to the sender of the first EXIT message.
 
 ### Asynchronous Messages
 
-- ENABLE  msg
-- DISABLE msg
+- ENABLE - msg
+- DISABLE - msg
 
 Asynchronous messages can be sent from a Server to the connected client
 at any time, including while in the middle of executing a command.
@@ -163,6 +164,8 @@ when the COM_PORT goes offline or comes online, ie:
 	DISABLE - Connection to COM3 lost
 	ENABLE  - COM3 Connected
 
+Note that ENABLE and DISABLE use " - " (space dash space) as the
+delimiter between the verb and the message parameter.
 
 ### ERROR
 
@@ -172,12 +175,8 @@ Regardless of the configuration, ERROR messages are ultimately
 sent to the fileClientPane that is executing the command,
 and reported to the user in a dialog box.
 
-The syntax is "ERROR - " followed by the message.  This
-often needs to be parsed and reconstructed as it is
-reported along the way and passed back to the client
-in various manners, so it is important it is always
-ERROR space dash space, followed by a message when
-packetized.
+Note that ERROR uses " - " (space dash space) as the
+delimiter between the verb and the message parameter.
 
 
 
@@ -217,8 +216,9 @@ PROGRESS gives the client information to update a progress dialog.
 	PROGRESS SIZE   size/               // start showing the 2nd 'bytes transferred' gauge
 	PROGRESS BYTES  bytes               // set the value for the 2nd bytes transferred gauge
 
-ABORT can be sent by the client to stop an operation in progress, as well as
-returned by an operation to acknowledge the cessation has taken place.
+ABORT can be sent by the client to stop an operation in progress, in
+which case the server returns ABORTED to acknowledge the cessation
+has taken place.
 
 Implementing the ABORT between the SessionRemote and teensyExpression's
 handleSerial() method is complicated.

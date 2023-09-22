@@ -198,7 +198,7 @@ sub _listRemoteDir
 {
     my ($this, $dir) = @_;
     display($dbg_commands,0,"_listRemoteDir($dir)");
-	$this->doRemoteRequest("$SESSION_COMMAND_LIST\t$dir");
+	$this->doRemoteRequest("$PROTOCOL_LIST\t$dir");
 	return '';
 }
 
@@ -207,7 +207,7 @@ sub _mkRemoteDir
 {
     my ($this, $dir, $name) = @_;
     display($dbg_commands,0,"_mkRemoteDir($dir)");
-	$this->doRemoteRequest("$SESSION_COMMAND_MKDIR\t$dir\t$name");
+	$this->doRemoteRequest("$PROTOCOL_MKDIR\t$dir\t$name");
 	return '';
 }
 
@@ -216,7 +216,7 @@ sub _renameRemote
 {
     my ($this, $dir, $name1, $name2) = @_;
     display($dbg_commands,0,"_renameRemote($dir)");
-	$this->doRemoteRequest("$SESSION_COMMAND_RENAME\t$dir\t$name1\t$name2");
+	$this->doRemoteRequest("$PROTOCOL_RENAME\t$dir\t$name1\t$name2");
 	return '';
 }
 
