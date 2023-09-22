@@ -368,6 +368,8 @@ sub doCommand
         $param3,
 		$progress) = @_;
 
+	$this->{aborted} = 0;
+
 	if ($local)
 	{
 		return $this->{session}->doCommand(
@@ -422,19 +424,15 @@ sub doCommandThreaded
 
 	warning($dbg_thread,-1,"doCommandThreaded($caller) got rslt=$rslt");
 
-	# scalar result can be an error message
-	# and we still want to pass caller for doRename
+	# promote everything non-progress to a shared hash
+	# with a caller and pass it to onThreadEvent
 
-	if ($rslt && !ref($rslt) && $caller eq 'doRename')
-	{
-		display($dbg_thread,-2,"setting rename_error=$rslt");
-		$rslt = shared_clone({ rename_error => $rslt })
-	}
+	$rslt = shared_clone({
+		rslt => $rslt || ''
+	}) if !$rslt || !ref($rslt);
 
-	# we want to pass a bare hash, with the caller, if there was no result
-
-	$rslt ||= shared_clone({});
-	$rslt->{caller} = $caller if ref($rslt);
+	$rslt->{caller} = $caller;
+	$rslt->{command} = $command;
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
 }
@@ -458,19 +456,29 @@ sub onThreadEvent
 	if (ref($rslt))
 	{
 		my $caller = $rslt->{caller};
-		display($dbg_thread,1,"onThreadEvent caller($caller)");
-		$this->{progress}->Destroy() if $this->{progress};
-		$this->{progress} = undef;
-
-		# we need to report rename errors separately here
-
-		error($rslt->{rename_error})
-			if $rslt->{rename_error} &&
-			   $rslt->{rename_error} =~ s/^$PROTOCOL_ERROR//;
-
-		# success if it's a FileInfo
+		my $command = $rslt->{command};
+		display($dbg_thread,1,"onThreadEvent caller($caller,$command) rslt=$rslt");
 
 		my $is_ref = ref($rslt) =~ /Pub::FS::FileInfo/;
+		if (!$is_ref)  # demote created hashes back to outer $rslt
+		{
+			$rslt = $rslt->{rslt} || '';
+			display($dbg_thread,2,"inner rslt=$rslt");
+		}
+
+		if ($rslt =~ s/^$PROTOCOL_ERROR//)
+		{
+			error($rslt);
+			$rslt = '';
+		}
+		if ($rslt =~ /^$PROTOCOL_ABORTED/)
+		{
+			okDialog(undef,"$command has been Aborted by the User","$command Aborted");
+			$rslt = '';
+		}
+
+		$this->{progress}->Destroy() if $this->{progress};
+		$this->{progress} = undef;
 
 		$rslt = -1 if !$is_ref && $caller eq 'setContents';
 		$rslt = '' if !$is_ref;
@@ -479,33 +487,24 @@ sub onThreadEvent
 		{
 			$this->endRename($rslt);
 		}
-		elsif ($rslt)
+		elsif ($rslt || $caller ne 'setContents')
 		{
 			$this->setContents($rslt);
 			$this->populate();
 		}
 
-		delete $this->{parent}->{thread};
-			# free up for more commands
+		# done with the thread
 
+		$this->{aborted} = 0;
+		delete $this->{parent}->{thread};
 		return;
 	}
 
-	# text results
-	# they can theoretically currently re-enter on remote commands
-	# as we don't disable the window in doCommandThreaded!
+	# the only pure text $rslt are PROGRESS message
 
 	display($dbg_thread,1,"onThreadEvent rslt=$rslt");
 
-	if ($rslt =~ s/^$PROTOCOL_ERROR//)
-	{
-		error($rslt);
-		delete $this->{parent}->{thread};
-			# free up for more commands
-		$this->{progress}->Destroy() if $this->{progress};
-		$this->{progress} = undef;
-	}
-	elsif ($rslt =~ /^$PROTOCOL_PROGRESS/)
+	if ($rslt =~ /^$PROTOCOL_PROGRESS/)
 	{
 		if ($this->{progress})
 		{
@@ -526,6 +525,10 @@ sub onThreadEvent
 
 			Wx::App::GetInstance()->Yield();
 		}
+	}
+	else
+	{
+		error("unknown rslt=$rslt in onThreadEvent()");
 	}
 }
 
@@ -561,6 +564,33 @@ sub setEntry
 	Wx::PostEvent( $this, $evt );
 	# Wx::App::GetInstance()->Yield();
 }
+
+
+
+#---------------------------------------------------------------
+# onIdle() here cuz it's related to threads
+#---------------------------------------------------------------
+
+sub onIdle
+{
+    my ($this,$event) = @_;
+	if ($this->{progress} &&
+		$this->{parent}->{thread})
+	{
+		my $aborted = $this->{progress}->aborted();
+		if ($aborted && !$this->{aborted})
+		{
+			$this->{aborted} = 1;
+			$this->{session}->sendPacket($PROTOCOL_ABORT,1);
+				# 1 == $override_protocol to allow sending
+				# another packet while INSTANCE->{in_protocol}
+		}
+		$event->RequestMore(1);
+	}
+}
+
+
+
 
 
 1;

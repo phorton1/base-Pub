@@ -60,7 +60,7 @@ sub new
 	}
 
 	$instance++;
-	display($dbg_fcw,0,"new fileClientWindow($data) instance=$instance");
+	display($dbg_fcw+1,0,"new fileClientWindow($data) instance=$instance");
 	my $name = "Connection #$instance";
 
 	my $this = $class->SUPER::new($book,$id);

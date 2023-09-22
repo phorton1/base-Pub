@@ -15,6 +15,7 @@ use Wx qw(:everything);
 use Wx::Event qw(
     EVT_SIZE
     EVT_MENU
+	EVT_IDLE
     EVT_MENU_RANGE
     EVT_CONTEXT_MENU
     EVT_UPDATE_UI_RANGE
@@ -35,14 +36,14 @@ use base qw(Wx::Window);
 
 
 my $dbg_life = 0;		# life_cycle
-my $dbg_pop  = 0;		# populate
+my $dbg_pop  = 1;		# populate
 	# -1 = addItem
 	# -2 = addItem idx mapping
 my $dbg_comp = 1;		# compare colors
 	# -1 = entries
 my $dbg_sort = 1;		# sorting
 	# =1 = details
-my $dbg_sel  = 0;		# item selection
+my $dbg_sel  = 1;		# item selection
 	# -1, -2 = more detail
 
 
@@ -148,6 +149,7 @@ sub new
     $this->setContents();
 
     EVT_SIZE($this,\&onSize);
+	EVT_IDLE($this,\&onIdle);
     EVT_CONTEXT_MENU($ctrl,\&onContextMenu);
     EVT_MENU($this,$COMMAND_REPOPULATE,\&onRepopulate);
     EVT_MENU_RANGE($this, $COMMAND_XFER, $COMMAND_DISCONNECT, \&onCommand);

@@ -48,7 +48,6 @@ BEGIN {
 	our @EXPORT = (
 		qw (
 			$dbg_request
-			setRemoteSessionConnected
 
 			$file_server_request
 			%file_server_reply
@@ -63,7 +62,7 @@ BEGIN {
 my $REMOTE_TIMEOUT = 15;
 	# timeout, in seconds, to wait for a file_reply
 
-our $remote_connected:shared = 0;
+my $com_port_connected:shared = 0;
 
 
 my $request_number:shared = 0;
@@ -83,11 +82,11 @@ sub new
 	return $this;
 }
 
-sub setRemoteSessionConnected
+sub setComPortConnected
 {
 	my ($connected) = @_;
-	display($dbg_request,-1,"setRemoteSessionConnected($connected)");
-	$remote_connected = $connected;
+	display($dbg_request+1,-1,"SessionRemote::com_port_connected=$connected");
+	$com_port_connected = $connected;
 }
 
 
@@ -99,15 +98,29 @@ sub waitReply
 {
 	my ($this,$req_num) = @_;
 	display($dbg_request+1,0,"waitReply($req_num)");
-	if (!$remote_connected)
+	if (!$com_port_connected)
 	{
 		return $this->session_error("remote not connected in doRemoteRequest()");
 	}
 
+	my $abort = 0;
 	my $started = time();
 	while (!$file_server_reply_ready{$req_num})
 	{
-		if (!$remote_connected)
+		# check for asynchronous 2nd ABORT packet and send 2nd
+		# numbered serial file_command with ABORT message
+
+		my $packet2 = $this->getPacket(0);
+		if ($packet2 && $packet2 =~ /^$PROTOCOL_ABORT/)
+		{
+			my $request = "$req_num\t$PROTOCOL_ABORT";
+			my $len = length($request);
+			$file_server_request = "file_command\t$len\t$request\n";
+		}
+
+		# waiting for numbered file_server reply continued
+
+		if (!$com_port_connected)
 		{
 			return $this->session_error("remote not connected in doRemoteRequest()");
 		}
@@ -159,7 +172,7 @@ sub doRemoteRequest
 
 	if ($file_server_request)
 	{
-		warning(0,-1,"doRemoteRequest blocking while another operation in progress");
+		warning(0,-1,"doRemoteRequest blocking while another operation sending request");
 		while ($file_server_request)
 		{
 			sleep(1);

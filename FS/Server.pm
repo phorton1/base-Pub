@@ -414,7 +414,7 @@ sub serverThread
 sub sessionThread
 {
     my ($this,$connect_num,$client_socket,$peer_ip,$peer_port) = @_;
-    display($dbg_server,-2,"SESSION THREAD($connect_num) WITH PID($$)");
+    display($dbg_server+1,-2,"SESSION THREAD($connect_num) WITH PID($$)");
 
 	$active_connections->{$connect_num} = 1;
 

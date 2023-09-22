@@ -54,7 +54,7 @@ sub createPane
 	# so config_str is unused
 {
 	my ($this,$id,$book,$data,$config_str) = @_;
-	display($dbg_app,0,"fileClient::createPane($id)".
+	display($dbg_app+1,0,"fileClient::createPane($id)".
 		" book="._def($book).
 		" data="._def($data));
 

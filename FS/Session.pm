@@ -40,7 +40,7 @@ my $TEST_DELAY:shared = 0;
 
 
 our $dbg_session:shared = -1;
-our $dbg_packets:shared = -1;
+our $dbg_packets:shared =  0;
 our $dbg_lists:shared = 1;
 	# 0 = show lists encountered
 	# -1 = show teztToList final hash
@@ -256,7 +256,7 @@ sub connect
 
 sub sendPacket
 {
-    my ($this,$packet) = @_;
+    my ($this,$packet,$override_protocol) = @_;
 	display($dbg_packets+2,0,"sendPacket()")
 		if !$this->{IS_SERVER};
 	if ($dbg_packets <= 0)
@@ -274,13 +274,13 @@ sub sendPacket
 	}
 
 	my $instance = $this->{INSTANCE};
-	if ($instance)
+	if ($instance && !$override_protocol)
 	{
 		my $in_protocol = $instance_in_protocol->{$instance};
 		if ($in_protocol)
 		{
 			error("sendPacket() while in_protocol=$in_protocol ".
-			  "for instance=$instance");
+				"for instance=$instance");
 			return;
 		}
 	}
@@ -322,7 +322,7 @@ sub getPacket
     my ($this,$is_protocol) = @_;
 	$is_protocol ||= 0;
 
-	display($dbg_packets-1,0,"getPacket($is_protocol)")		# ,$in_protocol)")
+	display($dbg_packets+1,0,"getPacket($is_protocol)")		# ,$in_protocol)")
 		if !$this->{IS_SERVER} && $is_protocol;
 
     my $sock = $this->{SOCK};
@@ -410,7 +410,7 @@ sub getPacket
 		}	# defined($packet)
 	}	# $can_read
 
-	display(0,0,"getPacket() returning")
+	display($dbg_packets+1,0,"getPacket() returning")
 		if $is_protocol && !$this->{IS_SERVER};
     return $packet;
 }
@@ -639,6 +639,11 @@ sub _deleteRemote			# RECURSES!!
 		{
 			$retval = $err;
 			last;
+		}
+		if ($packet =~ /^$PROTOCOL_ABORTED/)
+		{
+			$retval = $packet;
+			last
 		}
 		if (!$this->handleProgress($packet,$progress))
 		{
