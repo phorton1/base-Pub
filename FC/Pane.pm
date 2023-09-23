@@ -6,7 +6,7 @@
 # For a discussion if threads in wxPerl, see:
 # https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
 
-package Pub::FS::fileClientPane;
+package Pub::FC::Pane;
 use strict;
 use warnings;
 use threads;
@@ -29,8 +29,8 @@ use Wx::Event qw(
 use Pub::Utils;
 use Pub::WX::Dialogs;
 use Pub::FS::FileInfo;
-use Pub::FS::SessionClient;
-use Pub::FS::fileClientResources;
+use Pub::FS::ClientSession;
+use Pub::FC::Resources;
 
 use base qw(Wx::Window);
 

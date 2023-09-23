@@ -2,18 +2,10 @@
 # Pub::FS::Server
 #--------------------------------------------------
 # The Server Creates a socket and listens for connections.
-#
-# The base class uses a base Session per connection
-# to provide information about, and effect changes in
-# the local file system.
-#
-# The Server is the base class for the RemoteServer, which uses
-# a SessionRemote  o communicate with a Serial remote
-#
-# A Server knows if it IS_REMOTE when it passes commands
-# to the Session.  A regular Server is NOT_REMOTE (it is local)
-# but a RemoteServer IS_REMOTE;
-
+# For each connection it accepts it creates a Session by
+# calling createSession. By default, the base class uses
+# a base Session to provide information about, and effect
+# changes in the local file system.
 
 package Pub::FS::Server;
 use strict;
@@ -146,7 +138,6 @@ sub new
 	$params ||= {};
 	$params->{PORT} = $DEFAULT_PORT if !defined($params->{PORT});
 	$params->{HOST} ||= $DEFAULT_HOST;
-	$params->{IS_REMOTE} ||= 0;
 	my $this = shared_clone($params);
 	$this->{running} = 0;
 	$this->{stopping} = 0;
@@ -454,61 +445,14 @@ sub sessionThread
 			last if $this->{stopping};
 			if (defined($packet))
 			{
-				if ($packet =~ /^ABORT/)
-				{
-					$this->session_error("operation($this->{IS_REMOTE}) ABORTED by remote");
-					next;
-				}
-				elsif ($packet =~ /^EXIT/)
+				if ($packet =~ /^EXIT/)
 				{
 					$got_exit = 1;
 					last;
 				}
 				elsif ($packet)
 				{
-					my @lines = split(/\n/,$packet);
-					my $line = shift @lines;
-					my @params = split(/\t/,$line);
-						# LIST 		$dir
-						# MKDIR 	$dir $dirname
-						# RENAME 	$dir $name1 $name2
-						# DELETE 	$dir [$singe_filename]
-						# XFER      $dir, $local, $target_dir
-						# BASE_64   $data
-						# PROGRESS  TBD
-					my $entries = $params[2];
-
-					# DELETE is passed directly back to the SessionRemote,
-					# which also handles PROGRESS and ABORT
-
-					my $rslt;
-					if ($this->{IS_REMOTE} && $params[0] eq $PROTOCOL_DELETE)
-					{
-						$rslt = $session->deleteRemotePacket($packet)
-					}
-
-					# XFER and DELETE take $entries from multiple_lines.
-
-					else
-					{
-						if (@lines)
-						{
-							$entries = {};
-							for my $line (@lines)
-							{
-								my $info = Pub::FS::FileInfo->from_text($this,$line);
-								$entries->{$info->{entry}} = $info;
-							}
-						}
-
-						$rslt = $session->doCommand($params[0],!$this->{IS_REMOTE},$params[1],$entries,$params[3]);
-					}
-
-					# print "SERVER PACKET $packet\n";
-
-					$rslt ||= '';
-					my $packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
-					last if $packet && !$session->sendPacket($packet);
+					last if !$this->processPacket($session,$packet);
 				}
 			}
 		}
@@ -558,6 +502,54 @@ sub sessionThread
 
 }
 
+
+
+sub processPacket
+	# Returns 1 upon success and 0 upon failure.
+	# 0 terminates the sessionThread and session.
+	#
+	# This base class calls $session->doCommand()
+	# with the local file system as the context,
+	# and sends the result from it back over the
+	# socket connection to the client.
+{
+	my ($this,$session,$packet) = @_;
+
+	my @lines = split(/\n/,$packet);
+	my $line = shift @lines;
+	my @params = split(/\t/,$line);
+		# LIST 		$dir
+		# MKDIR 	$dir $dirname
+		# RENAME 	$dir $name1 $name2
+		# DELETE 	$dir [$singe_filename]
+		# XFER      $dir, $local, $target_dir
+		# BASE_64   $data
+		# PROGRESS  TBD
+	my $entries = $params[2];
+
+	if (@lines)
+	{
+		$entries = {};
+		for my $line (@lines)
+		{
+			my $info = Pub::FS::FileInfo->from_text($this,$line);
+			$entries->{$info->{entry}} = $info;
+		}
+	}
+
+	# The local file system is the context for command requests
+	# received by this base Server.
+
+	my $rslt = $session->doCommand($params[0],0,$params[1],$entries,$params[3]);
+	$rslt ||= '';
+
+	# Stops the thread/session if it can't send the packet
+
+	my $retval = 1;
+	my $new_packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
+	$retval = 0 if $new_packet && !$session->sendPacket($new_packet);
+	return $retval;
+}
 
 
 1;

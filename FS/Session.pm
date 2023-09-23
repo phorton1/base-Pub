@@ -124,23 +124,23 @@ my $instance_in_protocol:shared = shared_clone({});
 #------------------------------------------------
 
 sub new
-	# will try to connect to HOST:PORT if no SOCK is provided
+	# CLIENT will try to connect to HOST:PORT if no SOCK is provided
 {
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
-	$params->{IS_REMOTE} ||= 0;
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $DEFAULT_PORT if !defined($params->{PORT});
 	$params->{WHO} ||= $params->{IS_SERVER}?"SERVER":"CLIENT";
 	$params->{TIMEOUT} ||= $DEFAULT_TIMEOUT;
 	$params->{INSTANCE} ||= 0;
+
 	my $this = { %$params };
 
 	$instance_in_protocol->{$this->{INSTANCE}} = 0
 		if $this->{INSTANCE};
 
 	bless $this,$class;
-	return if $this->{PORT} && !$this->{SOCK} && !$this->{IS_REMOTE} && !$this->connect();
+	return if !$this->{IS_SERVER} && $this->{PORT} && !$this->{SOCK} && !$this->connect();
 	return $this;
 }
 

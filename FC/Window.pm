@@ -2,8 +2,8 @@
 #------------------------------------------------------------
 # fileClientWindow
 #------------------------------------------------------------
-# Creates a connection (SessionClient) to a RemoteServer
-# Handles asyncrhonouse messages from the RemoteServer
+# Creates a connection (ClientSession) to a SerialBridge
+# Handles asyncrhonouse messages from the SerialBridge
 # Is assumed to be Enabled upon connection.
 
 #    EXIT - close the window, and on the last window, closes the App
@@ -11,7 +11,7 @@
 #    disables the remote pane
 
 
-package Pub::FS::fileClientWindow;
+package Pub::FC::Window;
 use strict;
 use warnings;
 use threads;
@@ -23,11 +23,10 @@ use Wx::Event qw(
 	EVT_CLOSE );
 use Pub::Utils;
 use Pub::WX::Window;
-use Pub::FS::SessionClient;
-use Pub::FS::fileClientResources;
-use Pub::FS::fileClientPane;
-use Pub::FS::fileClientPane2;
-use Pub::FS::fileClientHostDialog;
+use Pub::FS::ClientSession;
+use Pub::FC::Resources;
+use Pub::FC::Pane;
+use Pub::FC::Pane2;
 use base qw(Wx::Window Pub::WX::Window);
 
 
@@ -72,7 +71,7 @@ sub new
 
 	my $port = $ARGV[0] || $DEFAULT_PORT;
 	display($dbg_fcw,0,"creating session on port($port)");
-    $this->{session} = Pub::FS::SessionClient->new({
+    $this->{session} = Pub::FS::ClientSession->new({
 		PORT => $port,
 		INSTANCE => $instance });
     if (!$this->{session})
@@ -92,8 +91,8 @@ sub new
 	# Create splitter and panes
 
     $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
-    $this->{pane1}    = Pub::FS::fileClientPane->new($this,$this->{splitter},$this->{session},1,$this->{local_dir});
-    $this->{pane2}    = Pub::FS::fileClientPane->new($this,$this->{splitter},$this->{session},0,$this->{remote_dir});
+    $this->{pane1}    = Pub::FC::Pane->new($this,$this->{splitter},$this->{session},1,$this->{local_dir});
+    $this->{pane2}    = Pub::FC::Pane->new($this,$this->{splitter},$this->{session},0,$this->{remote_dir});
 
     $this->{splitter}->SplitVertically(
         $this->{pane1},

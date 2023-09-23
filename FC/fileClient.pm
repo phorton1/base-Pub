@@ -3,7 +3,7 @@
 # the main application object
 #-------------------------------------------------------------------------
 
-package Pub::FS::fileClientAppFrame;
+package Pub::FC::AppFrame;
 use strict;
 use warnings;
 use threads;
@@ -12,8 +12,8 @@ use Wx qw(:everything);
 use Wx::Event qw(EVT_MENU);
 use Pub::Utils;
 use Pub::WX::Frame;
-use Pub::FS::fileClientResources;
-use Pub::FS::fileClientWindow;
+use Pub::FC::Resources;
+use Pub::FC::Window;
 use base qw(Pub::WX::Frame);
 
 
@@ -62,7 +62,7 @@ sub createPane
 	{
 		return error("No name specified in fileClient::createPane()") if !$data;
 	    $book = $this->getOpenDefaultNotebook($id) if !$book;
-        return Pub::FS::fileClientWindow->new($this,$id,$book,$data);
+        return Pub::FC::Window->new($this,$id,$book,$data);
     }
     return $this->SUPER::createPane($id,$book,$data,$config_str);
 }
@@ -80,7 +80,7 @@ sub commandConnect
 # CREATE AND RUN THE APPLICATION
 #----------------------------------------------------
 
-package Pub::FS::fileClientApp;
+package Pub::FC::App;
 use strict;
 use warnings;
 use threads;
@@ -97,14 +97,14 @@ my $frame;
 
 sub OnInit
 {
-	$frame = Pub::FS::fileClientAppFrame->new();
+	$frame = Pub::FC::AppFrame->new();
 	unless ($frame) {print "unable to create frame"; return undef}
 	$frame->Show( 1 );
 	display(0,0,"fileClient.pm started");
 	return 1;
 }
 
-my $app = Pub::FS::fileClientApp->new();
+my $app = Pub::FC::App->new();
 Pub::WX::Main::run($app);
 
 # This little snippet is required for my standard

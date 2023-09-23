@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #--------------------------------------------------
-# fileProgressDialog
+# ProgressDialog
 #--------------------------------------------------
 # An exapanding progress dialog to allow for additional
 # information gained during recursive directory operations.
@@ -16,7 +16,7 @@
 # at any time.
 
 
-package Pub::FS::fileProgressDialog;
+package Pub::FC::ProgressDialog;
 use strict;
 use warnings;
 use threads;
@@ -46,7 +46,7 @@ sub new
 	$num_files ||= 0;
 	$num_dirs ||= 0;
 
-	display($dbg_fpd,0,"fileProgressDialog::new($what,$num_files,$num_dirs)");
+	display($dbg_fpd,0,"ProgressDialog::new($what,$num_files,$num_dirs)");
 
 	$parent = getAppFrame() if !$parent;
 	$parent->Enable(0) if $parent;
@@ -85,7 +85,7 @@ sub new
     $this->Show();
 	$this->update();
 
-	display($dbg_fpd,0,"fileProgressDialog::new() finished");
+	display($dbg_fpd,0,"ProgressDialog::new() finished");
     return $this;
 }
 
@@ -101,7 +101,7 @@ sub aborted()
 sub onClose
 {
     my ($this,$event) = @_;
-	display($dbg_fpd,0,"fileProgressDialog::onClose()");
+	display($dbg_fpd,0,"ProgressDialog::onClose()");
     $event->Veto() if !$this->{aborted};
 }
 
@@ -109,7 +109,7 @@ sub onClose
 sub Destroy
 {
 	my ($this) = @_;
-	display($dbg_fpd,0,"fileProgressDialog::Destroy()");
+	display($dbg_fpd,0,"ProgressDialog::Destroy()");
 	if ($this->{parent})
 	{
 		$this->{parent}->Enable(1);
@@ -122,7 +122,7 @@ sub Destroy
 sub onButton
 {
     my ($this,$event) = @_;
-	display($dbg_fpd,0,"fileProgressDialog::onButton()");
+	display($dbg_fpd,0,"ProgressDialog::onButton()");
     $this->{aborted} = 1;
     $event->Skip();
 }
@@ -137,7 +137,7 @@ sub onButton
 sub update
 {
 	my ($this) = @_;
-	display($dbg_fpd,0,"fileProgressDialog::update()");
+	display($dbg_fpd,0,"ProgressDialog::update()");
 
 	my $num_dirs 	= $this->{num_dirs};
 	my $num_files 	= $this->{num_files};
@@ -203,7 +203,7 @@ sub update
 	# Wx::App::GetInstance()->Yield();
 
 
-	display($dbg_fpd,0,"fileProgressDialog::update() finished");
+	display($dbg_fpd,0,"ProgressDialog::update() finished");
 
 	return !$this->{aborted};
 }

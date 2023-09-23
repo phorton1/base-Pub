@@ -4,7 +4,7 @@
 #-------------------------------------------
 # The workhorse window of the application
 
-package Pub::FS::fileClientPane;	# continued
+package Pub::FC::Pane;	# continued
 use strict;
 use warnings;
 use threads;
@@ -12,10 +12,10 @@ use threads::shared;
 use Wx qw(:everything);
 use Pub::Utils;
 use Pub::WX::Dialogs;
-use Pub::FS::SessionClient;
-use Pub::FS::fileClientDialogs;
-use Pub::FS::fileProgressDialog;
-use Pub::FS::fileClientPane;
+use Pub::FS::ClientSession;
+use Pub::FC::Dialogs;
+use Pub::FC::ProgressDialog;
+use Pub::FC::Pane;
 use base qw(Wx::Window);
 
 my $dbg_ops  = 0;		# commands
@@ -307,7 +307,7 @@ sub doCommandSelected
 		$PROTOCOL_DELETE;
 	my $target_dir =
 
-	$this->{progress} = Pub::FS::fileProgressDialog->new(
+	$this->{progress} = Pub::FC::ProgressDialog->new(
 		undef,
 		uc($display_command))
 		if $num_dirs || $num_files>1;

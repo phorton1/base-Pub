@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 #-------------------------------------------------------
-# Pub::FS::SessionClient
+# Pub::FS::ClientSession
 #-------------------------------------------------------
-# A SessionClient handles purely local requests
+# A ClientSession handles purely local requests
 #    by passing them to the base class.
 #
 # For pure remote requests, it passes them to the
@@ -13,7 +13,7 @@
 # Be sure to pass 1 into getPacket(1) when doing the protocol
 
 
-package Pub::FS::SessionClient;
+package Pub::FS::ClientSession;
 use strict;
 use warnings;
 use threads;

@@ -1,8 +1,10 @@
-# Protocol General
+# Protocol
+
+**and some implementation details**
 
 *This readme describes the current implemetation where the fileClient
-only connects to buddy, and the fileClientWindow knows that pane1
-is local and pane2 is a connection to buddy's RemoteServer.*
+only connects to buddy, and the FC::Window knows that pane1
+is local and pane2 is a connection to buddy's SerialBridge.*
 
 *In the future I envision allowing the user to determine what
 each pane connects to, with appropriate optimizations, so that,
@@ -15,7 +17,8 @@ back to the fileClient.*
 
 ### All Packets
 
-Packets are also referred to as *messages* in this document.
+Packets are also variously referred to as *messages*, *commands*,
+*requests*, and/or *replies* in this document.
 
 Packets are plain ASCII text that may contain multiple *lines*
 delimited by carriage returns (\r) and which are terminated
@@ -67,19 +70,40 @@ fully qualified *dir* parameter, with subsequent lines containing *entries*
 which are \t delimited representations of FileInfo object (files and/or subdirs)
 that utilize only *leaf names within* the dir given by the first line.
 
+
+### DIR_LIST and DIR_ENTRY
+
 In addition to the above packets which explicitly start with a protocol
 *verb*, *reply packets* can merely consist of a text representation of a
-FileInfo object, either a *DIR_LIST* with *entries*, or a single
-*FILE_ENTRY*. In the case of a DIR_LIST, the main entry itself
-may or **may or may not** be *fully qualified*, depending on the
-context, but all it's entries are always leaf names relative to
-the main entry.  A FILE_ENTRY is always the leaf name of
-an object within the dir, whether it is a *filename* within that
-dir, or the name of a *sub directory* within the dir.
+directory listing or an entry within a directory listing.
 
-In this document the words *DIR_LIST* and *FILE_ENTRY* are
+A DIR_ENTRY is a tab delimited line of text consisting of three fields:
+
+- the **size** of a file, blank for directories
+- the **timestamp** of a file or directory
+- the **name** of the file, or the name of the directory terminated with '/'
+
+A DIR_LIST is multiple lines of DIR_ENTRY text, where the
+first line is the containing directory, and subsequent lines
+are entries within it.
+
+	     \t 2023-09-01 06:00:00 \t /fully/quallifed/folder/
+	1023 \t	2023-09-12 08:12:59 \t someFile.txt
+	     \t	2023-09-12 08:15:59 \t someSubDirectory/
+	1023 \t	2023-09-12 08:22:59 \t someOtherFile.txt
+
+RENAME is the only request type to return a DIR_ENTRY.
+Otherwise, the following requests return DIR_LISTS
+of the given dir upon success:
+
+- LIST			dir
+- MKDIR			dir name
+- DELETE		dir (single_filename | entry_list]
+
+In this document the words *DIR_LIST* and *DIR_ENTRY* are
 used to describe these types of reply packets, but those words
 themselves are NOT part of the protocol.
+
 
 
 ### Session Connection
@@ -87,7 +111,7 @@ themselves are NOT part of the protocol.
 A Session is initiated by a client after successfully
 connecting to a remote *socket* and sending HELLO.
 The Server replies with WASSUP to indicate it is ready
-to start receiving packets:
+to start receiving command packets:
 
 - CLIENT --> HELLO
 - SERVER <-- HELLO
@@ -98,23 +122,22 @@ Either the client or the server consider the Session to be
 irretrievably 'lost' (dead) if a call to *sendPacket()* fails (which
 apparently never happens), or a call to **getPacket()** *times out* or
 receives a *null (empty) reply* (which is the typical failure mode).
-In either case the caller invalidates the Session (by setting the
-*SOCK* member of the Session to NULL) and ceases to call sendPacket()
-or getPacket() further within that Session until a new connection
-(socket) is established.
+In either case the method invalidates the Session (by setting the
+*SOCK* member of the Session to NULL) which then ceases to call
+sendPacket() or getPacket().
 
 An invalid Session is also referred to as a a *lost socket* in
 this discussion.
 
 A Server invariantly exits the thread associated with the lost
-socket, but it is upto the fileClientPane/Window to decide what to
-do if it detects a lost socket. The fileClientWindow currently
+socket, but it is upto the Client to decide what to
+do if it detects a lost socket. The FC::Window currently
 closes itself on a lost socket, and, if it is the last window,
 currently closes the fileClient application.
 
 This is opposed to an explicit user Disconnect command in the
-current implementation of the remote fileClientPane, in which case
-the fileClientWindow remains open, with the remote pane disabled and a
+current implementation of the remote FC::Pane, in which case
+the FC::Window remains open, with the remote pane disabled and a
 message of "Socket Connection Lost" displayed to the user,
 The current implementation allows the user to Reconnect by right
 clicking in the (still enabled) local pane.
@@ -130,19 +153,20 @@ adding a subclasses onContextMenu() method to the clientWindow).*
 
 ### EXIT
 
-- Sent by clients, like the fileClientPane, when they are done with a connection
-- Sent by servers, like the RemoteServer in buddy, when the server is shutting down
+- Sent by clients, like the FC::Pane, when they are done with a connection
+- Sent by servers, like the SerialBridge in buddy, when the server is shutting down
 
 *Following is a description of the current implementation.*
 
-For example, when the user closes a fileClientWindow, the window sends an EXIT
-message to buddy's RemoteServer with a slight delay before closing it's own socket.
+For example, when the user closes a FC::Window, the window sends an EXIT
+message to buddy's SerialBridge with a slight delay before closing it's own socket.
 The delay allows the packet to be sent before the socket is closed. The received EXIT
-allows the Server to free up the thread and any memory associated with the connection.
+allows the SerialBridge Server to free up the thread and any memory associated with
+the connection.
 
-Or vice-versa, when buddy shuts down the RemoteServer, as each thread terminates,
-it sends an EXIT message to the associated fileClientWindow (again with a small
-delay before it closes the socket), and the fileClientWindow knows to close itself.
+Or vice-versa, when buddy shuts down the SerialBridge, as each thread terminates,
+it sends an EXIT message to the associated FC::Window (again with a small
+delay before it closes the socket), and the FC::Window knows to close itself.
 
 In either case the recipient of the EXIT message knows not to send another
 EXIT message back to the sender of the first EXIT message.
@@ -155,7 +179,7 @@ EXIT message back to the sender of the first EXIT message.
 
 Asynchronous messages can be sent from a Server to the connected client
 at any time, including while in the middle of executing a command.
-These are currently sent from buddy to all connected fileClientWindows
+These are currently sent from buddy to all connected FC::Windows
 when the COM_PORT goes offline or comes online, ie:
 
 	DISABLE - Arduino Build Started
@@ -165,12 +189,13 @@ when the COM_PORT goes offline or comes online, ie:
 Note that ENABLE and DISABLE use " - " (space dash space) as the
 delimiter between the verb and the message parameter.
 
+
 ### ERROR
 
 Any command can terminate in an ERROR message.
 
 Regardless of the configuration, ERROR messages are ultimately
-sent to the fileClientPane that is executing the command,
+sent to the FC::Pane that is executing the command,
 and reported to the user in a dialog box.
 
 Note that ERROR uses " - " (space dash space) as the
@@ -185,28 +210,33 @@ delimiter between the verb and the message parameter.
 - RENAME		dir name1 name2
 - DELETE		single_filename
 
-These commands take place in a single atomic operation
-with a DIR_LIST or FILE_ENTRY being returned.  All of
-the above return a DIR_LIST upon success except RENAME
-which returns a FILE_ENTRY as the fileClientPane is optimized
-to update the UI only for the changed filename in that case.
+These commands are passed as a single line packet, and
+considered to be executed in a single operation, with a
+DIR_LIST or DIR_ENTRY being returned upon success.
 
-Implementation-wise, however, remote commands are threaded in
-the WX remote panes, so they are really asynchronous. So
-care needed to be taken to prevent another command from being
-initiated in the fileClientWindow while a threaded remote command
-is under way in a remote pane.
+All of the above return a DIR_LIST upon success except
+RENAME which returns a DIR_ENTRY (as the fileClient is
+optimized to update the UI only for the changed filename
+in that case).
+
+There are no PROGRESS messages returned by these
+commands and they cannot be ABORTED once issued.
+
+Note that the Client Session::doCommand() handles local
+synchronous commands and so they never make it into protocol
+packets.
 
 
-# Command Sessions
+# Asynchronous Commands
 
-The XFER and 'DELETE entry_list' commands are asynchronous in nature
-and have a delimited lifetime.
+The XFER and 'DELETE entry_list' commands can take
+a long time, can retun intermediate PROGRESS messages,
+and can be ABORTED.
 
-The DELETE is finished when the client receives a DIR_LIST reply.
-XFER is completed when the client receives an XFER_DONE message.
+Upon final success they return a DIR_LIST.
 
-PROGRESS gives the client information to update a progress dialog.
+PROGRESS messages are sent from the Server to the Client to
+give the client information needed to update a progress dialog.
 
 	PROGRESS ADD	num_dirs num_files  // adds dirs and files to progress range
 	PROGRESS DONE   is_dir              // increments num_done for dirs and files
@@ -214,191 +244,117 @@ PROGRESS gives the client information to update a progress dialog.
 	PROGRESS SIZE   size/               // start showing the 2nd 'bytes transferred' gauge
 	PROGRESS BYTES  bytes               // set the value for the 2nd bytes transferred gauge
 
-ABORT can be sent by the client to stop an operation in progress, in
-which case the server returns ABORTED to acknowledge the cessation
+ABORT can be sent by the Client to stop an asyncrhonous command,
+which case the Server returns ABORTED to acknowledge the cessation
 has taken place.
 
-Implementing the ABORT between the SessionRemote and teensyExpression's
-handleSerial() method is complicated.
 
+### FC::Pane
 
-## DELETE dir entries
+*Implementation Details*
 
-Client waits for a DIR_LIST indicating the operation is complete,
-while looking for ABORT and processing PROGRESS messages.
+Commands from the Client are handled by Session::doCommand().
 
-Server sends PROGRESS messages as it recurses new directories
-and counts their entries, and per each item deleted.
+Local commands are handled directly by the Session, with
+asynchronous ones directly updates the $progress window along the
+way, while checking for $progress->aborted(). Internally local
+commands return an FILE_INFO_LIST (which is like a DIR_LIST
+but is a FS::FileInfo object for which "is_dir=1", with
+the {entries} member populated.
 
+Remote commands are impplmented in the FC::Pane to make use
+of the pane's doCommandThreaded() function, which starts by sending
+the command to the Server, and then monitoring the return for
+PROGRESS and ABORT messages until it finally receive a terminating
+DIR_LIST or ERROR message.
 
-## Command Session implementation details
+Care was taken in the FC::Pane to ensure the atomic nature of
+commands, by making sure that while a threaded command is in
+progress, no other UI can be accessed that might initiate
+another command.  This is done by FC::Pane setting a
+FC::Window->{thread} member as a semaphore while a threaded
+command is in progress.
 
-*This info does not properly belong in the Protocol.md readme file*
+### FC::Pane doCommandThreaded()
 
-- teensyExpression C++ uses *teensyThreads* to handle multiple
-  simultaneous Serial file_requests
-- fileClientPane.pm uses *Perl threads and WX::Events* to
-  implement non-blocking doCommandThreaded() method
+FC::Pane.pm uses *Perl threads and WX::Events* to
+  implement the non-blocking doCommandThreaded() method
+
+See: https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
+
+- for remote commands, the FC::Pane creates a
+  *Perl thread* for doCommandThreaded() which calls
+  the regular Session::doCommand(), thus preventing the
+  system from blocking on a paricular getPacket() call.
+- when doing so, doCommandThreaded() sets FC::Window->{thread}
+  as a semaphore to prevent the window or panes from re-entering
+  a subsequent command, double clicking, sorting, or
+  basically doing anything in either pane, while not
+  explicitly disabling it.
+- the regular Session::doCommand() sends the multi-line
+  command through the socket to the associated Server/Session.
+- SerialSession::doSerialRequest *blocks* until the serial port
+  is available to send a new requests, so that only one
+  serial_file_request at a time is sent to the teensy serial port.
+
 
 ### teensyExpression
 
-- SessionRemote *blocks* until the serial port is available
-  for new requests, so only one request at a time is sent
-  to the teensy serial port.
+teensyExpression C++ uses *teensyThreads* to handle multiple
+  simultaneous serial_file_requests.
+
 - theSystem.cpp new's a buffer for each serial request as
   it comes in, and when ready (\n is received) starts a
   a *thread* to call fileSystem.cpp handleFileCommand().
 - the thread sends one or more *file_replies* to the
-  serial port.
-- there is currently nothing to stop intermingling of
-  file_replies generated by fileSystem.cpp.  It needs
-  a **semaphore** which can just be a memory variable
+  serial port for PROGRESS' and terminating with
+  a DIR_LIST, ABORTED, or ERROR file_reply
 
-### fileClientPane
-
-See: https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
-
-- for remote commands, the fileClientPane creates a
-  *Perl thread* to call the regular Session::doCommand(),
-  thus preventing the system from blocking on a paricular
-  getPacket() call.
-- when doing so, it sets fileClientWindow->{thread} as
-  a flag to prevent the window or panes from re-entering
-  a subsequent command, double clicking, sorting, or
-  basically doing anything in either pane, while not
-  explicitly disabling it.
+PRH: Note that there is currently nothing to stop intermingling
+of file_replies generated by fileSystem.cpp.  It needs
+a **semaphore** which can just be a memory variable to
+prevent such intermingling.
 
 
 ### Aborting doCommandThreaded()
 
+Aborting a remote_request started by doCommandThreaded() is
+complicated enough that it warrants a more detailed description.
+
 *Using DELETE remote as an example*
 
-**Command Initiation**
+The key is that SerialSession::doSerialRequest is tied to a particular
+FC::Pane/Window by the thread doSerialRequest() is running
+in (as there is only one thread/socket per FC::Pane).
 
-- fileClientPane::doCommandSelected() builds a list of entries for
-  the DELETE and calls it's doCommand() method.
-- fileClientPane::doCommand() notices that it is a remote
-  comand and starts a thread for fileClientPane::doCommandThreaded().
-  - It sets fileClientWindow->{thread} to prevent any other commands
-    in either pane from occurring.
-  - fileClientPane::doCommand() returns a special value of -2 immediately.
-  - fileClientPane::doCommandSelected() notices the special -2 value
-    and returns immediately without further updates to the UI.
-- doCommandThreaded() calls Session::doCommand(DELETE.!is_local)
-  and waits for it to return.
-- Session::doCommand(DELETE,!is_local) calls its _deleteRemote()
-  method which sends the command packet to the RemoteServer
-- The RemoteServer base Server class notices that it IS_REMOTE
-  and that the command is DELETE and calls the RemoteSession's
-  optimized deleteRemotePacket() method.
-- RemoteSession::deleteRemotePacket() calls RemoteSession::doRemoteRequest()
-  to send the packet as a **numbered file_request** to the teensy.
-- teensyExpression theSystem.cpp buffers the *serial request* and
-  starts a teensyThread to call fileSystem.cpp's handleFileCommand() method
-- handleFileCommand() parses the packet to get the **request number**
-  and list of **entries** and starts iterating over the entries,
-  sending serial numbered PROGRESS file_replies until it finishes and
-  sending a final serial numbered ERROR or DIR_LIST file reply when it
-  is done.
-
-**Wait Loops** after Command Initiation
-
-- the original (threaded) Session::_deleteRemote() method loops, calling
-  getPacket(1), until it gets a non-progress packet.
-  - For each PROGRESS packet it gets, it calls the appropriate
-    addDirsAndFiles(), setEntry(), or setDone() method on the
-	$progress object it was passed.
-- SessionRemote::doRemoteRequest() loops, waiting for numbered
-  file_replies until it gets one that is not a PROGRESS message.
-  It sends **any and all** file_replies it recieves back through
-  the socket to the Session::_deleteRemote() loop,
-  including PROGRESS messages.
-
-**PROGRESS messages** from the teensy back to the fileProgressDialog()
-
-*SessionRemote::doRemoteRequest() uses a method called waitReply()
-which is an implementation detail and not specifically described herein.*
-
-- the teensy sends a serial numbered PROGRESS file_reply to buddy.
-- buddy demultiplexes the request_number and effectively passes
-  the packet to the correct instance of SessionRemote::doRemoteRequest()
-- SessionRemote::doRemoteRequest() sends the PROGRESS packet over the
-  socket to the threaded Session::_deleteRemote()
-- Session::_deleteRemote() calls a $progress method, i.e. setEntry()
-- The fileClientPane has implemented methods to look like a
-  fileProgressDialog(), so it's setEntry() method is called.
-- fileClientPane::setEntry() posts a pending Wx $THREAD_EVENT
-  as the thread cannot access the UI directly
-- fileClientPane::onThreadEvent() receives the PROGRESS
-  message and calls $this->{progress}->setEntry() to
-  send the entry to the actual fileProgressDialog()
-
-**Command Termination**
-
-- the teensy sends a final numbered ERROR or DIR_LIST
-  file_reply to buddy, which demultiplexes it to the
-  correct instance of SessionRemote::doRemoteRequest()
-- SessionRemote::doRemoteRequest() sends the packet over the
-  socket to Session::_deleteRemote() and returns
-- SessionRemote::deleteRemotePacket() returns,
-  returning control back to the RemoteServer/Server
-  sessionThread().
-- The original (threaded) Session::_deleteRemote
-  recieves the terminating packet, decodes it an
-  actual FileInfo (is_dir=1) if the packet is a DIR_LIST.
-- Session::doCommand() returns the decoded packet to
-  fileClienPane::doCommandThreaded()
-- fileClientPane::doCommandThreaded() posts a pending
-  Wx $THREAD_EVENT with the decoded packet as 'data',
-  as the thread cannot access the UI directly.
-  doCommandThreaded() does some trickery, adding a {caller}
-  method and creating a shared hash to return if needed, if
-    - the decoded packet is a DIR_LIST
-	- it the command was RENAME and there was an error,
-	- there was empty packet returned
-- fileClientPane::onThreadEvent() receives the terminating
-  packet and 'finishes' the particular command (given by
-  the 'caller' member on the data) in an appropriate manner.
-  For DELETE this means calling error() for any ERRORS and
-  calling setContents() with the DIR_LIST or null, followed
-  by populate().
-
-## HOW ABORT WORKS
-
-The key is that SessionRemote::doRemoteRequest is tied to a particular
-fileClientPane/Window by thread doRemoteRequest() is running
-in (as there is only one thread/socket per remove fileClientPane).
-
-- fileClientPane::onIdle() checks if a threaded command
+- FC::Pane::onIdle() checks if a threaded command
   ($this->{parent}->{thread}) is being aborted ($this->{progress}
-  && $this->{progress_aborted}) and if so, send one ABORT packet
-  to the SessionRemote (using new $override_protocol parameter
+  && $this->{progress_aborted}) and if so, sends one ABORT packet
+  to the SerialSession (using the $override_protocol parameter
   to sendPacket).
-- SessionRemote::doRemoteRequest(), which is looping waiting for
-  file_replies from the teensy calls getPacket(0) to see if any
-  ABORT packet has arrived without blocking. Remember that
-  sessionThread is no longer blocking on a packet as that thread is
-  now executing doRemoteRequest(), and no other client process
-  should be sending more packets to the SOCKET due to re-entrancy
-  protection in fileClientPane/Window.
-- If SessionRemote::doRemoteRequest() receives an ABORT packet,
+- SerialSession::doSerialRequest(), which is looping waiting for
+  file_replies from the teensy for the initial DELETE file_request,
+  calls getPacket(0), without blocking, to see if any ABORT packet
+  has arrived. Remember that sessionThread is no longer blocking on
+  a call to getPacket so doSerialRequest)( can call getPacket(0)
+  without any problem.
+- If SerialSession::doSerialRequest() receives an ABORT packet,
   it will issue a SECOND file_request with the SAME REQUEST
   NUMBER for the ABORT.
-- teensyExpression theSystem.cpp will receive the 2nd request
+- teensyExpression theSystem.cpp will receive the 2nd file_request
   and start another threaded handleFileCommand.
-- the second handleFileCommand(ABORT) will call addRequstAborted(req_num)
+- the second handleFileCommand(ABORT) will call addPendingAbort(req_num)
   to add the request number to an array of pending_aborts, and return.
+- the original handleFileCommand(DELETE) will call abortPending(req_num)
+  during it's processing loop.  If abortPending(req_num) finds a pending
+  abort, it will both send a serial ABORTED numbered file_reply, and
+  return true to tell handleFileCommand() to cease processing the DELETE
+  command and return.
+- The ABORTED message is passed back up the chain until it is
+  returned by a WX $THREAD_EVENT to onThreadEvent() in the UI thread,
+  which then shows the COMMAND ABORTED dialog, after which it closes
+  the $progress window and call setContents() and populate() repopulate
+  the pane since it's contents are now indeterminate.
 
-Meanwhile the original handleFileCommand(DELETE) will be calling
-the new checkRequestAborted(req_num) method which will check the array,
-and return true if the req_num for the DELETE is in the array,
-which will cause the handleFileCommand(DELETE) to send a serial
-ABORTED numbered file_reply and terminate.  handleFileCommand()
-will call clearRequestAborted(req_num) as it leaves to keep
-the array compact.
 
-The ABORTED message is passed back up the chain until it is
-returned by a WX $THREAD_EVENT to onThreadEvent() which will
-generate the okDialog, close the $progress window, and call
-setContents() and populate() to fix things up.
-
+# XFER Protocol and Implementation
