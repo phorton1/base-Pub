@@ -29,7 +29,6 @@ BEGIN
         $logfile
 		$resource_dir
 
-
 		setAppFrame
 		getAppFrame
 
@@ -62,6 +61,9 @@ BEGIN
 		filenameFromWin
         getTextFile
 		printVarToFile
+
+		encode64
+        decode64
     );
 }
 
@@ -531,6 +533,31 @@ sub printVarToFile
 		close OFILE;
 	}
 }
+
+
+#--------------------------------------
+# base64
+#--------------------------------------
+
+
+sub encode64
+    # returns encode_base64
+    # WITHOUT ANY NEWLINES (esp TERMINATING EOL)
+{
+    my ($s) = @_;
+   	my $retval = encode_base64($s);
+    $retval =~ s/\n//g;
+    return $retval;
+}
+
+
+sub decode64
+{
+    my ($s) = @_;
+    return "" if (!defined($s));
+   	return decode_base64($s."\n");
+}
+
 
 
 1;

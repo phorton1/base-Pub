@@ -2,8 +2,9 @@
 #-----------------------------------------------------
 # File Server Info class
 #-----------------------------------------------------
-# the file time is in GMT
-# call toLocalTime to get the local time stamp
+# Henceforth, if you wanna know if its a FileInfo as opposed
+# to, say, an error, you must call isValidInfo() on the objects
+# returned from this file.
 
 package Pub::FS::FileInfo;
 use strict;
@@ -20,9 +21,32 @@ our $dbg_info = 1;
 BEGIN {
     use Exporter qw( import );
 	our @EXPORT = qw (
+		reportError
         makepath
+		isValidInfo
 	);
 }
+
+
+sub isValidInfo
+{
+	my ($thing) = @_;
+	return 1 if $thing && ref($thing) =~ /Pub::FS::FileInfo/;
+	return 0;
+}
+
+sub reportError
+	# subverts showError() to show me errors as they are generated
+	# rather than later
+{
+	my ($msg) = @_;
+	my $save_app = getAppFrame();
+	setAppFrame(undef);
+	error($msg,1);
+	setAppFrame($save_app);
+	return "ERROR - $msg";
+}
+
 
 
 my @fields = qw( size ts entry );
@@ -61,35 +85,21 @@ sub new
         is_dir    => $is_dir,
         entry     => $entry });
     $this->{entries} = shared_clone({}) if ($is_dir);
-
     bless $this,$class;
     return $this if ($no_checks);
 
     my $filename = $dir ? makepath($dir,$entry) : $entry;
 
-    if ($is_dir && !(-d $filename))
-    {
-        $session->session_error("directory $filename not found");
-		return;
-    }
-    if (!$is_dir && !(-e $filename))
-    {
-        $session->session_error("file $filename not found");
-		return;
-    }
+	return reportError("directory $filename not found")
+		if $is_dir && !(-d $filename);
+	return reportError("file $filename not found")
+		if !$is_dir && !(-e $filename);
 
 	my ($dev,$ino,$in_mode,$nlink,$uid,$gid,$rdev,$size,
 	  	$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
 
-    # on windows it appears as if $mtime is in
-    # the local timezone. So, by all rights,
-    # I have to convert it to GMT sheesh.
-
-	if (!$mtime)
-    {
-        $session->session_error("Could not stat ".($is_dir?'directory':'file')." $filename");
-        return;
-    }
+	return reportError("Could not stat ".($is_dir?'directory':'file')." $filename")
+		if !$mtime;
 
 	my @time_parts = gmtime($mtime);
 	my $ts =
@@ -101,10 +111,8 @@ sub new
 		pad2($time_parts[0]);
 
 	display($dbg_info+1,1,"stats=$ts,$size");
-
     $this->{size}   = $size;
     $this->{ts} 	= $ts;
-
     return $this;
 }
 
@@ -134,17 +142,24 @@ sub from_text
     for my $field (@fields)
     {
 		my $value = $string =~ s/^(.*?)(\t|$)// ? $1 : '';
-		if ($value =~ s/\/$//)
+		if ($field eq 'entry' && $value =~ s/\/$//)
 		{
 			$this->{is_dir} = 1;
 			$value = "/" if !$value;
 		}
 		$this->{$field} =  $value;
     }
+
+	return reportError("bad FS::FileInfo size($this->{size}) for directory")
+		if $this->{is_dir} && $this->{size};
+	return reportError("bad FS::FileInfo size($this->{size}) for file")
+		if !$this->{is_dir} && $this->{size} !~ /^\d+$/;
+	return reportError("bad FS::FileInfo timestamp($this->{ts})")
+		if $this->{ts} !~ /^[\s\d\-\:]+$/;
+
 	$this->{dir} = $use_dir if $use_dir;
 	$this->{entries} = shared_clone({}) if $this->{is_dir};
 	display_hash($dbg_info+1,1,"from_text",$this);
-
 	bless $this,$class;
 	return $this;
 }

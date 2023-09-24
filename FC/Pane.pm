@@ -689,10 +689,11 @@ sub setContents
 {
     my ($this,$dir_info) = @_;
 	return if !$this->{is_local} && !$this->{session}->isConnected();
+	$dir_info ||= '';
 
     my $dir = $this->{dir};
     my $local = $this->{is_local};
-    display($dbg_pop,0,"setContents($local,$dir)");
+    display($dbg_pop,0,"setContents($local,$dir_info) dir=$dir");
     $this->{last_selected_index} = -1;
 
     my @list;     # an array (by index) of infos ...

@@ -2,14 +2,18 @@
 #-------------------------------------------------------
 # Pub::FS::Session
 #-------------------------------------------------------
-# A Session accepts commands and acts upon.
+# A Session accepts commands and acts upon them.
+#
+# The base Session acts on commands as follows:
+#
 # If they are purely local it acts on them directly:
 #
 # 	It can LIST or MKDIR a single directory at a time,
 #     and can RENAME a single file or directory at a time.
 # 	It can DELETE a set of local files recursively.
 #
-# For commands that are purely remote, it calls pure
+# For commands that purely remote, it sends the
+#    calls pure
 #    virtual methods that must be implemented in
 #    derived class.
 #
@@ -20,6 +24,19 @@
 #
 # Note, once again, that for remote access this base class
 # calls methods which are not implemented in it!!
+#
+#-----------------------------------------------------------
+#
+# Error handling and reporting:
+#
+# Errors may now be returned by every method including getPacket()
+# and sendPacket().  It is upto the Server or main thread of thee
+# fileClient to call error to display them and/or forward them
+# to the client socket, with the exception of errors in connect()
+# which is the only method known to only be called from the main
+# thread of the UI.
+#
+# The default Session is for a vanilla fileServeer
 
 
 package Pub::FS::Session;
@@ -47,7 +64,7 @@ our $dbg_lists:shared = 1;
 our $dbg_commands:shared = 0;
 	# 0 = show atomic commands
 	# -1 = show command header and return resu;ts
-our $dbg_recurse:shared = 0;
+our $dbg_recurse:shared = 1;
 	# show recursive command execution (like DELETE)
 our $dbg_progress:shared = 1;
 
@@ -83,6 +100,10 @@ BEGIN {
         $PROTOCOL_PROGRESS
         $PROTOCOL_DELETE
         $PROTOCOL_XFER
+		$PROTOCOL_GET
+	    $PROTOCOL_PUT
+	    $PROTOCOL_CONTINUE
+	    $PROTOCOL_BASE64
 
 	);
 }
@@ -107,6 +128,12 @@ our $PROTOCOL_PROGRESS  = "PROGRESS";
 our $PROTOCOL_DELETE 	= "DELETE";
 our $PROTOCOL_XFER 		= "XFER";
 
+our $PROTOCOL_GET       = "GET";
+our $PROTOCOL_PUT		= "PUT";
+our $PROTOCOL_CONTINUE  = "CONTINUE";
+our $PROTOCOL_BASE64	= "BASE64";
+
+
 
 # Each thread has a separate SOCK from the Server
 #    and getPacket cannot be re-entered by them.
@@ -125,6 +152,8 @@ my $instance_in_protocol:shared = shared_clone({});
 
 sub new
 	# CLIENT will try to connect to HOST:PORT if no SOCK is provided
+	# IS_BRIDGED means this Session is connected to a SerialBridge.
+	# IS_BRIDGE means that this Session IS a SerialSession.
 {
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
@@ -133,6 +162,8 @@ sub new
 	$params->{WHO} ||= $params->{IS_SERVER}?"SERVER":"CLIENT";
 	$params->{TIMEOUT} ||= $DEFAULT_TIMEOUT;
 	$params->{INSTANCE} ||= 0;
+	$params->{IS_BRIDGE} ||= 0;
+	$params->{IS_BRIDGED} ||= 0;
 
 	my $this = { %$params };
 
@@ -145,14 +176,23 @@ sub new
 }
 
 
-sub session_error
+sub server_error
+	# ONLY FOR USE BY SERVER SESSIONS
     # report an error to the user and/or peer
     # server errors are capitalized!
 {
     my ($this,$msg) = @_;
-	error($msg,1);
+	if (!$this->{IS_SERVER})
+	{
+		my $save_app = getAppFrame();
+		setAppFrame(undef);
+		error("server_error($msg) called from Client app save_app=$save_app!");
+		setAppFrame($save_app);
+		return;
+	}
 
-    if ($this->{IS_SERVER} && $this->{SOCK})
+	error($msg,1);
+    if ($this->{SOCK})
     {
         $msg = $PROTOCOL_ERROR.$msg;
         $this->sendPacket($msg);
@@ -164,20 +204,15 @@ sub session_error
 	# if in a WX thread we return the error message
 	# otherwise we return blank
 
-	if (getAppFrame() && threads->tid())
-	{
-		return $PROTOCOL_ERROR.$msg;
-	}
-	else
-	{
-		return ''
-	}
+	return $PROTOCOL_ERROR.$msg;
 }
+
+
 
 sub textError
 {
 	my ($this,$text) = @_;
-	return $this->session_error($text) if $text =~ s/^$PROTOCOL_ERROR//;
+	return $text if $text =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
 	return ''
 }
 
@@ -194,11 +229,13 @@ sub disconnect
     display($dbg_session,-1,"$this->{WHO} disconnect()");
     if ($this->{SOCK})
     {
+		# no error checking
         $this->sendPacket($PROTOCOL_EXIT);
 		close $this->{SOCK};
     }
     $this->{SOCK} = undef;
 }
+
 
 
 
@@ -211,7 +248,7 @@ sub connect
 
 	display($dbg_session+1,-1,"$this->{WHO} connecting to $host:$port");
 
-   $this->{SOCK} = IO::Socket::INET->new(
+    $this->{SOCK} = IO::Socket::INET->new(
 		PeerAddr => "$host:$port",
         PeerPort => "http($port)",
         Proto    => 'tcp',
@@ -226,20 +263,19 @@ sub connect
 		my $rcv_buf_size = 10240;
 		$this->{SOCK}->sockopt(SO_RCVBUF, $rcv_buf_size);
  		display($dbg_session,-1,"$this->{WHO} CONNECTED to PORT $port");
-		my $ok = $this->sendPacket($PROTOCOL_HELLO);
-		if ($ok)
+		my $err = $this->sendPacket($PROTOCOL_HELLO);
+		if (!$err)
 		{
-			my $line = $this->getPacket(1);
-			$ok = $line ? 1 : 0;
-			if ($ok && $line !~ /^$PROTOCOL_WASSUP/)
-			{
-	            error("$this->{WHO} unexpected response from server: $line");
-				$ok = 0;
-			}
+			my $packet;
+			$err = $this->getPacket(\$packet,1);
+	        $err = "$this->{WHO} unexpected response from server: $packet"
+				if !$err && $packet !~ /^$PROTOCOL_WASSUP/;
 		}
-		if (!$ok)
+		if ($err)
 		{
-			$this->{SOCK}->close();
+			$err =~ s/^$PROTOCOL_ERROR//;
+			error($err);
+			$this->{SOCK}->close() if $this->{SOCK};
 			$this->{SOCK} = undef;
         }
     }
@@ -255,6 +291,7 @@ sub connect
 
 
 sub sendPacket
+	# returns an error or '' upon success
 {
     my ($this,$packet,$override_protocol) = @_;
 	display($dbg_packets+2,0,"sendPacket()")
@@ -277,75 +314,73 @@ sub sendPacket
 	if ($instance && !$override_protocol)
 	{
 		my $in_protocol = $instance_in_protocol->{$instance};
-		if ($in_protocol)
-		{
-			error("sendPacket() while in_protocol=$in_protocol ".
-				"for instance=$instance");
-			return;
-		}
+		return reportError("sendPacket() while in_protocol=$in_protocol for instance=$instance")
+			if ($in_protocol)
 	}
 
     my $sock = $this->{SOCK};
-    if (!$sock)
-    {
-        error("$this->{WHO} no socket in sendPacket");
-        return;
-    }
+    return reportError("$this->{WHO} no socket in sendPacket") if !$sock;
 
     if (!$sock->send($packet."\r\n"))
     {
         $this->{SOCK} = undef;
-        error("$this->{WHO} could not write to socket $sock");
-        return;
+        return reportError("$this->{WHO} could not write to socket $sock");
     }
 
 	$sock->flush();
-    return 1;
+    return '';
 }
 
 
 sub getPacketInstance
 {
-	my ($this,$is_protocol) = @_;
+	my ($this,$ppacket) = @_;
 	my $instance = $this->{INSTANCE};
 	$instance_in_protocol->{$instance}++ if $instance;
-    my $packet = $this->getPacket(1);
+    my $err = $this->getPacket($ppacket,1);	# always is_protocol
 	$instance_in_protocol->{$instance}-- if $instance;
-	return $packet;
+	return $err;
+}
+
+sub incInProtocol
+{
+	my ($this) = @_;
+	my $instance = $this->{INSTANCE};
+	$instance_in_protocol->{$instance}++ if $instance;
+}
+sub decInProtocol
+{
+	my ($this) = @_;
+	my $instance = $this->{INSTANCE};
+	$instance_in_protocol->{$instance}-- if $instance;
 }
 
 
+
 sub getPacket
+	# fills in the passed in reference to a packet.
+	# returns an error or '' upon success.
 	# The protocol passes in $is_protocol, which blocks and prevents other
 	# callers from getting packets.  Otherwise, the method does not block.
 {
-    my ($this,$is_protocol) = @_;
+    my ($this,$ppacket,$is_protocol) = @_;
+	$$ppacket = '';
 	$is_protocol ||= 0;
 
 	display($dbg_packets+1,0,"getPacket($is_protocol)")		# ,$in_protocol)")
 		if !$this->{IS_SERVER} && $is_protocol;
 
     my $sock = $this->{SOCK};
-    if (!$sock)
-    {
-        error("$this->{WHO} no socket in getPacket");
-        return '';
-    }
-
+    return reportError("$this->{WHO} no socket in getPacket") if !$sock;
 
 	my $instance = $this->{INSTANCE};
 	if ($instance)
-
 	{
 		my $in_protocol = $instance_in_protocol->{$instance};
-		return if !$is_protocol && $in_protocol;
-
-		if ($is_protocol && $in_protocol > 1)
-		{
-			error("getPacket(1) while in_protocol=$in_protocol ".
-				  "for instance=$instance");
-			return '';
-		}
+		return '' if !$is_protocol && $in_protocol;
+			# case of empty packet with no error
+		reportError("getPacket(1) while in_protocol=$in_protocol for instance=$instance")
+			if $is_protocol && $in_protocol > 1;
 	}
 
 
@@ -353,67 +388,54 @@ sub getPacket
 	# if protcol, watch for timeouts
 
 	my $can_read;
-	my $packet = '';
 	my $started = time();
 	my $select = IO::Select->new($sock);
 	while (1)
 	{
 		$can_read = $select->can_read(0.1);
 		last if $can_read;
-		last if !$is_protocol;
-		if (time() > $started + $this->{TIMEOUT})
-		{
-			error("getPacket timed out");
-			last;
-		}
+		return '' if !$is_protocol;
+			# case of empty packet with no error
+		return reportError("getPacket timed out")
+			if time() > $started + $this->{TIMEOUT};
 	}
 
-	if ($can_read)
-	{
-		my $CRLF = "\015\012";
-		local $/ = $CRLF;
+	# can_read is true here
 
-		$packet = <$sock>;
-		if (!defined($packet))
+	my $CRLF = "\015\012";
+	local $/ = $CRLF;
+
+	$$ppacket = <$sock>;
+	if (!defined($$ppacket))
+	{
+		$$ppacket = '';
+		$this->{SOCK} = undef;
+		return reportError("$this->{WHO} no response from peer");
+	}
+
+	$$ppacket =~ s/(\r|\n)$//g;
+	return reportError("$this->{WHO} empty response from peer") if !$$ppacket;
+
+	if ($dbg_packets <= 0)
+	{
+		if (length($$ppacket) > 100)
 		{
-			if ($is_protocol)
-			{
-				$this->{SOCK} = undef;
-				error("$this->{WHO} no response from peer");
-			}
-			$packet = '';
+			display($dbg_packets,-1,"$this->{WHO} <-- ".length($$ppacket)." bytes",1);
 		}
 		else
 		{
-			$packet =~ s/(\r|\n)$//g;
-			if (!$packet)
-			{
-				error("$this->{WHO} empty response from peer");
-			}
-			else	# debugging only
-			{
-				if ($dbg_packets <= 0)
-				{
-					if (length($packet) > 100)
-					{
-						display($dbg_packets,-1,"$this->{WHO} <-- ".length($packet)." bytes",1);
-					}
-					else
-					{
-						my $show_packet = $packet;
-						$show_packet =~ s/\r/\r\n/g;
-						display($dbg_packets,-1,"$this->{WHO} <-- $show_packet",1);
-					}
+			my $show_packet = $$ppacket;
+			$show_packet =~ s/\r/\r\n/g;
+			display($dbg_packets,-1,"$this->{WHO} <-- $show_packet",1);
+		}
+	}	# debugging only
 
-				}	# debugging only
-			}	# non-empty packet
-		}	# defined($packet)
-	}	# $can_read
-
-	display($dbg_packets+1,0,"getPacket() returning")
+	display($dbg_packets+1,0,"getPacket() returning ok")
 		if $is_protocol && !$this->{IS_SERVER};
-    return $packet;
-}
+
+	return '';	# no error in getPacket()
+
+}	# getPacket()
 
 
 
@@ -427,11 +449,12 @@ sub getPacket
 sub listToText
 {
     my ($this,$list) = @_;
+	return reportError("invalid call to listToText($list)") if !isValidInfo($list);
+
     display($dbg_lists,0,"$this->{WHO} listToText($list->{entry}) ".
 		($list->{is_dir} ? scalar(keys %{$list->{entries}})." entries" : ""));
 
 	my $text = $list->to_text()."\n";
-
 	if ($list->{is_dir})
     {
 		for my $entry (sort keys %{$list->{entries}})
@@ -442,6 +465,7 @@ sub listToText
 	}
     return $text;
 }
+
 
 
 sub textToList
@@ -461,8 +485,18 @@ sub textToList
     for my $line (@lines)
     {
         my $info = Pub::FS::FileInfo->from_text($this,$line);
+		if (!isValidInfo($info))
+		{
+			$result = $info;
+			last;
+		}
 		if (!$result)
 		{
+			if (!$info->{is_dir})
+			{
+				$result = reportError("textToList must start with a DIR_ENTRY not the file: $info->{entry}");
+				last;
+			}
 			$result = $info;
 		}
 		else
@@ -471,7 +505,14 @@ sub textToList
 		}
     }
 
-	display_hash($dbg_lists+1,2,"$this->{WHO} textToList($result->{entry})",$result->{entries});
+	if (isValidInfo($result))
+	{
+		display_hash($dbg_lists+1,2,"$this->{WHO} textToList($result->{entry})",$result->{entries});
+	}
+	else
+	{
+		display_hash($dbg_lists+1,2,"$this->{WHO} textToList() returning $result");
+	}
     return $result;
 }
 
@@ -487,13 +528,15 @@ sub _listRemoteDir
     display($dbg_commands,0,"_listRemoteDir($dir)");
 
     my $command = "$PROTOCOL_LIST\t$dir";
+    my $err = $this->sendPacket($command);
+    return $err if $err;
 
-    return if !$this->sendPacket($command);
-    my $packet = $this->getPacketInstance(1);
-    return if (!$packet);
+	my $packet;
+	$err = $this->getPacketInstance(\$packet,1);
+    return $err if $err;
 
-    my $rslt = $this->textToList($packet);
-	if (ref($rslt))
+	my $rslt = $this->textToList($packet);
+	if (isValidInfo($rslt))
 	{
 		display_hash($dbg_commands+1,1,"_listRemoteDir($dir) returning",$rslt->{entries})
 	}
@@ -511,13 +554,15 @@ sub _mkRemoteDir
     display($dbg_commands,0,"_mkRemoteDir($dir,$subdir)");
 
     my $command = "$PROTOCOL_MKDIR\t$dir\t$subdir";
+    my $err = $this->sendPacket($command);
+    return $err if $err;
 
-    return if !$this->sendPacket($command);
-    my $packet = $this->getPacketInstance(1);
-    return if (!$packet);
+	my $packet;
+	$err = $this->getPacketInstance(\$packet,1);
+    return $err if $err;
 
-    my $rslt = $this->textToList($packet);
-	if (ref($rslt))
+	my $rslt = $this->textToList($packet);
+	if (isValidInfo($rslt))
 	{
 		display_hash($dbg_commands+1,1,"_mkRemoteDir($dir) returning",$rslt->{entries})
 	}
@@ -535,13 +580,15 @@ sub _renameRemote
     display($dbg_commands,0,"_renameRemote($dir,$name1,$name2)");
 
     my $command = "$PROTOCOL_RENAME\t$dir\t$name1\t$name2";
+    my $err = $this->sendPacket($command);
+    return $err if $err;
 
-    return if !$this->sendPacket($command);
-    my $packet = $this->getPacketInstance(1);
-    return if (!$packet);
+	my $packet;
+	$err = $this->getPacketInstance(\$packet,1);
+    return $err if $err;
 
-    my $rslt = $this->textToList($packet);
-	if (ref($rslt))
+	my $rslt = $this->textToList($packet);
+	if (isValidInfo($rslt))
 	{
 		display_hash($dbg_commands+1,1,"_renameRemote($dir) returning",$rslt->{entries})
 	}
@@ -554,50 +601,45 @@ sub _renameRemote
 
 
 
-
-
-
 sub handleProgress
 {
-	my ($this,$packet,$progress) = @_;
-
-	if ($packet =~ s/^PROGRESS\t(.*?)\t//)
+	my ($this,$pwas_progress,$packet,$progress) = @_;
+	if ($packet =~ s/^$PROTOCOL_PROGRESS\t(.*?)\t//)
 	{
 		my $command = $1;
 		$packet =~ s/\s+$//g;
-		display($dbg_progress,-1,"handleProgress() PROGRESS($command) $packet");
-
-		# PRH hmm ..
-		# these methods are on the fileClientPane for threaded requests
-		# which pushes them onto a shared list which is processed by?!?
-		# onIdle() ?!?!
+		display($dbg_progress,-2,"handleProgress() PROGRESS($command) $packet");
 
 		if ($progress)
 		{
 			my @params = split(/\t/,$packet);
-			$progress->addDirsAndFiles($params[0],$params[1])
-				if $command eq 'ADD';
-			$progress->setDone($params[0])
-				if $command eq 'DONE';
-			$progress->setEntry($params[0])
-				if $command eq 'ENTRY';
+			return $PROTOCOL_ABORTED
+				if $command eq 'ADD' && !$progress->addDirsAndFiles($params[0],$params[1]);
+			return $PROTOCOL_ABORTED
+				if $command eq 'DONE' && !$progress->setDone($params[0]);
+			return $PROTOCOL_ABORTED
+				if $command eq 'ENTRY' && !$progress->setEntry($params[0]);
 		}
-		return 1;
+		$$pwas_progress = 1;
 	}
-	return 0;
+	else
+	{
+		$pwas_progress = 0;
+	}
+
+	return '';
 }
 
 
 
-
-sub _deleteRemote			# RECURSES!!
+sub _deleteRemote
 {
 	my ($this,
 		$dir,				# MUST BE FULLY QUALIFIED
 		$entries,
 		$progress ) = @_;
 
-	if ($dbg_commands < 0)
+	if ($dbg_commands <= 0)
 	{
 		my $show_entries = ref($entries) ? '' : $entries;
 		display($dbg_commands,0,"_deleteRemote($dir,$show_entries)");
@@ -616,15 +658,15 @@ sub _deleteRemote			# RECURSES!!
 		{
 			my $info = $entries->{$entry};
 			my $text = $info->to_text();
-			display($dbg_commands,1,"entry=$text");
+			display($dbg_commands-1,1,"entry=$text");
 			$command .= "$text\r" if $info;
 		}
 	}
 
-    return if !$this->sendPacket($command);
+	my $err = $this->sendPacket($command);
+	return $err if $err;
 
-	my $instance = $this->{INSTANCE};
-	$instance_in_protocol->{$instance}++ if $instance;
+	$this->incInProtocol();
 
 	# so here we have the prototype of a progressy remote command
 	# note that an abort or any errors currently leaves the client
@@ -633,26 +675,24 @@ sub _deleteRemote			# RECURSES!!
 	my $retval = '';
 	while (1)
 	{
-		my $packet = $this->getPacket(1);
-		my $err = $this->textError($packet);
+		my $packet;
+		my $was_progress;
+		$err = $this->getPacket(\$packet, 1);
+		$err ||= $this->textError($packet);
+		$err ||= $this->handleProgress(\$was_progress,$packet,$progress);
 		if ($err)
 		{
 			$retval = $err;
 			last;
 		}
-		if ($packet =~ /^$PROTOCOL_ABORTED/)
-		{
-			$retval = $packet;
-			last
-		}
-		if (!$this->handleProgress($packet,$progress))
+		if (!$was_progress)
 		{
 			$retval = $this->textToList($packet);
 			last;
 		}
 	}
 
-	$instance_in_protocol->{$instance}-- if $instance;
+	$this->decInProtocol();
 	return $retval;
 
 }
@@ -671,12 +711,12 @@ sub _listLocalDir
     display($dbg_commands,0,"$this->{WHO} _listLocalDir($dir)");
 
     my $dir_info = Pub::FS::FileInfo->new($this,1,$dir);
-    return if (!$dir_info);
+    return $dir_info if !isValidInfo($dir_info);
+	return reportError("dir($dir) is not a directory in _listLocalDir")
+		if !$dir_info->{is_dir};
+	return reportError("$this->{WHO} could not opendir $dir")
+		if !opendir(DIR,$dir);
 
-    if (!opendir(DIR,$dir))
-    {
-        return $this->session_error("$this->{WHO} could not opendir $dir");
-    }
     while (my $entry=readdir(DIR))
     {
         next if ($entry =~ /^(\.|\.\.)$/);
@@ -685,17 +725,16 @@ sub _listLocalDir
 		my $is_dir = -d $path ? 1 : 0;
 
 		my $info = Pub::FS::FileInfo->new($this,$is_dir,$dir,$entry);
-		if (!$info)
+		if (!isValidInfo($info))
 		{
 			closedir DIR;
-			return;
+			return $info;
 		}
 		$dir_info->{entries}->{$entry} = $info;
 	}
 
     closedir DIR;
     return $dir_info;
-
 }
 
 
@@ -706,10 +745,7 @@ sub _mkLocalDir
     my ($this, $dir, $subdir) = @_;
     display($dbg_commands,0,"$this->{WHO} _mkLocalDir($dir,$subdir)");
     my $path = makepath($dir,$subdir);
-	if (!mkdir($path))
-	{
-		return $this->session_error("Could not mkdir $path");
-	}
+	return reportError("Could not mkdir $path") if !mkdir($path);
 	return $this->_listLocalDir($dir);
 }
 
@@ -727,24 +763,16 @@ sub _renameLocal
 
 	my $is_dir = -d $path1;
 
-	if (!-e $path1)
-	{
-		return $this->session_error("$this->{WHO} file/dir $path1 not found");
-	}
-	if (-e $path2)
-	{
-		return $this->session_error("$this->{WHO} file/dir $path2 already exists");
-	}
-	if (!rename($path1,$path2))
-	{
-		return $this->session_error("$this->{WHO} Could not rename $path1 to $path2");
-	}
-
+	return reportError("$this->{WHO} file/dir $path1 not found") if !(-e $path1);
+	return reportError("$this->{WHO} file/dir $path2 already exists") if -e $path2;
+	return reportError("$this->{WHO} Could not rename $path1 to $path2") if !rename($path1,$path2);
 	return Pub::FS::FileInfo->new($this,$is_dir,$dir,$name2);
 }
 
 
 sub _deleteLocal			# RECURSES!!
+	# recursions return '' or undef on success or
+	# an error message on failure
 {
 	my ($this,
 		$dir,				# MUST BE FULLY QUALIFIED
@@ -753,9 +781,9 @@ sub _deleteLocal			# RECURSES!!
 		$level) = @_;
 
 	$level ||= 0;
-
 	display($dbg_recurse,-2-$level,"_deleteLocal($dir,$level)");
-	return $PROTOCOL_ABORTED if $progress && $progress->aborted();
+
+    return $PROTOCOL_ABORTED if $progress && $progress->aborted();
 	sleep($TEST_DELAY) if $TEST_DELAY;
 
 	#----------------------------------------------------
@@ -769,17 +797,14 @@ sub _deleteLocal			# RECURSES!!
 
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$entries)
 	{
-		display($dbg_recurse,-4-$level,"entry=$entry");
 		my $entry_info = $entries->{$entry};
+		display($dbg_recurse,-4-$level,"entry=$entry is_dir=$entry_info->{is_dir}");
 		if ($entry_info->{is_dir})
 		{
-			my $dir_path = "$dir/$entry";
+			my $dir_path = makepath($dir,$entry);
 			my $dir_entries = $entry_info->{entries};
 
-			if (!opendir DIR,$dir_path)
-			{
-				return $this->session_error("_deleteLocal($level) could not opendir($dir)");
-			}
+			return reportError("_deleteLocal($level) could not opendir($dir_path)") if !opendir(DIR,$dir_path);
 			while (my $dir_entry=readdir(DIR))
 			{
 				next if ($dir_entry =~ /^(\.|\.\.)$/);
@@ -788,10 +813,11 @@ sub _deleteLocal			# RECURSES!!
 				my $is_dir = -d $sub_path ? 1 : 0;
 
 				my $info = Pub::FS::FileInfo->new($this,$is_dir,$dir_path,$dir_entry);
-				if (!$info)
+					# FileInfo->new() always returns something
+				if (!isValidInfo($info))
 				{
 					closedir DIR;
-					return;
+					return $info;
 				}
 				$dir_entries->{$dir_entry} = $info;
 			}
@@ -805,10 +831,12 @@ sub _deleteLocal			# RECURSES!!
 		}
 	}
 
-	$progress->addDirsAndFiles(
-		scalar(keys %$subdirs),
-		scalar(keys %$files))
-		if scalar(keys %$subdirs) || scalar(keys %$files);
+	return $PROTOCOL_ABORTED if
+		(scalar(keys %$subdirs) || scalar(keys %$files)) &&
+		$progress &&
+		!$progress->addDirsAndFiles(
+			scalar(keys %$subdirs),
+			scalar(keys %$files));
 
 	#-------------------------------------------
 	# depth first recurse thru subdirs
@@ -816,36 +844,34 @@ sub _deleteLocal			# RECURSES!!
 
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$subdirs)
 	{
-		my $info = $entries->{$entry};
-		return if !$this->_deleteLocal(
-			"$dir/$entry",					# dir
+		my $info = $subdirs->{$entry};
+		my $err = $this->_deleteLocal(
+			makepath($dir,$entry),			# dir
 			$info->{entries},				# dir_info
 			$progress,
 			$level + 1);
+		return $err if $err;
 	}
 
 	#-------------------------------------------
 	# iterate the flat files in the directory
 	#-------------------------------------------
 
-	for my $entry  (sort {uc($a) cmp uc($b)} keys %$files)
+	for my $entry (sort {uc($a) cmp uc($b)} keys %$files)
 	{
 		sleep($TEST_DELAY) if $TEST_DELAY;
+		my $info = $files->{$entry};
+		my $path = makepath($dir,$entry);
 		return $PROTOCOL_ABORTED if $progress && $progress->aborted();
+		return $PROTOCOL_ABORTED if $progress && !$progress->setEntry($path);
 
-		my $info = $entries->{$entry};
-		if (!$info->{is_dir})
-		{
-			my $path = "$dir/$entry";
-			$progress->setEntry($path) if $progress;
-			display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local file: $path");
-			if (!unlink $path)
-			{
-				return $this->session_error("$this->{WHO} Could not delete local file $path");
-			}
-			$progress->setDone(0) if $progress;
-		}
+		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local file: $path");
+		return reportError("$this->{WHO} Could not delete local file $path")
+			if !unlink($path);
+
+		return $PROTOCOL_ABORTED if $progress && !$progress->setDone(0);
 	}
+
 
 	#----------------------------------------------
 	# finally, delete the dir itself at level>0
@@ -856,21 +882,20 @@ sub _deleteLocal			# RECURSES!!
 	{
 		sleep($TEST_DELAY) if $TEST_DELAY;
 		return $PROTOCOL_ABORTED if $progress && $progress->aborted();
+		return $PROTOCOL_ABORTED if $progress && !$progress->setEntry($dir);
 
-		$progress->setEntry($dir) if $progress;
 		display($dbg_recurse,-5-$level,"$this->{WHO} DELETE local dir: $dir");
-		if (!rmdir $dir)
-		{
-			$this->session_error("$this->{WHO} Could not delete local file $dir");
-			return;
-		}
-		$progress->setDone(1) if $progress;
-		return 1;
+		return reportError("$this->{WHO} Could not delete local file $dir")
+			if !rmdir($dir);
+
+		return $PROTOCOL_ABORTED if $progress && !$progress->setDone(1);
+
 	}
 
 	# level 0 returns a directory listing on success
 
-	return $this->_listLocalDir($dir);
+	return $this->_listLocalDir($dir) if !$level;
+	return '';
 }
 
 
@@ -938,17 +963,188 @@ sub doCommand
 		{
 			my $path = "$param1/$param2";
 			display($dbg_commands,0,"$this->{WHO} DELETE single local file: $path");
-			if (!unlink $path)
-			{
-				return $this->session_error("$this->{WHO} Could not delete single local file $path");
-			}
+			return reportError("$this->{WHO} Could not delete single local file $path")
+				if !unlink($path);
 			return $this->_listLocalDir($param1);
 		}
 		return $this->_deleteLocal($param1,$param2,$progress);
 	}
 
-	return $this->session_error("$this->{WHO} unsupported command: $command");
+	# elsif ($command eq $PROTOCOL_XFER)			# $dir, $entries_or_filename, $target_dir, $progress
+	# {
+	# 	return $this->doXFER($local,$param1,$param2,$param3,$progress);
+	# }
+
+	# finished
+
+	return reportError("$this->{WHO} unsupported command: $command");
+
+}	# doCommand()
+
+
+#----------------------------------------------------------------
+# doXFER
+#----------------------------------------------------------------
+# Note that HANDLING a PUT is different than doing one.
+
+
+my $BUFFER_SIZE = 10240;
+	# The actual buffer will be 4 bytes longer to include the checksum,
+
+
+sub doXFER
+{
+	my ($this,$local,$dir,$entries,$target_dir,$progress) = @_;
+	$this->incInProtocol();
+
+	my $retval = '';
+	if (!ref($entries))
+	{
+		# $entries is a single_filename
+		# guaranteed by caller to not be a directory
+
+		$retval = $local ?
+			$this->doPut($dir,$entries,$target_dir,$progress,1) :
+			$this->doGet($dir,$entries,$target_dir,$progress,1);
+	}
+
+	$this->decInProtcol();
+	return $retval;
 }
+
+
+sub doGet
+{
+	my ($this,$dir,$filename,$target_dir,$progress,$single) = @_;
+	my $packet = "GET\t$dir\$filename"
+}
+
+
+sub doPut
+	# CLIENT --> PUT \t dir \r FILE_ENTRY \r\n
+{
+	my ($this,$dir,$filename,$target_dir,$progress,$single) = @_;
+	my $info = FS::FileInfo::new($this,0,$dir,$filename);
+	return $info if !isValidInfo($info);
+	my $size = $info->{size};
+
+	# Create the file_info
+
+	my $path = makepath($dir,$filename);
+	my $file;
+	return reportError("Could not open file $path for reading")
+		if !open($file,"<$path");
+
+	# $progress setXXX methods return $progress->aborted()
+
+	return $PROTOCOL_ABORTED if $progress && !$progress->setEntry($dir);
+	return $PROTOCOL_ABORTED if $progress && !$progress->setSubRange($size,$filename);
+
+	# CLIENT --> PUT dir (FILE_ENTRY)
+
+	my $packet = "PUT\t$target_dir\n".$info->toText();
+	if ($this->sendPacket($packet))
+	{
+		# could not send the packet, local error has already been reported
+		$file->close();
+		return '';
+	}
+
+	#------------------------------------------------
+	# send buffers
+	#------------------------------------------------
+	# CLIENT --> BASE64	offset bytes content
+
+	my $offset = 0;
+	while (1)
+	{
+		# CLIENT <-- CONTINUE
+		# To allow zero sized files, CLIENT can return the fileinfo
+
+		my $err = $this->getPacket(\$packet,1);
+		if ($err || !$packet)
+		{
+			# could not get a packet, local error already reported
+			$file->close();
+			return '';
+		}
+
+		if ($packet !~ /^$PROTOCOL_CONTINUE/)
+		{
+			$file->close();
+
+			# $packet may contain the terminating FILE_ENTRY for zero length files
+
+			return FS::FileInfo->fromText($packet)
+				if !$size && $packet !~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
+
+			# otherwise it likely contains a ERROR -
+
+			return $packet;
+		}
+
+
+		# CLIENT --> BASE64	offset bytes content
+
+		my $buffer;
+		my $checksum = 0;
+		my $bytes = $size - $offset;
+		$bytes = $BUFFER_SIZE if $bytes > $BUFFER_SIZE;
+		my $got = sysread($file,$buffer,$bytes,$offset);
+		if ($got != $bytes)
+		{
+			$file->close();
+			return reportError("Could not read $bytes bytes at offset $offset from $path; got $got bytes");
+		}
+		for (my $i=0; $i<$bytes; $i++)
+		{
+			$checksum += ord(substr($buffer,$i,1));
+		}
+		my $lsb_first = $checksum;
+		for (my $i=0; $i<4; $i++)
+		{
+			$buffer .= chr($lsb_first && 0xff);
+			$lsb_first >>= 8;
+		}
+		my $encoded = encode64($buffer);
+		$packet = "BASE64\t$offset\t$bytes";
+		if ($this->sendPacket($packet))
+		{
+			# could not send the packet, local error has already been reported
+			$file->close();
+			return '';
+		}
+
+		$offset += $bytes;
+		last if $offset >= $size;
+	}
+
+	# expecting a FILE_ENTRY return, but in any
+	# case we return whatever getPacket() returns
+
+	$file->close();
+	my $err = $this->getPacket(\$packet,1);
+	return $err || $packet;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

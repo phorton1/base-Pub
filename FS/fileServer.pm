@@ -12,7 +12,9 @@ use threads;
 use threads::shared;
 use Pub::FS::Server;
 use Pub::FS::Session;
+use Pub::FS::Server;
 use Pub::Utils;
+use base qw(Pub::FS::Server);
 
 
 sub new

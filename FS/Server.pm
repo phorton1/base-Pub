@@ -18,6 +18,7 @@ use IO::Select;
 use IO::Socket::INET;
 use Time::HiRes qw(sleep);
 use Pub::Utils;
+use Pub::FS::FileInfo;
 use Pub::FS::Session;
 
 
@@ -215,7 +216,7 @@ sub start
 sub serverThread
 {
     my ($this) = @_;
-    display($dbg_server,-2,"serverThread started with PID($$)");
+    display($dbg_server+1,-2,"serverThread started with PID($$)");
 
     my $server_socket = IO::Socket::INET->new(
         LocalPort => $this->{PORT},
@@ -412,21 +413,29 @@ sub sessionThread
 	my $session = $this->createSession($client_socket);
 
 	my $ok = 1;
-	my $packet = $session->getPacket(1);
-    if (!defined($packet) || !$packet)
+	my $packet;
+	my $err = $session->getPacket(\$packet,1);
+	if ($err)
+	{
+		$ok = 0;
+	}
+    elsif (!defined($packet) || !$packet)
     {
-        $session->session_error("EMPTY LOGIN");
+        error("EMPTY LOGIN");
 		$ok = 0;
 	}
 	elsif ($packet !~ /^$PROTOCOL_HELLO/)
 	{
-        $session->session_error("BAD LOGIN '$packet'");
+        error("BAD LOGIN '$packet'");
 		$ok = 0;
 	}
-	if ($ok && !$session->sendPacket($PROTOCOL_WASSUP))
+
+	# sendPacket reports and returns an error on failure
+
+	if ($ok && $session->sendPacket($PROTOCOL_WASSUP))
 	{
-        $session->session_error("COULD NOT SEND $PROTOCOL_HELLO");
-		$ok = 0;
+        error("COULD NOT SEND $PROTOCOL_HELLO");
+		$ok = 0
 	}
 
     #---------------------------------------------
@@ -441,31 +450,32 @@ sub sessionThread
     {
 		if ($select->can_read(0.1))
 		{
-            $packet = $session->getPacket();
+			# any errors in getPacket will terminate the thread
+
+            last if $session->getPacket(\$packet,1);
 			last if $this->{stopping};
-			if (defined($packet))
+
+			if ($packet =~ /^EXIT/)
 			{
-				if ($packet =~ /^EXIT/)
-				{
-					$got_exit = 1;
-					last;
-				}
-				elsif ($packet)
-				{
-					last if !$this->processPacket($session,$packet);
-				}
+				$got_exit = 1;
+				last;
+			}
+			else
+			{
+				last if !$this->processPacket($session,$packet);
 			}
 		}
 
 		# exit the session if the socket went away
-
-		if (!$session->{SOCK})
-		{
-		    display($dbg_server,0,"SESSION THREAD($connect_num) lost it's socket!");
-			last;
-		}
+        #
+		# if (!$session->{SOCK})
+		# {
+		#     display($dbg_server,0,"SESSION THREAD($connect_num) lost it's socket!");
+		# 	last;
+		# }
 
 		# send any pending notifyAll messages
+		# a failure to send will end the thread
 
 		for my $num (sort keys %$notify_all)
 		{
@@ -474,7 +484,11 @@ sub sessionThread
 			{
 				$notify->{notified}->{$connect_num} = 1;
 				display($dbg_notifications,-2,"THREAD($connect_num) sending $notify->{msg}");
-				$session->sendPacket($notify->{msg});
+				if ($session->sendPacket($notify->{msg}))
+				{
+					$ok = 0;
+					last;
+				}
 			}
 		}
 
@@ -488,6 +502,7 @@ sub sessionThread
 		$session->{SOCK} &&
 		$this->{SEND_EXIT})
 	{
+		# we don't bother to check the result of this sendPacket
 		$session->sendPacket($PROTOCOL_EXIT);
 		sleep(0.2);
 	}
@@ -514,17 +529,23 @@ sub processPacket
 	# socket connection to the client.
 {
 	my ($this,$session,$packet) = @_;
-
-	my @lines = split(/\n/,$packet);
+	my @lines = split(/\r/,$packet);
 	my $line = shift @lines;
+	$line =~ s/\s$//g;
 	my @params = split(/\t/,$line);
-		# LIST 		$dir
-		# MKDIR 	$dir $dirname
-		# RENAME 	$dir $name1 $name2
-		# DELETE 	$dir [$singe_filename]
-		# XFER      $dir, $local, $target_dir
-		# BASE_64   $data
-		# PROGRESS  TBD
+	$params[0] ||= '';
+	$params[1] ||= '';
+	$params[2] ||= '';
+	$params[3] ||= '';
+
+	if ($dbg_server <= 0)
+	{
+		my $show_packet = $packet;
+		$show_packet =~ s/\r/\r\n/g;
+		display($dbg_server,0,"processPacket packet=$show_packet");
+	}
+	display($dbg_server,0,"processPacket($params[0]) param1($params[1]) param2($params[2]) param3($params[3]) lines=".scalar(@lines));
+
 	my $entries = $params[2];
 
 	if (@lines)
@@ -533,21 +554,28 @@ sub processPacket
 		for my $line (@lines)
 		{
 			my $info = Pub::FS::FileInfo->from_text($this,$line);
-			$entries->{$info->{entry}} = $info;
+			if (isValidInfo($info))
+			{
+				$entries->{$info->{entry}} = $info;
+			}
+			else
+			{
+				error($info);
+			}
 		}
 	}
 
 	# The local file system is the context for command requests
 	# received by this base Server.
 
-	my $rslt = $session->doCommand($params[0],0,$params[1],$entries,$params[3]);
+	my $rslt = $session->doCommand($params[0],1,$params[1],$entries,$params[3]);
 	$rslt ||= '';
 
 	# Stops the thread/session if it can't send the packet
 
 	my $retval = 1;
-	my $new_packet = ref($rslt) ? $session->listToText($rslt) : $rslt;
-	$retval = 0 if $new_packet && !$session->sendPacket($new_packet);
+	my $new_packet = isValidInfo($rslt) ? $session->listToText($rslt) : $rslt;
+	$retval = 0 if $new_packet && $session->sendPacket($new_packet);
 	return $retval;
 }
 

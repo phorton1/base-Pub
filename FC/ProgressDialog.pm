@@ -154,9 +154,9 @@ sub update
 	$this->{file_msg}->SetLabel("$files_done/$num_files files") if $num_files;
 	$this->{entry_msg}->SetLabel($this->{entry});
 
-	if ($this->{range} != $num_dirs + $num_files - 1)
+	if ($this->{range} != $num_dirs + $num_files)
 	{
-		$this->{range} = $num_dirs + $num_files - 1;
+		$this->{range} = $num_dirs + $num_files;
 		$this->{gauge}->SetRange($this->{range});
 	}
 	if ($this->{value} != $dirs_done + $files_done)
@@ -167,9 +167,6 @@ sub update
 		# hmmm .. the guage doesn't update till the second call to this method
 		# and nothing seeed to make it better (including yields and sleeps here
 		# and in other objects).
-		#
-		# In lieu of figuring out a solution, I decremented the range by one
-		# so that it sort of looks right
         #
 		# $this->{gauge}->Refresh();
 		# $this->{gauge}->Update();

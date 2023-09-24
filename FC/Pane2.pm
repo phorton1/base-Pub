@@ -12,6 +12,7 @@ use threads::shared;
 use Wx qw(:everything);
 use Pub::Utils;
 use Pub::WX::Dialogs;
+use Pub::FS::FileInfo;
 use Pub::FS::ClientSession;
 use Pub::FC::Dialogs;
 use Pub::FC::ProgressDialog;
@@ -20,7 +21,7 @@ use base qw(Wx::Window);
 
 my $dbg_ops  = 0;		# commands
 	# -1, -2 = more detail
-my $dbg_thread = 0;		# threaded commands
+my $dbg_thread = -2;		# threaded commands
 
 
 #---------------------------------------------------------
@@ -252,7 +253,11 @@ sub doCommandSelected
 		undef,				# parent directory
         $this->{dir},		# directory or filename
         1 );				# $no_checks
-	return if !$dir_info;
+	if (!isValidInfo($dir_info))
+	{
+		error($dir_info) if $dir_info;
+		return;
+	}
 	my $entries = $dir_info->{entries};
 
 	my $first_entry;
@@ -457,10 +462,10 @@ sub onThreadEvent
 	{
 		my $caller = $rslt->{caller};
 		my $command = $rslt->{command};
-		display($dbg_thread,1,"onThreadEvent caller($caller,$command) rslt=$rslt");
+		display($dbg_thread,1,"onThreadEvent caller($caller) command(($command) rslt=$rslt");
 
-		my $is_ref = ref($rslt) =~ /Pub::FS::FileInfo/;
-		if (!$is_ref)  # demote created hashes back to outer $rslt
+		my $is_info = isValidInfo($rslt);
+		if (!$is_info)  # demote created hashes back to outer $rslt
 		{
 			$rslt = $rslt->{rslt} || '';
 			display($dbg_thread,2,"inner rslt=$rslt");
@@ -480,8 +485,7 @@ sub onThreadEvent
 		$this->{progress}->Destroy() if $this->{progress};
 		$this->{progress} = undef;
 
-		$rslt = -1 if !$is_ref && $caller eq 'setContents';
-		$rslt = '' if !$is_ref;
+		$rslt = $caller eq 'setContents' ? -1 : '' if !$is_info;
 
 		if ($caller eq 'doRename')
 		{
@@ -537,6 +541,11 @@ sub onThreadEvent
 # $this is now a progress like thing
 #--------------------------------------
 
+sub aborted
+{
+	return 0;
+}
+
 sub addDirsAndFiles
 {
 	my ($this,$num_dirs,$num_files) = @_;
@@ -544,7 +553,7 @@ sub addDirsAndFiles
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
-	# Wx::App::GetInstance()->Yield();
+	return 1;	# !$this->{aborted};
 }
 sub setDone
 {
@@ -553,7 +562,7 @@ sub setDone
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
-	# Wx::App::GetInstance()->Yield();
+	return 1;	# !$this->{aborted};
 }
 sub setEntry
 {
@@ -562,7 +571,7 @@ sub setEntry
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
-	# Wx::App::GetInstance()->Yield();
+	return 1;	# !$this->{aborted};
 }
 
 
@@ -582,6 +591,7 @@ sub onIdle
 		{
 			$this->{aborted} = 1;
 			$this->{session}->sendPacket($PROTOCOL_ABORT,1);
+				# no error checking on result
 				# 1 == $override_protocol to allow sending
 				# another packet while INSTANCE->{in_protocol}
 		}

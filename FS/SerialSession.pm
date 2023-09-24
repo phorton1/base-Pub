@@ -67,6 +67,8 @@ our %serial_file_reply_ready:shared;
 sub new
 {
     my ($class,$params) = @_;
+	$params ||= {};
+	$params->{IS_BRIDGE} = 1;
     my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
@@ -89,20 +91,20 @@ sub waitReply
 {
 	my ($this,$req_num) = @_;
 	display($dbg_request+1,0,"waitReply($req_num)");
-	if (!$com_port_connected)
-	{
-		return $this->session_error("remote not connected in doSerialRequest()");
-	}
+	return $this->server_error("remote not connected in doSerialRequest()")
+		if !$com_port_connected;
 
 	my $abort = 0;
+	my $packet;
 	my $started = time();
 	while (!$serial_file_reply_ready{$req_num})
 	{
 		# check for asynchronous 2nd ABORT packet and send 2nd
 		# numbered serial file_command with ABORT message
 
-		my $packet2 = $this->getPacket(0);
-		if ($packet2 && $packet2 =~ /^$PROTOCOL_ABORT/)
+		my $err = $this->getPacket(\$packet,0);
+		return $err if $err;
+		if ($packet && $packet =~ /^$PROTOCOL_ABORT/)
 		{
 			my $request = "$req_num\t$PROTOCOL_ABORT";
 			my $len = length($request);
@@ -111,26 +113,21 @@ sub waitReply
 
 		# waiting for numbered file_server reply continued
 
-		if (!$com_port_connected)
-		{
-			return $this->session_error("remote not connected in doSerialRequest()");
-		}
-		if (time() > $started + $REMOTE_TIMEOUT)
-		{
-			return $this->session_error("doSerialRequest() timed out");
-		}
+		return $this->server_error("remote not connected in doSerialRequest()")
+			if !$com_port_connected;
+		return $this->server_error("doSerialRequest() timed out")
+			if time() > $started + $REMOTE_TIMEOUT;
 		display($dbg_request+2,0,"doSerialRequest() waiting for reply ...");
 		sleep(0.2);
 	}
 
-	my $packet = $serial_file_reply{$req_num};
-	if (!$packet)
-	{
-		return $this->session_error("empty reply doSerialRequest()");
-	}
+	$packet = $serial_file_reply{$req_num};
+	return $this->server_error("empty reply in adoSerialRequest()") if !$packet;
 
 	$packet =~ s/\s+$//g;
-	$this->sendPacket($packet);
+	my $err = $this->sendPacket($packet);
+	return $err if $err;
+
 	$serial_file_reply{$req_num} = '';
 	$serial_file_reply_ready{$req_num} = 0;
 
@@ -187,9 +184,8 @@ sub doSerialRequest
 		$packet = $this->waitReply($req_num);
 	}
 
-
-	delete $serial_file_reply_ready{$req_num};
 	delete $serial_file_reply{$req_num};
+	delete $serial_file_reply_ready{$req_num};
 
 	my $retval = $packet ? 1 : 0;
 	display($dbg_request,0,"doSerialRequest() returning $retval");

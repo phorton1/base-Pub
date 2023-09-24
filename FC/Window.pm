@@ -66,20 +66,30 @@ sub new
 	$this->MyWindow($frame,$book,$id,$name,$data,$instance);
 
     $this->{name} = $data;    # should already be done
+
+	# The above name and following dirs are currently
+	# hardwired.  There is no UI to specify connections
+	# at this time and the only servers this has been
+	# tested with are the BridgeServer from buddy with
+	# it's random port number, or a simple local Server
+	# on the $DEFAULT_PORT.
+
     $this->{local_dir} = '/junk/data';
-    $this->{remote_dir} = '/';
+    $this->{remote_dir} = $ARGV[0] ? '/' : "/junk";
 
 	my $port = $ARGV[0] || $DEFAULT_PORT;
+	my $is_bridged = $ARGV[0] ? 1 : 0;
+
 	display($dbg_fcw,0,"creating session on port($port)");
     $this->{session} = Pub::FS::ClientSession->new({
 		PORT => $port,
-		INSTANCE => $instance });
+		INSTANCE => $instance,
+		IS_BRIDGED => $is_bridged });
     if (!$this->{session})
     {
         error("Could not create client session!");
         return;
     }
-
 
 	$this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,5],[-1,-1]);
 
@@ -131,6 +141,7 @@ sub onClose
 	if ($this->{session}->{SOCK} && !$this->{GOT_EXIT})
 	{
 		$this->{GOT_EXIT} = 1;
+		# no error checking on result
 		$this->{session}->sendPacket($PROTOCOL_EXIT)
 	}
 	$this->SUPER::onClose();
@@ -174,8 +185,10 @@ sub onIdle
 	{
 		if ($this->{session}->{SOCK})
 		{
-			my $packet = $this->{session}->getPacket();
-			if ($packet)
+			my $packet;
+			my $err = $this->{session}->getPacket(\$packet);
+			error($err) if $err;
+			if ($packet && !$err)
 			{
 				display($dbg_idle,-1,"got packet $packet");
 				if ($packet eq $PROTOCOL_EXIT)

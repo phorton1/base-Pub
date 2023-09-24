@@ -89,7 +89,7 @@ use Pub::Utils;
 use Pub::WX::Main;
 use base 'Wx::App';
 
-openSTDOUTSemaphore("buddySTDOUT");
+openSTDOUTSemaphore("buddySTDOUT") if $ARGV[0];
 
 
 my $frame;

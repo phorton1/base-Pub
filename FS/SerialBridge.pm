@@ -25,7 +25,7 @@ use Pub::FS::SerialSession;
 use Pub::FS::Server;
 use base qw(Pub::FS::Server);
 
-my $dbg_bridge = 0;
+my $dbg_bridge = 1;
 
 
 BEGIN {
@@ -75,7 +75,7 @@ sub processPacket
 {
 	my ($this,$session,$packet) = @_;
 
-	if ($dbg_commands <= 0)
+	if ($dbg_bridge <= 0)
 	{
 		my $show_packet = $packet;
 		$show_packet =~ s/\r/\r\n/g;
