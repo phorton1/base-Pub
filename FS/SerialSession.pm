@@ -130,7 +130,7 @@ sub waitSerialReply
 		return $this->serialError("doSerialRequest() timed out")
 			if time() > $started + $REMOTE_TIMEOUT;
 		display($dbg_request+2,0,"doSerialRequest() waiting for reply ...");
-		sleep(0.2);
+		# sleep(0.01);	# 0.2);
 	}
 
 	$packet = $serial_file_reply{$req_num};

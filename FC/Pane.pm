@@ -31,7 +31,7 @@ use Pub::Utils;
 use Pub::WX::Dialogs;
 use Pub::FS::FileInfo;
 # use Pub::FS::Session;
-use Pub::FS::ClientSession;
+use Pub::FC::ThreadedSession;
 use Pub::FC::Resources;
 
 use base qw(Wx::Window);
@@ -60,8 +60,6 @@ BEGIN {
 
 
 our $COMMAND_REPOPULATE = 8765;
-
-our $THREAD_EVENT:shared = Wx::NewEventType;
 
 
 #-----------------------------------
@@ -132,7 +130,8 @@ sub new
 		my $use_instance = $params->{pane_num} * 100 +
 			$parent->{instance};
 
-		$this->{session} = Pub::FS::ClientSession->new({
+		$this->{session} = Pub::FC::ThreadedSession->new({
+			pane => $this,
 			HOST => $params->{host},
 			PORT => $params->{port},
 			INSTANCE => $use_instance,
@@ -192,7 +191,8 @@ sub new
 
     EVT_LIST_BEGIN_LABEL_EDIT($ctrl,-1,\&onBeginEditLabel);
     EVT_LIST_END_LABEL_EDIT($ctrl,-1,\&onEndEditLabel);
-	EVT_COMMAND($this, -1, $THREAD_EVENT, \&onThreadEvent );
+	EVT_COMMAND($this, -1, $THREAD_EVENT, \&onThreadEvent )
+		if $this->{port};
 
     return $this;
 
@@ -734,7 +734,13 @@ sub setContents
 
     if (!$dir_info)
     {
-		$dir_info = $this->doCommand('setContents',$PROTOCOL_LIST,$dir);
+		$dir_info = $this->{session}->doCommand(
+			$PROTOCOL_LIST,
+			$dir,	# param1
+			undef,	# param2
+			undef,	# param3
+			undef,	# progress
+			'setContents');
 		return if $dir_info && $dir_info eq '-2';
 			# PRH -2 indicates a threaded command underway
 	}
@@ -939,7 +945,6 @@ sub onItemSelected
 
     $event->Skip();
 
-    my $this = $ctrl->{parent};
     my $index = $item->GetData();
     my $old_index = $this->{last_selected_index};
     my $num_sel = $ctrl->GetSelectedItemCount();

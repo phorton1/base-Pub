@@ -16,8 +16,8 @@ use Pub::FS::FileInfo;
 use Pub::FS::ClientSession;
 use Pub::FC::Dialogs;
 use Pub::FC::ProgressDialog;
-use Pub::FC::Pane;
-use base qw(Wx::Window);
+use Pub::FC::Pane;		# needed for $COMMAND_XXXX
+# use base qw(Wx::Window);
 
 my $dbg_ops  = 0;		# commands
 	# -1, -2 = more detail
@@ -81,9 +81,14 @@ sub doMakeDir
 
     if ($dlg_rslt == wxID_OK)
 	{
-		my $rslt = $this->doCommand('doMakeDir',$PROTOCOL_MKDIR,
-			$this->{dir},
-			$new_name);
+		my $rslt = $this->{session}->doCommand(
+			$PROTOCOL_MKDIR,	# command
+			$this->{dir},		# param1
+			$new_name,			# param2
+			undef,				# param3
+			undef,				# progress
+			'doMakeDir');		# caller
+
 		return if $rslt && $rslt eq '-2';
 		$this->setContents($rslt);
 		$this->populate();
@@ -153,10 +158,13 @@ sub onEndEditLabel
 
 	return if $is_cancelled || $entry eq $this->{save_entry};
 
-	my $info = $this->doCommand('doRename',$PROTOCOL_RENAME,
-		$this->{dir},
-		$this->{save_entry},
-		$entry);
+	my $info = $this->{session}->doCommand(
+		$PROTOCOL_RENAME,		# command
+		$this->{dir},			# param1
+		$this->{save_entry},	# param2
+		$entry,					# param3
+		undef,					# progress
+		'doMakeDir');			# calle
 
 	return if $info && $info eq '-2';
 		# PRH -2 indicates threaded command underway
@@ -322,13 +330,15 @@ sub doCommandSelected
 	my $param2 = !$num_dirs && $num_files == 1 ?
 		$first_entry :
 		$dir_info->{entries};
-	my $rslt = $this->doCommand(
-		'doCommandSelected',
-		$command,
-		$this->{dir},
-		$param2,					# info-list or single filename
-		$other->{dir},				# target dir
-		$this->{progress});			# progress
+
+
+	my $rslt = $this->{session}->doCommand(
+		$command,				# command
+		$this->{dir},			# param1
+		$param2,				# param2
+		$other->{dir},			# param3
+		undef,					# progress
+		'doCommandSelected');			# calle
 
 	return if $rslt && $rslt eq '-2';
 		# PRH -2 means threaded command underway
@@ -353,291 +363,6 @@ sub doCommandSelected
 
 }   # doCommandSelected()
 
-
-#--------------------------------------------------------
-# doCommand
-#--------------------------------------------------------
-# implements threading for non-local commands
-
-sub doCommand
-{
-    my ($this,
-		$caller,
-		$command,
-        $param1,
-        $param2,
-        $param3,
-		$progress) = @_;
-
-	$this->{aborted} = 0;
-
-	return $this->{session}->doCommand(
-		$command,
-		$param1,
-		$param2,
-		$param3,
-		$progress) if !$this->{port};
-
-
-	@_ = ();	# necessary to avoid "Scalars leaked"
-	my $thread = threads->create(\&doCommandThreaded,
-		$this,
-		$caller,
-		$command,
-        $param1,
-        $param2,
-        $param3);
-	$this->{parent}->{thread} = $thread;
-		# to prevent commands while in threaded command
-
-	# $thread->detach();
-		# prevents messages about unjoined threads at program termination
-		# but causes scalars leaked message
-
-	return -2;		# PRH -2 indicates threaded command in progress
-}
-
-
-sub doCommandThreaded
-{
-    my ($this,
-		$caller,
-		$command,
-        $param1,
-        $param2,
-        $param3) = @_;
-
-	warning($dbg_thread,-1,"doCommandThreaded(pane$this->{pane_num},$caller,$command) called");
-
-	my $rslt = $this->{session}->doCommand(
-		$command,
-		$param1,
-		$param2,
-		$param3,
-		$this);
-
-	warning($dbg_thread,-1,"doCommandThreaded(pane$this->{pane_num},$caller) got rslt=$rslt");
-
-	# promote everything non-progress to a shared hash
-	# with a caller and pass it to onThreadEvent
-
-	$rslt = shared_clone({
-		rslt => $rslt || ''
-	}) if !$rslt || !ref($rslt);
-
-	$rslt->{caller} = $caller;
-	$rslt->{command} = $command;
-	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this, $evt );
-}
-
-
-#--------------------------------------------------------
-# onThreadEvent
-#--------------------------------------------------------
-
-sub onThreadEvent
-{
-	my ($this, $event ) = @_;
-	if (!$event)
-	{
-		error("No event in onThreadEvent!!",0);
-		return;
-	}
-
-	my $rslt = $event->GetData();
-
-	if (ref($rslt))
-	{
-		my $caller = $rslt->{caller};
-		my $command = $rslt->{command};
-		display($dbg_thread,1,"onThreadEvent caller($caller) command(($command) rslt=$rslt");
-
-		my $is_info = isValidInfo($rslt);
-		if (!$is_info)  # demote created hashes back to outer $rslt
-		{
-			$rslt = $rslt->{rslt} || '';
-			display($dbg_thread,2,"inner rslt=$rslt");
-		}
-
-		if ($rslt =~ s/^$PROTOCOL_ERROR//)
-		{
-			error($rslt);
-			$rslt = '';
-		}
-		if ($rslt =~ /^$PROTOCOL_ABORTED/)
-		{
-			okDialog(undef,"$command has been Aborted by the User","$command Aborted");
-			$rslt = '';
-		}
-
-		$this->{progress}->Destroy() if $this->{progress};
-		$this->{progress} = undef;
-
-		$rslt = $caller eq 'setContents' ? -1 : '' if !$is_info;
-
-		if ($caller eq 'doRename')
-		{
-			$this->endRename($rslt);
-		}
-		elsif ($rslt || $caller ne 'setContents')
-		{
-			$this->setContents($rslt);
-			$this->populate();
-		}
-
-		# done with the thread
-
-		$this->{aborted} = 0;
-		delete $this->{parent}->{thread};
-		return;
-	}
-
-	# the only pure text $rslt are PROGRESS message
-
-	display($dbg_thread,1,"onThreadEvent rslt=$rslt");
-
-	if ($rslt =~ /^$PROTOCOL_PROGRESS/)
-	{
-		if ($this->{progress})
-		{
-			my @params = split(/\t/,$rslt);
-			shift @params;	# ditch the 'PROGRESS'
-			my $command = shift(@params);
-
-			$params[0] = '' if !defined($params[0]);
-			$params[1] = '' if !defined($params[1]);
-			display($dbg_thread,1,"onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
-
-			$this->{progress}->addDirsAndFiles($params[0],$params[1])
-				if $command eq 'ADD';
-			$this->{progress}->setDone($params[0])
-				if $command eq 'DONE';
-			$this->{progress}->setEntry($params[0])
-				if $command eq 'ENTRY';
-
-			Wx::App::GetInstance()->Yield();
-		}
-	}
-	else
-	{
-		error("unknown rslt=$rslt in onThreadEvent()");
-	}
-}
-
-
-#--------------------------------------
-# $this is now a progress like thing
-#--------------------------------------
-
-sub aborted
-{
-	return 0;
-}
-
-sub addDirsAndFiles
-{
-	my ($this,$num_dirs,$num_files) = @_;
-	display($dbg_thread,-1,"THIS->addDirsAndFiles($num_dirs,$num_files)");
-	my $rslt:shared = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
-	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this, $evt );
-	return 1;	# !$this->{aborted};
-}
-sub setDone
-{
-	my ($this,$is_dir) = @_;
-	display($dbg_thread,-1,"THIS->setDone($is_dir)");
-	my $rslt:shared = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
-	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this, $evt );
-	return 1;	# !$this->{aborted};
-}
-sub setEntry
-{
-	my ($this,$entry) = @_;
-	display($dbg_thread,-1,"THIS->setEntry($entry)");
-	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry";
-	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this, $evt );
-	return 1;	# !$this->{aborted};
-}
-
-
-
-#---------------------------------------------------------------
-# onIdle() here cuz it's related to threads
-#---------------------------------------------------------------
-
-sub onIdle
-{
-    my ($this,$event) = @_;
-
-	if ($this->{port} &&	# these two should be synonymous
-		$this->{session})
-	{
-		# EXIT is directed to the Pane, but we close the Window
-		# and let the last Window close the app.
-
-		my $do_exit = 0;
-		if ($this->{session}->{SOCK})
-		{
-			my $packet;
-			my $err = $this->{session}->getPacket(\$packet);
-			error($err) if $err;
-			if ($packet && !$err)
-			{
-				display($dbg_idle,-1,"pane$this->{pane_num} got packet $packet");
-				if ($packet eq $PROTOCOL_EXIT)
-				{
-					display($dbg_idle,-1,"pane$this->{pane_num} onIdle() EXIT");
-					$this->{GOT_EXIT} = 1;
-					$do_exit = 1;
-				}
-				elsif ($packet =~ /^($PROTOCOL_ENABLE|$PROTOCOL_DISABLE)(.*)$/)
-				{
-					my ($what,$msg) = ($1,$2);
-					$msg =~ s/\s+$//;
-					$this->setEnabled(
-						$what eq $PROTOCOL_ENABLE ? 1 : 0,
-						$msg);
-				}
-			}
-		}
-		elsif (!$this->{disconnected_by_pane})
-		{
-			display($dbg_idle,-1,"pane$this->{pane_num} lost SOCKET");
-			$do_exit = 1;
-		}
-
-		if ($do_exit)
-		{
-			warning(0,0,"pane$this->{pane_num} closing parent Window");
-			$this->{parent}->closeSelf();
-			return;
-		}
-
-		# check if we need to send an ABORT
-
-		if ($this->{progress} &&	# should be synonymous
-			$this->{parent}->{thread} &&
-			$this->{session}->{SOCK})
-		{
-			my $aborted = $this->{progress}->aborted();
-			if ($aborted && !$this->{aborted})
-			{
-				display($dbg_idle,-1,"pane$this->{pane_num} sending PROTOCOL_ABORT");
-				$this->{aborted} = 1;
-				$this->{session}->sendPacket($PROTOCOL_ABORT,1);
-					# no error checking on result
-					# 1 == $override_protocol to allow sending
-					# another packet while INSTANCE->{in_protocol}
-			}
-		}
-
-		$event->RequestMore(1);
-	}
-}
 
 
 1;
