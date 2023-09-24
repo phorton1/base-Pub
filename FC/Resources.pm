@@ -61,7 +61,7 @@ my %command_data = (%{$resources->{command_data}},
 
 	# context menu commands
 
-    $COMMAND_XFER       => ['Xfer',     'Upload/Download file/directories'],
+    $COMMAND_XFER       => ['Transfer', 'Upload/Download file/directories'],
     $COMMAND_DELETE     => ['Delete',   'Delete files/directories'],
     $COMMAND_RENAME     => ['Rename',   'Rename files/directories'],
     $COMMAND_REFRESH    => ['Refresh',  'Refresh the contents of this pane'],

@@ -1,10 +1,13 @@
 #!/usr/bin/perl
 #-----------------------------------------------------
-# File Server Info class
+# FS::Pub::FileInfo
 #-----------------------------------------------------
-# Henceforth, if you wanna know if its a FileInfo as opposed
-# to, say, an error, you must call isValidInfo() on the objects
-# returned from this file.
+# FileInfo methods return FileInfo objects or text containing
+# an error messaaage.
+#
+# You can check ref(), or better yet, call isValidInfo() which
+# specifically checks FS::Pub::FileInfo objects, to tell the
+# difference.
 
 package Pub::FS::FileInfo;
 use strict;
@@ -14,16 +17,20 @@ use threads::shared;
 use Pub::Utils;
 
 our $dbg_info = 1;
-	# 0 = show new fromText events
+	# 0 = show new() events
 	# -1 = show fromText hashes
-
+our $dbg_text:shared = 1;
+	# 0 = show lists encountered
+	# -1 = show list items
+	# -3 = show hash returned by textToDirInfo()
 
 BEGIN {
     use Exporter qw( import );
 	our @EXPORT = qw (
-		reportError
         makepath
 		isValidInfo
+		dirInfoToText
+		textToDirInfo
 	);
 }
 
@@ -33,18 +40,6 @@ sub isValidInfo
 	my ($thing) = @_;
 	return 1 if $thing && ref($thing) =~ /Pub::FS::FileInfo/;
 	return 0;
-}
-
-sub reportError
-	# subverts showError() to show me errors as they are generated
-	# rather than later
-{
-	my ($msg) = @_;
-	my $save_app = getAppFrame();
-	setAppFrame(undef);
-	error($msg,1);
-	setAppFrame($save_app);
-	return "ERROR - $msg";
 }
 
 
@@ -90,15 +85,16 @@ sub new
 
     my $filename = $dir ? makepath($dir,$entry) : $entry;
 
-	return reportError("directory $filename not found")
+	# errors at $call_level=1 with $suppress_show
+	return error("directory $filename not found",1,1)
 		if $is_dir && !(-d $filename);
-	return reportError("file $filename not found")
+	return error("file $filename not found",1,1)
 		if !$is_dir && !(-e $filename);
 
 	my ($dev,$ino,$in_mode,$nlink,$uid,$gid,$rdev,$size,
 	  	$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
 
-	return reportError("Could not stat ".($is_dir?'directory':'file')." $filename")
+	return error("Could not stat ".($is_dir?'directory':'file')." $filename",1,1)
 		if !$mtime;
 
 	my @time_parts = gmtime($mtime);
@@ -133,51 +129,135 @@ sub makepath
 #-----------------------------------
 
 
-sub from_text
+sub fromText
 {
-    my ($class,$session,$string,$use_dir) = @_;
-    my $this = shared_clone({});
-    bless $this,$class;
-    display($dbg_info,0,"from_text($string)");
-    for my $field (@fields)
-    {
-		my $value = $string =~ s/^(.*?)(\t|$)// ? $1 : '';
-		if ($field eq 'entry' && $value =~ s/\/$//)
-		{
-			$this->{is_dir} = 1;
-			$value = "/" if !$value;
-		}
-		$this->{$field} =  $value;
-    }
+    my ($class,$text,$use_dir) = @_;
+    display($dbg_info,0,"fromText($text)");
+	my @parts = split(/\t/,$text);
+    my $this = shared_clone({
+		size   => $parts[0] || '',
+		ts     => $parts[1] || '',
+		entry  => $parts[2] || '',
+		is_dir => 0,
+	});
 
-	return reportError("bad FS::FileInfo size($this->{size}) for directory")
+	$this->{is_dir} = 1 if $this->{entry} =~ s/\/$//;
+	$this->{entry} = '/' if $this->{is_dir} && !$this->{entry};
+
+	# errors at $call_level=1 with $suppress_show
+	return error("bad FS::FileInfo size($this->{size}) for directory",1,1)
 		if $this->{is_dir} && $this->{size};
-	return reportError("bad FS::FileInfo size($this->{size}) for file")
+	return error("bad FS::FileInfo size($this->{size}) for file",1,1)
 		if !$this->{is_dir} && $this->{size} !~ /^\d+$/;
-	return reportError("bad FS::FileInfo timestamp($this->{ts})")
+	return error("bad FS::FileInfo timestamp($this->{ts})",1,1)
 		if $this->{ts} !~ /^[\s\d\-\:]+$/;
 
 	$this->{dir} = $use_dir if $use_dir;
 	$this->{entries} = shared_clone({}) if $this->{is_dir};
-	display_hash($dbg_info+1,1,"from_text",$this);
+	display($dbg_info+1,0,"fromText",toText($this,1));
 	bless $this,$class;
 	return $this;
 }
 
 
-sub to_text
+sub toText
 {
-    my ($this) = @_;
-    my $string = '';
-    for my $field (@fields)
-    {
-        my $val = $this->{$field};
-        $val = '' if (!defined($val));
-		$val .= "/" if $field eq 'entry' && $this->{is_dir};
-        $string .= $val."\t";
-    }
-    return $string;
+    my ($this,$quiet_dbg) = @_;
+    my $entry = $this->{entry};
+	$entry .= "/" if $this->{is_dir} && $entry ne '/';
+	my $text = "$this->{size}\t$this->{ts}\t$entry";
+    display($dbg_text+1,0,"toText()=$text")
+		if !$quiet_dbg;
+    return $text;
 }
+
+
+#--------------------------------------------------
+# dirInfoToText and textToDirInfo
+#--------------------------------------------------
+# Convert a populatated FileInfo(is_dir=1) to a
+# cannonical text form, or vice versa.
+
+sub dirInfoToText
+	# takes a populated FileInfo directory object
+	# never fails
+	# first line is the parent directory
+	# subsequent lines are it's entries
+{
+    my ($dir_info) = @_;
+
+    display($dbg_text,0,"dirInfoToText($dir_info->{entry}) ".
+		($dir_info->{is_dir} ? scalar(keys %{$dir_info->{entries}})." entries" : ""));
+
+	my $text = $dir_info->toText()."\n";
+	if ($dir_info->{is_dir})
+    {
+		for my $entry (sort keys %{$dir_info->{entries}})
+		{
+			my $info = $dir_info->{entries}->{$entry};
+			$text .= $info->toText()."\n" if $info;
+		}
+	}
+    return $text;
+}
+
+
+
+sub textToDirInfo
+	# first line is the parent directory
+	# subsequent lines are it's entries
+	# creates a populated FileInfo directory object
+	# or returns a text error message
+	# errors at $call_level=1 with $suppress_show
+{
+    my ($text) = @_;
+
+	# Somebody else must check for PROTOCOL_ERROR before calling this
+		# my $err = $session->textError($text);
+		# return $err if $err;
+
+	# the first directory listed is the base directory
+	# all sub-entries go into it's {entries} member
+
+    my $result;
+    my @lines = split("\n",$text);
+    display($dbg_text,0,"textToDirInfo() lines=".scalar(@lines));
+
+    for my $line (@lines)
+    {
+        my $info = Pub::FS::FileInfo->fromText($line);
+		if (!isValidInfo($info))
+		{
+			$result = $info;
+			last;
+		}
+		if (!$result)
+		{
+			if (!$info->{is_dir})
+			{
+				$result = error("textToDirInfo must start with a DIR_ENTRY not the file: $info->{entry}",1,1);
+				last;
+			}
+			$result = $info;
+		}
+		else
+		{
+			$result->{entries}->{$info->{entry}} = $info;
+		}
+    }
+
+	if (isValidInfo($result))
+	{
+		display_hash($dbg_text+2,2,"textToDirInfo($result->{entry})",$result->{entries});
+	}
+	else
+	{
+		display_hash($dbg_text+2,2,"textToDirInfo() returning $result");
+	}
+    return $result;
+}
+
+
 
 
 1;

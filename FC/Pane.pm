@@ -16,6 +16,7 @@ use Wx::Event qw(
     EVT_SIZE
     EVT_MENU
 	EVT_IDLE
+	EVT_CLOSE
     EVT_MENU_RANGE
     EVT_CONTEXT_MENU
     EVT_UPDATE_UI_RANGE
@@ -29,6 +30,7 @@ use Wx::Event qw(
 use Pub::Utils;
 use Pub::WX::Dialogs;
 use Pub::FS::FileInfo;
+# use Pub::FS::Session;
 use Pub::FS::ClientSession;
 use Pub::FC::Resources;
 
@@ -109,27 +111,52 @@ sub compareType
 
 sub new
 {
-    my ($class,$parent,$splitter,$session,$is_local,$dir) = @_;
+    my ($class,$parent,$splitter,$params) = @_;
     my $this = $class->SUPER::new($splitter);
 
-    $this->{parent}    = $parent;
-    $this->{session}   = $session;
-    $this->{is_local}  = $is_local;
-    $this->{dir}       = $dir;
+	display($dbg_life,0,"new $params->{pane_num} port=$params->{port}");
 
-	$this->{connected} = 1;
+    $this->{parent}    = $parent;
+    $this->{dir}       = $params->{dir};
+	$this->{pane_num}  = $params->{pane_num};
+	$this->{port}	   = $params->{port};
+
 	$this->{enabled}   = 1;
 	$this->{got_list}  = 0;
+	$this->{connected} = 1;
+
+	# Create the {session}
+
+	if ($params->{port})
+	{
+		my $use_instance = $params->{pane_num} * 100 +
+			$parent->{instance};
+
+		$this->{session} = Pub::FS::ClientSession->new({
+			HOST => $params->{host},
+			PORT => $params->{port},
+			INSTANCE => $use_instance,
+			IS_BRIDGED => $params->{is_bridged} });
+
+		$this->checkConnected();
+	}
+	else
+	{
+		$this->{session} = Pub::FS::Session->new();
+	}
+
+	# create the {dir_ctrl{}
 
     $this->{dir_ctrl} = Wx::StaticText->new($this,-1,'',[10,0]);
     $this->{dir_ctrl}->SetFont($title_font);
 
-    # set up the list control
+    # set up the {list_control}
 
-    my $ctrl = $this->{list_ctrl} = Wx::ListCtrl->new(
+    my $ctrl = Wx::ListCtrl->new(
         $this,-1,[0,$PANE_TOP],[-1,-1],
         wxLC_REPORT | wxLC_EDIT_LABELS);
     $ctrl->{parent} = $this;
+	$this->{list_ctrl} = $ctrl;
 
     for my $i (0..$num_fields-1)
     {
@@ -146,10 +173,12 @@ sub new
 	$this->{last_desc} = -1;
 
     $this->doLayout();
+
     $this->setContents();
 
     EVT_SIZE($this,\&onSize);
 	EVT_IDLE($this,\&onIdle);
+	EVT_CLOSE($this,\&onClose);
     EVT_CONTEXT_MENU($ctrl,\&onContextMenu);
     EVT_MENU($this,$COMMAND_REPOPULATE,\&onRepopulate);
     EVT_MENU_RANGE($this, $COMMAND_XFER, $COMMAND_DISCONNECT, \&onCommand);
@@ -170,6 +199,7 @@ sub new
 }   # filePane::new()
 
 
+
 #--------------------------------------------
 # simple event handlers and layout
 #--------------------------------------------
@@ -178,10 +208,27 @@ sub onSize
 {
     my ($this,$event) = @_;
 	$this->doLayout();
-	# $this->{parent}->onSize($event);
-		# to adjust the enabled_ctrl
     $event->Skip();
 }
+
+sub onClose
+	# the bane of my existence.
+	# onClose seems to get called twice,  once before deleting the pane
+	# and once after ... I may try to figure that out later, but for
+	# now I exit the whole program when it reaches zero
+{
+	my ($this,$event) = @_;
+	display($dbg_life,-1,"Pane::onClose(pane$this->{pane_num}) called");
+	if ($this->{port} && $this->{session}->{SOCK} && !$this->{GOT_EXIT})
+	{
+		$this->{GOT_EXIT} = 1;
+		# no error checking on result
+		$this->{session}->sendPacket($PROTOCOL_EXIT)
+	}
+	# $this->SUPER::onClose();
+	$event->Skip();
+}
+
 
 
 sub doLayout
@@ -191,9 +238,11 @@ sub doLayout
     my $width = $sz->GetWidth();
     my $height = $sz->GetHeight();
     $this->{list_ctrl}->SetSize([$width,$height-$PANE_TOP]);
-
-	my $sash_pos = $this->{parent}->{splitter}->GetSashPosition();
-	$this->{parent}->{enabled_ctrl}->Move($sash_pos+10,5);
+	if ($this->{pane_num} == 2)
+	{
+		my $sash_pos = $this->{parent}->{splitter}->GetSashPosition();
+		$this->{parent}->{enabled_ctrl2}->Move($sash_pos+10,5);
+	}
 }
 
 
@@ -201,7 +250,7 @@ sub onRepopulate
 {
     my ($this,$event) = @_;
     display($dbg_pop,0,"onRepopulate()");
-    my $other = $this->{is_local} ?
+    my $other = $this->{pane_num} == 1 ?
         $this->{parent}->{pane2} :
         $this->{parent}->{pane1} ;
     $this->populate(1);
@@ -213,7 +262,7 @@ sub onKeyDown
 {
     my ($ctrl,$event) = @_;
 	my $this = $ctrl->{parent};
-	return if $this->{parent}->{thread};
+	return if $this->{thread} || !$this->{enabled};
 
     my $key_code = $event->GetKeyCode();
     display($dbg_sel+2,0,"onKeyDown($key_code)");
@@ -240,11 +289,8 @@ sub onContextMenu
 {
     my ($ctrl,$event) = @_;
     my $this = $ctrl->{parent};
-	return if $this->{parent}->{thread};
-
+	return if $this->{thread};
     display($dbg_sel,0,"filePane::onContextMenu()");
-    my $cmd_data = $$resources{command_data}->{$COMMAND_XFER};
-    $$cmd_data[0] = $this->{is_local} ? "Upload" : "Download";
     my $menu = Pub::WX::Menu::createMenu('win_context_menu');
 	$this->PopupMenu($menu,[-1,-1]);
 }
@@ -255,61 +301,62 @@ sub onCommandUI
     my ($this,$event) = @_;
     my $id = $event->GetId();
     my $ctrl = $this->{list_ctrl};
-    my $local = $this->{is_local};
-    my $connected = $this->{session}->isConnected();
+    my $port = $this->{port};
 
     # default enable is true for local, and
     # 'is connected' for remote ...
 
-    my $enabled = 0;
+    my $enabled = $this->{enabled} && ! $this->{thread};
 
-   # Connection commands enabled only in the non-local pane
-   # CONNECT is always available
+   # Connection commands enabled only in a pane with a prt
 
     if ($id == $COMMAND_RECONNECT)
     {
-        $enabled = 1; # !$local;
+        $enabled = $port;
     }
-
-    # other connection commands
-
     elsif ($id == $COMMAND_DISCONNECT)
     {
-        $enabled = !$local && $connected;
+        $enabled &&= $port && $this->{session}->isConnected();
     }
 
-    # refresh and mkdir is enabled for both panes
+    # refresh and mkdir depend on a connection if there's a $port
 
     elsif ($id == $COMMAND_REFRESH ||
            $id == $COMMAND_MKDIR)
     {
-        $enabled = $local || ($this->{enabled} && $connected);
-    }
-
-    # xfer requires both sides and some stuff
-
-    elsif ($id == $COMMAND_XFER)
-    {
-        $enabled = $connected && $this->{enabled} && $ctrl->GetSelectedItemCount();
+        $enabled &&= !$port || $this->{session}->isConnected();
     }
 
     # rename requires exactly one selected item
 
     elsif ($id == $COMMAND_RENAME)
     {
-        $enabled = ($local || ($this->{enabled} && $connected)) &&
-            $ctrl->GetSelectedItemCount() == 1;
+        $enabled &&= $ctrl->GetSelectedItemCount()==1 &&
+			(!$port || $this->{session}->isConnected());
     }
 
 	# delete requires some selected items
 
     elsif ($id == $COMMAND_DELETE)
     {
-        $enabled = ($local || ($this->{enabled} && $connected)) &&
-            $ctrl->GetSelectedItemCount();
+        $enabled &&= $ctrl->GetSelectedItemCount() &&
+			(!$port || $this->{session}->isConnected());
     }
 
-	$enabled = 0 if $this->{parent}->{thread};
+    # xfer requires both sides and some stuff
+	# oops I don't know how to do an xfer from pane1!
+
+    elsif ($id == $COMMAND_XFER)
+    {
+		my $other = $this->{pane_num} == 1 ?
+			$this->{parent}->{pane2} :
+			$this->{parent}->{pane1};
+
+        $enabled &&= $ctrl->GetSelectedItemCount() &&
+			(!$port || $this->{session}->isConnected()) &&
+			(!$other->{port} || $other->{session}->isConnected());
+    }
+
     $event->Enable($enabled);
 }
 
@@ -322,14 +369,19 @@ sub setEnabled
 {
 	my ($this,$enable,$msg) = @_;
 	$msg ||= '';
-	# return if $this->{is_local};
 	if ($this->{enabled} != $enable)
 	{
-		$this->Enable($enable);
+		# We don't actually disable the window, so they
+		# can still get to the context menu to reconnect.
+		# We just prevent methods from doing things.
+		#        # $this->Enable($enable);
+
 		$this->{enabled} = $enable;
-		$this->{parent}->{enabled_ctrl}->SetLabel($enable ? '' : $msg);
-		$this->{parent}->{enabled_ctrl}->SetForegroundColour(
-			$enable ? $color_green : $color_blue);
+		my $ctrl = $this->{pane_num} == 1 ?
+			$this->{parent}->{enabled_ctrl1} :
+			$this->{parent}->{enabled_ctrl2};
+		$ctrl->SetLabel($enable ? '' : $msg);
+		$ctrl->SetForegroundColour($enable ? $color_green : $color_blue);
 
 		# this snippet repopulates if it has never been done successfully
 
@@ -345,7 +397,7 @@ sub setEnabled
 sub checkConnected
 {
     my ($this) = @_;
-    return 1 if $this->{is_local};
+	return 1 if !$this->{port};
 	my $connected = $this->{session}->isConnected();
 	if ($this->{connected} != $connected)
 	{
@@ -353,7 +405,7 @@ sub checkConnected
 		if ($connected)
 		{
 			display($dbg_life,-1,"Connected");
-			$this->{parent}->{disconnected_by_pane} = 0;
+			$this->{disconnected_by_pane} = 0;
 			$this->setEnabled(1,'');
 		}
 		else
@@ -369,32 +421,27 @@ sub checkConnected
 sub disconnect
 {
     my ($this) = @_;
-	return if $this->{is_local};
+	return if !$this->{port};
     return if (!$this->checkConnected());
     display($dbg_life,0,"Disconnecting...");
-	$this->{parent}->{disconnected_by_pane} = 1;
+	$this->{disconnected_by_pane} = 1;
     $this->{session}->disconnect();
 	$this->checkConnected();
-	# $this->populate();
 }
 
 
 sub connect
 {
     my ($this) = @_;
-	# return if $this->{is_local};
-
-	# can be called from either pane
-	my $pane2 = $this->{parent}->{pane2};
-
-    $pane2->disconnect() if ($pane2->{session}->isConnected());
+	return if !$this->{port};
+    $this->disconnect() if $this->{connected};
     display($dbg_life,0,"Connecting...");
-    my $connected = $pane2->{session}->connect();
-	if ($pane2->checkConnected())
+    $this->{session}->connect();
+	if ($this->checkConnected())
     {
-		$pane2->setContents();
-		$pane2->populate();
-		$pane2->setEnabled(1);
+		$this->setContents();
+		$this->populate();
+		$this->setEnabled(1);
 	}
 }
 
@@ -408,7 +455,7 @@ sub onClickColHeader
     my ($ctrl,$event) = @_;
     my $this = $ctrl->{parent};
     return if (!$this->checkConnected());
-	return if $this->{parent}->{thread};
+	return if $this->{thread} || !$this->{enabled};
 
     my $col = $event->GetColumn();
     my $prev_col = $this->{sort_col};
@@ -529,7 +576,7 @@ sub sortListCtrl
     my $sort_col = $this->{sort_col};
     my $sort_desc = $this->{sort_desc};
 
-    display($dbg_sort,0,"sortListCtrl($sort_col,$sort_desc) local=$this->{is_local}");
+    display($dbg_sort,0,"sortListCtrl($sort_col,$sort_desc)");
 
     if ($sort_col == $this->{last_sortcol} &&
         $sort_desc == $this->{last_desc} &&
@@ -558,31 +605,18 @@ sub sortListCtrl
 # compareLists and addListRow
 #--------------------------------------------------------
 
-sub getDbgPaneName
-{
-	my ($this) = @_;
-	my $name = $this->{is_local} ? "LOCAL" : $this->{parent}->{name};
-	$name .= " $this->{dir}";
-	return $name;
-
-}
-
 
 sub compareLists
 {
     my ($this) = @_;
 
     my $hash = $this->{hash};
-    my $other = $this->{is_local} ?
+    my $other = $this->{pane_num} == 1 ?
         $this->{parent}->{pane2} :
         $this->{parent}->{pane1} ;
     my $other_hash = $other->{hash};
 
-    display($dbg_comp,0,"compareLists(".
-			$this->getDbgPaneName().
-			") other=(".
-			$other->getDbgPaneName().
-			")");
+    display($dbg_comp,0,"compareLists(pane$this->{pane_num},other$other->{pane_num}");
 
     for my $entry (keys(%$hash))
     {
@@ -688,12 +722,11 @@ sub setContents
 	# short return if not local and not connected
 {
     my ($this,$dir_info) = @_;
-	return if !$this->{is_local} && !$this->{session}->isConnected();
+	return if $this->{port} && !$this->{session}->isConnected();
 	$dir_info ||= '';
 
     my $dir = $this->{dir};
-    my $local = $this->{is_local};
-    display($dbg_pop,0,"setContents($local,$dir_info) dir=$dir");
+    display($dbg_pop,0,"setContents(pane$this->{pane_num},$dir_info) dir=$dir");
     $this->{last_selected_index} = -1;
 
     my @list;     # an array (by index) of infos ...
@@ -701,17 +734,20 @@ sub setContents
 
     if (!$dir_info)
     {
-		$dir_info = $this->doCommand('setContents',$PROTOCOL_LIST,$local,$dir);
+		$dir_info = $this->doCommand('setContents',$PROTOCOL_LIST,$dir);
 		return if $dir_info && $dir_info eq '-2';
 			# PRH -2 indicates a threaded command underway
 	}
 
 	# PRH - called back, -1 indicates threaded command failed
 
+	my $ctrl = $this->{pane_num} == 1 ?
+		$this->{parent}->{enabled_ctrl1} :
+		$this->{parent}->{enabled_ctrl2};
 	if (!$dir_info || $dir_info eq '-1')
 	{
-		$this->{parent}->{enabled_ctrl}->SetLabel("Could not get directory listing");
-		$this->{parent}->{enabled_ctrl}->SetForegroundColour($color_red);
+		$ctrl->SetLabel("Could not get directory listing");
+		$ctrl->SetForegroundColour($color_red);
 		$this->{list} = \@list;
 		$this->{hash} = \%hash;
 		$this->{list_ctrl}->DeleteAllItems();
@@ -719,7 +755,7 @@ sub setContents
 		return;
 	}
 
-	$this->{parent}->{enabled_ctrl}->SetLabel("");
+	$ctrl->SetLabel("");
 
 	$this->{got_list} = 1;
 
@@ -770,17 +806,12 @@ sub populate
 
     # debug and display title
 
-    display($dbg_pop,0,"populate($from_other) local=$this->{is_local} dir=$dir");
+    display($dbg_pop,0,"populate(pane$this->{pane_num}) from_other=$from_other dir=$dir");
 	display($dbg_pop,1,"this changed ...") if $this->{changed};
 
-    if (!$this->{is_local} && !$this->{session}->isConnected())
-    {
-		return;
-    }
-    else
-    {
-        $this->{dir_ctrl}->SetLabel($dir);
-    }
+    return if $this->{port} && !$this->{session}->isConnected();
+
+    $this->{dir_ctrl}->SetLabel($dir);
 
     # compare the two lists before displaying
 
@@ -835,7 +866,7 @@ sub onDoubleClick
     my ($ctrl,$event) = @_;
     my $this = $ctrl->{parent};
     return if (!$this->checkConnected());
-	return if $this->{parent}->{thread};
+	return if $this->{thread} || !$this->{enabled};
 			# free up for more commands
 
     my $item = $event->GetItem();
@@ -864,9 +895,9 @@ sub onDoubleClick
 
         my $follow = $this->{parent}->{follow_dirs}->GetValue();
 
-        my $other = $this->{is_local} ?
-            $this->{parent}->{pane2}  :
-            $this->{parent}->{pane1}  ;
+        my $other = $this->{pane_num} == 1 ?
+            $this->{parent}->{pane2} :
+            $this->{parent}->{pane1};
 		$this->setContents();
 
         if ($follow)
@@ -887,10 +918,11 @@ sub onDoubleClick
 
 
 sub onItemSelected
-    # it's twice they've selected this item then
-    # start renaming it.
+	# can't prevent anyone from selecting items when not connected
+    # if it's twice they've selected this item the start renaming it.
 {
     my ($ctrl,$event) = @_;
+	my $this = $ctrl->{parent};
     my $item = $event->GetItem();
     my $row = $event->GetIndex();
 

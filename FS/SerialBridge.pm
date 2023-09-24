@@ -81,11 +81,12 @@ sub processPacket
 		$show_packet =~ s/\r/\r\n/g;
 		display($dbg_bridge,0,"processPacket($show_packet)");
 	}
+
 	$session->doSerialRequest($packet);
 
 	# currently always returns success (i.e. never terminates
 	# the SerialSession). Any problems with serial communication
-	# are to the Client over the socket via doSerialRequest().
+	# are sent to the Client over the socket via doSerialRequest().
 
 	return 1;
 }

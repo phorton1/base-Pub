@@ -26,8 +26,8 @@ use threads::shared;
 use Time::Hires qw(sleep);
 use Pub::Utils;
 use Pub::FS::FileInfo;
-use Pub::FS::Session;
-use base qw(Pub::FS::Session);
+use Pub::FS::SocketSession;
+use base qw(Pub::FS::SocketSession);
 
 our $dbg_request:shared = 0;
 	# 0 = command, lifetime, and file_reply: and file_reply_end in buddy
@@ -45,7 +45,7 @@ BEGIN {
 			%serial_file_reply_ready
 		),
 	    # forward base class exports
-        @Pub::FS::Session::EXPORT,
+        @Pub::FS::SocketSession::EXPORT,
 	);
 };
 
@@ -68,7 +68,7 @@ sub new
 {
     my ($class,$params) = @_;
 	$params ||= {};
-	$params->{IS_BRIDGE} = 1;
+	$params->{NAME} ||= 'SerialSession';
     my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
@@ -82,16 +82,28 @@ sub setComPortConnected
 	$com_port_connected = $connected;
 }
 
+sub serialError
+{
+	my ($this,$msg) = @_;
+	error($msg,1);
+	# no error checking
+	$this->sendPacket($PROTOCOL_ERROR.$msg);
+	return 0;	# stop the loop
+}
+
 
 #========================================================================================
 # Command Processor
 #========================================================================================
 
-sub waitReply
+sub waitSerialReply
+	# return  2 to continue
+	# returns 1 on terminal reply
+	# returns 0 on an error
 {
 	my ($this,$req_num) = @_;
-	display($dbg_request+1,0,"waitReply($req_num)");
-	return $this->server_error("remote not connected in doSerialRequest()")
+	display($dbg_request+1,0,"waitSerialReply($req_num)");
+	return $this->serialError("remote not connected in doSerialRequest()")
 		if !$com_port_connected;
 
 	my $abort = 0;
@@ -113,16 +125,17 @@ sub waitReply
 
 		# waiting for numbered file_server reply continued
 
-		return $this->server_error("remote not connected in doSerialRequest()")
+		return $this->serialError("remote not connected in doSerialRequest()")
 			if !$com_port_connected;
-		return $this->server_error("doSerialRequest() timed out")
+		return $this->serialError("doSerialRequest() timed out")
 			if time() > $started + $REMOTE_TIMEOUT;
 		display($dbg_request+2,0,"doSerialRequest() waiting for reply ...");
 		sleep(0.2);
 	}
 
 	$packet = $serial_file_reply{$req_num};
-	return $this->server_error("empty reply in adoSerialRequest()") if !$packet;
+	return $this->serialError("empty reply in doSerialRequest()")
+		if !$packet;
 
 	$packet =~ s/\s+$//g;
 	my $err = $this->sendPacket($packet);
@@ -131,17 +144,12 @@ sub waitReply
 	$serial_file_reply{$req_num} = '';
 	$serial_file_reply_ready{$req_num} = 0;
 
-	return $packet;
+	return $packet =~ /^$PROTOCOL_PROGRESS/ ? 2 : 1;
 }
 
 
 
 sub doSerialRequest
-	# weirdly, these want to be thread specific as it is easy
-	# to imagine being in the middle of one when another one happens.
-	# The C++ side is safe cuz it can only do one at a time, but
-	# there are thread re-entrancy issues here.  What we will do,
-	# instead, is have another timer loop while $in_remote_server.
 {
 	my ($this,$request) = @_;
 	if ($dbg_request <= 0)
@@ -178,16 +186,15 @@ sub doSerialRequest
 	$serial_file_reply_ready{$req_num} = 0;
 	$serial_file_request = $request;
 
-	my $packet = $this->waitReply($req_num);
-	while ($packet && $packet =~ /^PROGRESS/)
+	my $retval = $this->waitSerialReply($req_num);
+	while ($retval == 2)
 	{
-		$packet = $this->waitReply($req_num);
+		$retval = $this->waitSerialReply($req_num)
 	}
 
 	delete $serial_file_reply{$req_num};
 	delete $serial_file_reply_ready{$req_num};
 
-	my $retval = $packet ? 1 : 0;
 	display($dbg_request,0,"doSerialRequest() returning $retval");
 	return $retval;
 }

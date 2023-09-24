@@ -321,49 +321,43 @@ sub display
 {
     my ($level,$indent_level,$msg,$call_level) = @_;
 	$call_level ||= 0;
-	my $rslt = 1;
-	if ($level <= $debug_level)
-	{
-		$rslt = _output($indent_level,$msg,$DISPLAY_COLOR_NONE,$call_level+1);
-	}
-	return $rslt;
+	_output($indent_level,$msg,$DISPLAY_COLOR_NONE,$call_level+1)
+		if $level <= $debug_level;
+	return $msg;
 }
 
 sub LOG
 {
     my ($indent_level,$msg,$call_level) = @_;
 	$call_level ||= 0;
-	my $rslt = _output($indent_level,$msg,$DISPLAY_COLOR_LOG,$call_level+1);
-	return $rslt;
+	_output($indent_level,$msg,$DISPLAY_COLOR_LOG,$call_level+1);
+	return $msg;
 }
 
 sub error
 {
-    my ($msg,$call_level) = @_;
+    my ($msg,$call_level,$suppress_show) = @_;
 	$call_level ||= 0;
 	_output(-1,"ERROR: $msg",$DISPLAY_COLOR_ERROR,$call_level+1);
 
     my $app_frame = getAppFrame();
-
 	$app_frame->showError("Error: ".$msg) if
+		!$suppress_show &&
 		$app_frame &&
 		!threads->tid() &&
 		blessed($app_frame) &&
 		$app_frame->can('showError');
 
-	return undef;
+	return $msg;
 }
 
 sub warning
 {
     my ($level,$indent_level,$msg,$call_level) = @_;
 	$call_level ||= 0;
-	my $rslt = 1;
-	if ($level <= $debug_level)
-	{
-		$rslt = _output($indent_level,"WARNING: $msg",$DISPLAY_COLOR_WARNING,$call_level+1)
-	}
-	return $rslt;
+	_output($indent_level,"WARNING: $msg",$DISPLAY_COLOR_WARNING,$call_level+1)
+		if $level <= $debug_level;
+	return $msg;
 }
 
 

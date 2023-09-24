@@ -22,6 +22,7 @@ use base qw(Wx::Window);
 my $dbg_ops  = 0;		# commands
 	# -1, -2 = more detail
 my $dbg_thread = -2;		# threaded commands
+my $dbg_idle = 0;
 
 
 #---------------------------------------------------------
@@ -81,7 +82,6 @@ sub doMakeDir
     if ($dlg_rslt == wxID_OK)
 	{
 		my $rslt = $this->doCommand('doMakeDir',$PROTOCOL_MKDIR,
-			$this->{is_local},
 			$this->{dir},
 			$new_name);
 		return if $rslt && $rslt eq '-2';
@@ -154,7 +154,6 @@ sub onEndEditLabel
 	return if $is_cancelled || $entry eq $this->{save_entry};
 
 	my $info = $this->doCommand('doRename',$PROTOCOL_RENAME,
-		$this->{is_local},
 		$this->{dir},
 		$this->{save_entry},
 		$entry);
@@ -232,13 +231,12 @@ sub doCommandSelected
     my $num_dirs = 0;
     my $ctrl = $this->{list_ctrl};
     my $num = $ctrl->GetItemCount();
-    my $local = $this->{is_local};
-    my $other = $local ?
+    my $other = $this->{pane_num} == 1 ?
         $this->{parent}->{pane2}  :
         $this->{parent}->{pane1}  ;
 
 	my $display_command = $id == $COMMAND_XFER ?
-		$local ? 'upload' : 'download' :
+		'xfer' :
 		'delete';
 
     display($dbg_ops,1,"doCommandSelected($display_command) ".$ctrl->GetSelectedItemCount()."/$num selected items");
@@ -327,11 +325,10 @@ sub doCommandSelected
 	my $rslt = $this->doCommand(
 		'doCommandSelected',
 		$command,
-		$this->{is_local},
 		$this->{dir},
 		$param2,					# info-list or single filename
 		$other->{dir},				# target dir
-		$this->{progress});					# progress
+		$this->{progress});			# progress
 
 	return if $rslt && $rslt eq '-2';
 		# PRH -2 means threaded command underway
@@ -367,7 +364,6 @@ sub doCommand
     my ($this,
 		$caller,
 		$command,
-        $local,
         $param1,
         $param2,
         $param3,
@@ -375,16 +371,12 @@ sub doCommand
 
 	$this->{aborted} = 0;
 
-	if ($local)
-	{
-		return $this->{session}->doCommand(
-			$command,
-			$local,
-			$param1,
-			$param2,
-			$param3,
-			$progress);
-	}
+	return $this->{session}->doCommand(
+		$command,
+		$param1,
+		$param2,
+		$param3,
+		$progress) if !$this->{port};
 
 
 	@_ = ();	# necessary to avoid "Scalars leaked"
@@ -392,7 +384,6 @@ sub doCommand
 		$this,
 		$caller,
 		$command,
-        $local,
         $param1,
         $param2,
         $param3);
@@ -412,22 +403,20 @@ sub doCommandThreaded
     my ($this,
 		$caller,
 		$command,
-        $local,
         $param1,
         $param2,
         $param3) = @_;
 
-	warning($dbg_thread,-1,"doCommandThreaded($caller,$command,$local) called");
+	warning($dbg_thread,-1,"doCommandThreaded(pane$this->{pane_num},$caller,$command) called");
 
 	my $rslt = $this->{session}->doCommand(
 		$command,
-		$local,
 		$param1,
 		$param2,
 		$param3,
 		$this);
 
-	warning($dbg_thread,-1,"doCommandThreaded($caller) got rslt=$rslt");
+	warning($dbg_thread,-1,"doCommandThreaded(pane$this->{pane_num},$caller) got rslt=$rslt");
 
 	# promote everything non-progress to a shared hash
 	# with a caller and pass it to onThreadEvent
@@ -449,7 +438,7 @@ sub doCommandThreaded
 
 sub onThreadEvent
 {
-	my($this, $event ) = @_;
+	my ($this, $event ) = @_;
 	if (!$event)
 	{
 		error("No event in onThreadEvent!!",0);
@@ -583,24 +572,72 @@ sub setEntry
 sub onIdle
 {
     my ($this,$event) = @_;
-	if ($this->{progress} &&
-		$this->{parent}->{thread})
+
+	if ($this->{port} &&	# these two should be synonymous
+		$this->{session})
 	{
-		my $aborted = $this->{progress}->aborted();
-		if ($aborted && !$this->{aborted})
+		# EXIT is directed to the Pane, but we close the Window
+		# and let the last Window close the app.
+
+		my $do_exit = 0;
+		if ($this->{session}->{SOCK})
 		{
-			$this->{aborted} = 1;
-			$this->{session}->sendPacket($PROTOCOL_ABORT,1);
-				# no error checking on result
-				# 1 == $override_protocol to allow sending
-				# another packet while INSTANCE->{in_protocol}
+			my $packet;
+			my $err = $this->{session}->getPacket(\$packet);
+			error($err) if $err;
+			if ($packet && !$err)
+			{
+				display($dbg_idle,-1,"pane$this->{pane_num} got packet $packet");
+				if ($packet eq $PROTOCOL_EXIT)
+				{
+					display($dbg_idle,-1,"pane$this->{pane_num} onIdle() EXIT");
+					$this->{GOT_EXIT} = 1;
+					$do_exit = 1;
+				}
+				elsif ($packet =~ /^($PROTOCOL_ENABLE|$PROTOCOL_DISABLE)(.*)$/)
+				{
+					my ($what,$msg) = ($1,$2);
+					$msg =~ s/\s+$//;
+					$this->setEnabled(
+						$what eq $PROTOCOL_ENABLE ? 1 : 0,
+						$msg);
+				}
+			}
 		}
+		elsif (!$this->{disconnected_by_pane})
+		{
+			display($dbg_idle,-1,"pane$this->{pane_num} lost SOCKET");
+			$do_exit = 1;
+		}
+
+		if ($do_exit)
+		{
+			warning(0,0,"pane$this->{pane_num} closing parent Window");
+			$this->{parent}->closeSelf();
+			return;
+		}
+
+		# check if we need to send an ABORT
+
+		if ($this->{progress} &&	# should be synonymous
+			$this->{parent}->{thread} &&
+			$this->{session}->{SOCK})
+		{
+			my $aborted = $this->{progress}->aborted();
+			if ($aborted && !$this->{aborted})
+			{
+				display($dbg_idle,-1,"pane$this->{pane_num} sending PROTOCOL_ABORT");
+				$this->{aborted} = 1;
+				$this->{session}->sendPacket($PROTOCOL_ABORT,1);
+					# no error checking on result
+					# 1 == $override_protocol to allow sending
+					# another packet while INSTANCE->{in_protocol}
+			}
+		}
+
 		$event->RequestMore(1);
 	}
 }
-
-
-
 
 
 1;

@@ -19,19 +19,17 @@ use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(
 	EVT_SIZE
-	EVT_IDLE
 	EVT_CLOSE );
 use Pub::Utils;
 use Pub::WX::Window;
-use Pub::FS::ClientSession;
+use Pub::FS::ClientSession;		# for $DEFAULT_PORT
 use Pub::FC::Resources;
 use Pub::FC::Pane;
 use Pub::FC::Pane2;
 use base qw(Wx::Window Pub::WX::Window);
 
 
-our $dbg_fcw = 0;
-our $dbg_idle = 0;
+my $dbg_fcw = 0;
 
 
 my $PAGE_TOP = 30;
@@ -59,50 +57,38 @@ sub new
 	}
 
 	$instance++;
-	display($dbg_fcw+1,0,"new fileClientWindow($data) instance=$instance");
+	display($dbg_fcw+1,0,"new FC::Window($data) instance=$instance");
 	my $name = "Connection #$instance";
 
 	my $this = $class->SUPER::new($book,$id);
 	$this->MyWindow($frame,$book,$id,$name,$data,$instance);
 
     $this->{name} = $data;    # should already be done
-
-	# The above name and following dirs are currently
-	# hardwired.  There is no UI to specify connections
-	# at this time and the only servers this has been
-	# tested with are the BridgeServer from buddy with
-	# it's random port number, or a simple local Server
-	# on the $DEFAULT_PORT.
-
-    $this->{local_dir} = '/junk/data';
-    $this->{remote_dir} = $ARGV[0] ? '/' : "/junk";
-
-	my $port = $ARGV[0] || $DEFAULT_PORT;
-	my $is_bridged = $ARGV[0] ? 1 : 0;
-
-	display($dbg_fcw,0,"creating session on port($port)");
-    $this->{session} = Pub::FS::ClientSession->new({
-		PORT => $port,
-		INSTANCE => $instance,
-		IS_BRIDGED => $is_bridged });
-    if (!$this->{session})
-    {
-        error("Could not create client session!");
-        return;
-    }
-
 	$this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,5],[-1,-1]);
 
-	# These follow the splitter
-
-	$this->{enabled_ctrl} = Wx::StaticText->new($this,-1,'',[$INITIAL_SPLITTER + 60,5]);
-	$this->{enabled_ctrl}->SetFont($title_font);
+	$this->{enabled_ctrl1} = Wx::StaticText->new($this,-1,'',[60,5]);
+	$this->{enabled_ctrl1}->SetFont($title_font);
+	$this->{enabled_ctrl2} = Wx::StaticText->new($this,-1,'',[$INITIAL_SPLITTER + 10,5]);
+	$this->{enabled_ctrl2}->SetFont($title_font);
 
 	# Create splitter and panes
 
+	my $params1 = {
+		pane_num => 1,
+		dir => '/junk/data',
+		port => 0,				# equivilant to 'is_local'
+	};
+	my $params2 = {
+		pane_num => 2,
+		dir => $ARGV[0] ? '/' : "/junk",
+		host => 'localhost',
+		port => $ARGV[0] || $DEFAULT_PORT,		# !is_local
+		is_bridged => $ARGV[0] ? 1 : 0,			# will need this later
+	};
+
     $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
-    $this->{pane1}    = Pub::FC::Pane->new($this,$this->{splitter},$this->{session},1,$this->{local_dir});
-    $this->{pane2}    = Pub::FC::Pane->new($this,$this->{splitter},$this->{session},0,$this->{remote_dir});
+    $this->{pane1}    = Pub::FC::Pane->new($this,$this->{splitter},$params1);
+    $this->{pane2}    = Pub::FC::Pane->new($this,$this->{splitter},$params2);
 
     $this->{splitter}->SplitVertically(
         $this->{pane1},
@@ -118,7 +104,6 @@ sub new
     # Finished
 
 	EVT_CLOSE($this,\&onClose);
-	EVT_IDLE($this,\&onIdle);
     EVT_SIZE($this,\&onSize);
 	return $this;
 }
@@ -126,23 +111,15 @@ sub new
 
 
 sub onClose
-	# the bane of my existence.
-	# onClose seems to get called twice,  once before deleting the pane
-	# and once after ... I may try to figure that out later, but for
-	# now I exit the whole program when it reaches zero
 {
 	my ($this,$event) = @_;
-	display($dbg_fcw,-1,"fileClientWindow::onClose(".scalar(@{$this->{frame}->{panes}}).") called");
+	display($dbg_fcw,-1,"FC::Window::onClose(".scalar(@{$this->{frame}->{panes}}).") called");
+	$this->{pane1}->onClose($event);
+	$this->{pane2}->onClose($event);
 	if (@{$this->{frame}->{panes}} == 0)
 	{
 		display($dbg_fcw,-1,"Exiting Program as last window");
 		exit(0);
-	}
-	if ($this->{session}->{SOCK} && !$this->{GOT_EXIT})
-	{
-		$this->{GOT_EXIT} = 1;
-		# no error checking on result
-		$this->{session}->sendPacket($PROTOCOL_EXIT)
 	}
 	$this->SUPER::onClose();
 	$event->Skip();
@@ -157,9 +134,6 @@ sub doLayout
     my $width = $sz->GetWidth();
     my $height = $sz->GetHeight();
     $this->{splitter}->SetSize([$width,$height-$PAGE_TOP]);
-
-	my $sash_pos = $this->{splitter}->GetSashPosition();
-	$this->{enabled_ctrl}->Move($sash_pos+10,5);
 }
 
 
@@ -172,62 +146,6 @@ sub onSize
 }
 
 
-
-sub onIdle
-{
-    my ($this,$event) = @_;
-
-	# the EXIT is directed to the window, so we close ourselves,
-	# and let the last window close the app.
-
-	my $do_exit = 0;
-	if ($this->{session})
-	{
-		if ($this->{session}->{SOCK})
-		{
-			my $packet;
-			my $err = $this->{session}->getPacket(\$packet);
-			error($err) if $err;
-			if ($packet && !$err)
-			{
-				display($dbg_idle,-1,"got packet $packet");
-				if ($packet eq $PROTOCOL_EXIT)
-				{
-					display($dbg_idle,-1,"onIdle() EXIT");
-					$this->{GOT_EXIT} = 1;
-					$do_exit = 1;
-				}
-				elsif ($packet =~ /^($PROTOCOL_ENABLE|$PROTOCOL_DISABLE)(.*)$/)
-				{
-					my ($what,$msg) = ($1,$2);
-					$msg =~ s/\s+$//;
-					$this->{pane2}->setEnabled(
-						$what eq $PROTOCOL_ENABLE ? 1 : 0,
-						$msg);
-				}
-			}
-		}
-		elsif (!$this->{disconnected_by_pane})
-		{
-			display($dbg_idle,-1,"fileClientWindow lost SOCKET");
-			$do_exit = 1;
-		}
-	}
-
-	if ($do_exit)
-	{
-		warning(0,0,"Closing self");
-		$this->closeSelf();
-
-		# Wx::App::ExitMainLoop();
-		# kill 15,$$;
-		# exit(0);
-	}
-	else
-	{
-		$event->RequestMore(1);
-	}
-}
 
 
 1;

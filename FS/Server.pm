@@ -4,7 +4,7 @@
 # The Server Creates a socket and listens for connections.
 # For each connection it accepts it creates a Session by
 # calling createSession. By default, the base class uses
-# a base Session to provide information about, and effect
+# a SocketSession to provide information about, and effect
 # changes in the local file system.
 
 package Pub::FS::Server;
@@ -19,7 +19,7 @@ use IO::Socket::INET;
 use Time::HiRes qw(sleep);
 use Pub::Utils;
 use Pub::FS::FileInfo;
-use Pub::FS::Session;
+use Pub::FS::ServerSession;
 
 
 our $dbg_server:shared =  0;
@@ -46,20 +46,12 @@ our $ACTUAL_SERVER_PORT:shared;
 
 my $num_notify_all:shared = 0;
 my $notify_all:shared = shared_clone({});
-	# a list of packets to asynchronously send to all connected threads
-	# simpler said than done.
-	# How do we know when all threads have been notified and
-	# what prevents the messages from being sent multiple times?
-
-	# one idea:
-	#     the entry consists of the message and a hash of connection numbers
-	#     that have sent the message, this at least prevents re-sends.
-	# then we need second idea
-	#     a shared hash of all connection numbers that are still connected
-	#     which is cleared when the threads terminate
-	# then the main server thread could check if the message can be
-	#     deleted by comparing them.
+	# a list of packets to asynchronously send to all connected threads.
+	# each message has a list of connections that have sent it
+	# and the main server thread reaps the ones that done.
 my $active_connections = shared_clone({});
+
+
 
 sub notifyAll
 {
@@ -143,7 +135,7 @@ sub new
 	$this->{running} = 0;
 	$this->{stopping} = 0;
     bless $this,$class;
-	$this = undef if !$this->start();
+	$this->start();
 	return $this;
 }
 
@@ -153,7 +145,7 @@ sub createSession
 	# to create different kinds of sessions
 {
 	my ($this,$sock) = @_;
-	return Pub::FS::Session->new({
+	return Pub::FS::ServerSession->new({
 		SOCK => $sock,
 		IS_SERVER => 1 });
 }
@@ -467,12 +459,12 @@ sub sessionThread
 		}
 
 		# exit the session if the socket went away
-        #
-		# if (!$session->{SOCK})
-		# {
-		#     display($dbg_server,0,"SESSION THREAD($connect_num) lost it's socket!");
-		# 	last;
-		# }
+
+		if (!$session->{SOCK})
+		{
+		    display($dbg_server,0,"SESSION THREAD($connect_num) lost it's socket!");
+			last;
+		}
 
 		# send any pending notifyAll messages
 		# a failure to send will end the thread
@@ -483,7 +475,7 @@ sub sessionThread
 			if (!$notify->{notified}->{$connect_num})
 			{
 				$notify->{notified}->{$connect_num} = 1;
-				display($dbg_notifications,-2,"THREAD($connect_num) sending $notify->{msg}");
+				display($dbg_notifications,-2,"THREAD($connect_num) sending notify $notify->{msg}");
 				if ($session->sendPacket($notify->{msg}))
 				{
 					$ok = 0;
@@ -502,7 +494,7 @@ sub sessionThread
 		$session->{SOCK} &&
 		$this->{SEND_EXIT})
 	{
-		# we don't bother to check the result of this sendPacket
+		# no error checking
 		$session->sendPacket($PROTOCOL_EXIT);
 		sleep(0.2);
 	}
@@ -553,7 +545,7 @@ sub processPacket
 		$entries = {};
 		for my $line (@lines)
 		{
-			my $info = Pub::FS::FileInfo->from_text($this,$line);
+			my $info = Pub::FS::FileInfo->fromText($line);
 			if (isValidInfo($info))
 			{
 				$entries->{$info->{entry}} = $info;
@@ -568,7 +560,7 @@ sub processPacket
 	# The local file system is the context for command requests
 	# received by this base Server.
 
-	my $rslt = $session->doCommand($params[0],1,$params[1],$entries,$params[3]);
+	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3]);
 	$rslt ||= '';
 
 	# Stops the thread/session if it can't send the packet
