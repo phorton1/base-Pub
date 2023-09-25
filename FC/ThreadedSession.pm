@@ -24,7 +24,6 @@ use IO::Socket::INET;
 use Pub::Utils;
 use Pub::FS::FileInfo;
 use Pub::FS::ClientSession;
-# use Pub::FC::Pane;
 use base qw(Pub::FS::ClientSession);
 
 our $dbg_thread = 0;
@@ -63,11 +62,10 @@ sub new
 }
 
 
-
-
 #------------------------------------------------------
 # doCommand
 #------------------------------------------------------
+
 
 sub doCommand
 {
@@ -81,19 +79,59 @@ sub doCommand
 
 	warning($dbg_thread,0,"doCommand(pane$this->{pane}{pane_num},$command,$caller) called");
 
-	@_ = ();	# necessary to avoid "Scalars leaked"
+	# Without detaching or joining, each command eats 26M+ of memory
+	# and gives Perl exited with XXX threads, but I get to see the
+	# debugging output.
+
+	# Detaching loses STDOUT.
+	# Various efforts to keep STDOUT/STDERR working
+	# 	 local *STDOUT;
+	# 	 local *STDERR;
+	# 	 my $SAVE_STDOUT = *STDOUT;
+	# 	 my $SAVE_STDERR = *STDERR;
+	# 	 open(STDERR,">&MY_ERR") if !$first;
+	# 	 open(MY_OUT,">&STDERR");
+	# 	 open(STDERR, ">&STDOUT");
+	# 	 open(STDERR, ">>/junk/xyz2.txt") || die "PRH Error stderr: $!";
+	# 	 open(STDOUT, ">>/junk/xyz.txt") || die "PRH Error stderr: $!";
+
+	# @_ = ();
+		# said to be necessary to avoid "Scalars leaked"
+		# but doesn't make any difference
+
 	my $thread = threads->create(\&doCommandThreaded,
 		$this,
 		$caller,
 		$command,
-        $param1,
-        $param2,
-        $param3);
-	$this->{pane}->{thread} = $thread;
+		$param1,
+		$param2,
+		$param3);
+	$this->{pane}->{thread} = 1; # $thread;
 		# to prevent commands while in threaded command
+
+	# *STDOUT = $SAVE_STDOUT;
+	# *STDERR = $SAVE_STDERR;
+	# close(STDOUT);
+	# open(STDERR, ">&MY_OUT");
+	# open(MY_ERR, ">&STD_ERR");
+
+	# no warnings 'threads';
+		# Set in in FC::Window::onClose()
+		# to prevent showing Perl exited with XXX threads message
+
+	###### THE ISSUE #######
+
 	# $thread->detach();
-		# prevents messages about unjoined threads at program termination
-		# but causes scalars leaked message
+
+	########################
+	#
+	# if (0)
+	# {
+	# 	my $thread_count = threads->list();
+	# 	my $running = threads->list(threads::running);
+	# 	my $joinable = threads->list(threads::joinable);
+	# 	display(0,-1,"threads=$thread_count running=$running joinable=$joinable");
+	# }
 
 	display($dbg_thread,0,"doCommand(pane$this->{pane}{pane_num},$command,$caller) returning -2");
 	return -2;		# PRH -2 indicates threaded command in progress
@@ -103,6 +141,9 @@ sub doCommand
 
 sub doCommandThreaded
 {
+	local *STDOUT;
+	local *STDERR;
+
     my ($this,
 		$caller,
 		$command,
@@ -134,6 +175,10 @@ sub doCommandThreaded
 	Wx::PostEvent( $this->{pane}, $evt );
 
 	display($dbg_thread,0,"doCommandThreaded(pane$this->{pane}{pane_num},$command,$caller) finished");
+
+	# try different ways of killing the thread
+	# threads->detach();	# same as detaching anywhere else
+	# threads->exit();	# the thread already goes to non-running
 }
 
 
@@ -186,19 +231,8 @@ use threads;
 use threads::shared;
 use Wx qw(:everything);
 use Pub::Utils;
-# use Pub::WX::Dialogs;
-# use Pub::FS::FileInfo;
 use Pub::FS::ClientSession;	# for $PROTOCOL_XXX
-# use Pub::FC::Dialogs;
-# use Pub::FC::ProgressDialog;
-# use Pub::FC::Pane;
-# use base qw(Wx::Window);
-#
 
-
-#--------------------------------------------------------
-# onThreadEvent
-#--------------------------------------------------------
 
 sub onThreadEvent
 {

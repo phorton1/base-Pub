@@ -118,6 +118,9 @@ sub onClose
 	$this->{pane2}->onClose($event);
 	if (@{$this->{frame}->{panes}} == 0)
 	{
+		no warnings 'threads';
+			# tries to eliminate Perl exited with XXX threads running
+			# if we don't use detach in ThreadedSession.pm
 		display($dbg_fcw,-1,"Exiting Program as last window");
 		exit(0);
 	}
