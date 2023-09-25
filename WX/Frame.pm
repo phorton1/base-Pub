@@ -57,7 +57,7 @@ our $dbg_sr = 2;
 #    dbg_print 		"PRINT"  	html easy printing, etc
 
 
-sub CLONE_SKIP { 1 };
+# sub CLONE_SKIP { 1 };
 	# putting this in a package prevents it from being
 	# cloned when the perl interpreter is copied to a new
 	# thread, so that, also, the DESTROY methods are not
