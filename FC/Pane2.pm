@@ -17,7 +17,7 @@ use Pub::FS::ClientSession;
 use Pub::FC::Dialogs;
 use Pub::FC::ProgressDialog;
 use Pub::FC::Pane;		# needed for $COMMAND_XXXX
-# use base qw(Wx::Window);
+use base qw(Wx::Window);
 
 my $dbg_ops  = 0;		# commands
 	# -1, -2 = more detail
