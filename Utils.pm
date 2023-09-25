@@ -94,8 +94,19 @@ our $DISPLAY_COLOR_ERROR 	= 3;
 
 my $STD_OUTPUT_HANDLE = -11;
 my $CONSOLE_STDOUT = Win32::Console->new($STD_OUTPUT_HANDLE);
-# my $STD_ERROR_HANDLE = -12;
-# my $CONSOLE_STDERR = Win32::Console->new($STD_OUTPUT_HANDLE);
+my $STD_ERROR_HANDLE = -12;
+my $CONSOLE_STDERR = Win32::Console->new($STD_ERROR_HANDLE);
+
+# choose whether to use STDOUT or STDERR
+
+my $USE_CONSOLE = $CONSOLE_STDOUT;
+my $USE_HANDLE = *STDOUT;
+
+if (0)
+{
+	$USE_CONSOLE = $CONSOLE_STDERR;
+	$USE_HANDLE = *STDERR;
+}
 
 
 #---------------
@@ -262,7 +273,7 @@ sub _setColor
 		$color_const == $DISPLAY_COLOR_WARNING ? $fg_yellow :
 		$color_const == $DISPLAY_COLOR_LOG ? $fg_white :
 		$fg_lightgray;
-	$CONSOLE_STDOUT->Attr($attr);
+	$USE_CONSOLE->Attr($attr);
 }
 
 
@@ -304,7 +315,7 @@ sub _output
 
 	my $got_sem = waitSTDOUTSemaphore();
 	_setColor($color_const);
-	print STDOUT $full_message."\n";
+	print $USE_HANDLE $full_message."\n";
 	_setColor($DISPLAY_COLOR_NONE);
 	releaseSTDOUTSemaphore() if $got_sem;
 
