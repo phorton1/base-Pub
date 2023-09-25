@@ -1,20 +1,5 @@
 # Protocol
 
-**and some implementation details**
-
-*This readme describes the current implemetation where the fileClient
-only connects to buddy, and the FC::Window knows that pane1
-is local and pane2 is a connection to buddy's SerialBridge.*
-
-*In the future I envision allowing the user to determine what
-each pane connects to, with appropriate optimizations, so that,
-for instance, you could have two panes connected to the same
-remote Server, and XFER files between panes (including Copy
-and Paste) and the actual work would all be accomplished on
-the remote Server with only PROGRESS notifications being sent
-back to the fileClient.*
-
-
 ### All Packets
 
 Packets are also variously referred to as *messages*, *commands*,
@@ -47,8 +32,8 @@ depend on the packet type.
 - PROGRESS      SIZE    size
 - PROGRESS      BYTES   bytes
 - DELETE		dir [single_filename | (ENTRY_LIST)]
-- XFER			is_local dir target_dir [single_file_name | (ENTRY_LIST)]
 
+- XFER			is_local dir target_dir [single_file_name | (ENTRY_LIST)]
 - GET           dir filename
 - PUT			dir (FILE_ENTRY)
 - CONTINUE
@@ -147,14 +132,6 @@ message of "Socket Connection Lost" displayed to the user,
 The current implementation allows the user to Reconnect by right
 clicking in the (still enabled) local pane.
 
-*I envision, in the future, the fileClient to be runnable as it's
-own stand alone application, the difference being that in that case
-it would not receive an ARGV containing a port number as a command
-line argument, and would not automatically shut down on closing the
-last window and would need to allow a pane to be disabled and still
-allow access to the Reconnect command  (probably implemented by moving
-adding a subclasses onContextMenu() method to the clientWindow).*
-
 
 ### EXIT
 
@@ -163,7 +140,7 @@ adding a subclasses onContextMenu() method to the clientWindow).*
 
 *Following is a description of the current implementation.*
 
-For example, when the user closes a FC::Window, the window sends an EXIT
+For example, when the user closes a FC::Window, the Window sends an EXIT
 message to buddy's SerialBridge with a slight delay before closing it's own socket.
 The delay allows the packet to be sent before the socket is closed. The received EXIT
 allows the SerialBridge Server to free up the thread and any memory associated with
@@ -232,7 +209,7 @@ synchronous commands and so they never make it into protocol
 packets.
 
 
-# Asynchronous Commands
+### Asynchronous Commands
 
 The XFER and 'DELETE ENTRY_LIST' commands can take
 a long time, can retun intermediate PROGRESS messages,
@@ -252,232 +229,3 @@ give the client information needed to update a progress dialog.
 ABORT can be sent by the Client to stop an asyncrhonous command,
 which case the Server returns ABORTED to acknowledge the cessation
 has taken place.
-
-
-### FC::Pane
-
-*Implementation Details*
-
-Commands from the Client are handled by Session::doCommand().
-
-Local commands are handled directly by the Session, with
-asynchronous ones directly updates the $progress window along the
-way, while checking for $progress->aborted(). Internally local
-commands return an FILE_INFO_LIST (which is like a DIR_LIST
-but is a FS::FileInfo object for which "is_dir=1", with
-the {entries} member populated).
-
-Remote commands are implmented in the FC::Pane to make use
-of the pane's doCommandThreaded() function, which starts by sending
-the command to the Server, and then monitoring the return for
-PROGRESS and ABORT messages until it finally receive a terminating
-DIR_LIST/FILE_ENTRY or ERROR message.
-
-Care was taken in the FC::Pane to ensure the atomic nature of
-commands, by making sure that while a threaded command is in
-progress, no other UI can be accessed that might initiate
-another command.  This is done by FC::Pane setting a
-FC::Window->{thread} member as a semaphore while a threaded
-command is in progress.
-
-### FC::Pane doCommandThreaded()
-
-FC::Pane.pm uses *Perl threads and WX::Events* to
-  implement the non-blocking doCommandThreaded() method
-
-See: https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
-
-- for remote commands, the FC::Pane creates a
-  *Perl thread* for doCommandThreaded() which calls
-  the regular Session::doCommand(), thus preventing the
-  system from blocking on a paricular getPacket() call.
-- when doing so, doCommandThreaded() sets FC::Window->{thread}
-  as a semaphore to prevent the window or panes from re-entering
-  a subsequent command, double clicking, sorting, or
-  basically doing anything in either pane, while not
-  explicitly disabling it.
-- the regular Session::doCommand() sends the multi-line
-  command through the socket to the associated Server/Session.
-- SerialSession::doSerialRequest *blocks* until the serial port
-  is available to send a new requests, so that only one
-  serial_file_request at a time is sent to the teensy serial port.
-
-
-### teensyExpression
-
-teensyExpression C++ uses *teensyThreads* to handle multiple
-  simultaneous serial_file_requests.
-
-- theSystem.cpp new's a buffer for each serial request as
-  it comes in, and when ready (\n is received) starts a
-  a *thread* to call fileSystem.cpp handleFileCommand().
-- the thread sends one or more *file_replies* to the
-  serial port for PROGRESS' and terminating with
-  a DIR_LIST/FILE_ENTRY, ABORTED, or ERROR file_reply
-
-PRH: Note that there is currently nothing to stop intermingling
-of file_replies generated by fileSystem.cpp.  It needs
-a **semaphore** which can just be a memory variable to
-prevent such intermingling.
-
-
-### Aborting doCommandThreaded()
-
-Aborting a remote_request started by doCommandThreaded() is
-complicated enough that it warrants a more detailed description.
-
-*Using DELETE remote as an example*
-
-The key is that SerialSession::doSerialRequest is tied to a particular
-FC::Pane/Window by the thread doSerialRequest() is running
-in (as there is only one thread/socket per FC::Pane).
-
-- FC::Pane::onIdle() checks if a threaded command
-  ($this->{parent}->{thread}) is being aborted ($this->{progress}
-  && $this->{progress_aborted}) and if so, sends one ABORT packet
-  to the SerialSession (using the $override_protocol parameter
-  to sendPacket).
-- SerialSession::doSerialRequest(), which is looping waiting for
-  file_replies from the teensy for the initial DELETE file_request,
-  calls getPacket(0), without blocking, to see if any ABORT packet
-  has arrived. Remember that sessionThread is no longer blocking on
-  a call to getPacket so doSerialRequest)( can call getPacket(0)
-  without any problem.
-- If SerialSession::doSerialRequest() receives an ABORT packet,
-  it will issue a SECOND file_request with the SAME REQUEST
-  NUMBER for the ABORT.
-- teensyExpression theSystem.cpp will receive the 2nd file_request
-  and start another threaded handleFileCommand.
-- the second handleFileCommand(ABORT) will call addPendingAbort(req_num)
-  to add the request number to an array of pending_aborts, and return.
-- the original handleFileCommand(DELETE) will call abortPending(req_num)
-  during it's processing loop.  If abortPending(req_num) finds a pending
-  abort, it will both send a serial ABORTED numbered file_reply, and
-  return true to tell handleFileCommand() to cease processing the DELETE
-  command and return.
-- The ABORTED message is passed back up the chain until it is
-  returned by a WX $THREAD_EVENT to onThreadEvent() in the UI thread,
-  which then shows the COMMAND ABORTED dialog, after which it closes
-  the $progress window and call setContents() and populate() repopulate
-  the pane since it's contents are now indeterminate.
-
-
-# XFER Protocol and Implementation
-
-- XFER			is_local dir target_dir [single_file_name | (ENTRY_LIST)]
-
-### Context
-
-The XFER command has a semantic context given by is_local.
-
-If is_local, then dir is a fully qualified local path,
-target_dir is a fully qualified remote path, and the
-single_file_name or ENTRY_LIST are within the local dir.
-In this case the command is considered an 'upload' or a
-PUT from the local machine to the remote machine.
-
-Vice-versa, if !local, the dir is a fully qualified remote
-path, target_dir is a fully qualified local path, and
-the single_file_name or ENTRY_LIST are within the remote dir.
-In this case the command is considered a 'download' or a GET
-from the remote machine to the local machine.
-
-
-### Implementation
-
-There are a number of possible implementations of XFER.
-
-In the case of an XFER with a single_file_name, this can
-be most simply be thought of (and implemented) from the
-perspective of the Client machine, as a single simple GET
-from, or PUT to, the (remote) Server.
-
-However, for an XFER with an ENTRY_LIST, executing soley
-on the Client machine as a series of GETs would require the
-Client machine to recurse the remote machine's directory
-structure, which would mean issuing multiple LIST commands,
-which would result in a lot of useless socket traffic.
-
-Therefore, to minimize socket traffic, ENTRY_LIST commands
-are made to take place on the machine that matches their context.
-XFER with is_local=1 is performed on the local machine as a
-series of PUTs, but with is_local=0, the entire command is sent to
-the remote machine which then executes it as its own series
-of PUTs in its (local file system) context.
-
-Note that BASE64 packet content has a 32 bit checksum at the end
-
-## PUT
-
-CLIENT --> PUT \t dir \r FILE_ENTRY \r\n
-
-If the FILE_ENTRY.size is zero and the Server can
-successfully create the empty file, the Server directly
-sends the final FILE_ENTRY here. Otherwise it sends
-CONTINUE:
-
-SERVER --> CONTINUE
-
-If the file can not be sent in a single BASE64 buffer,
-multiple BASE64/CONTINUE transactions take place:
-
-CLIENT --> BASE64  offset bytes content
-SERVER --> CONTINUE
-
-Until finally the file is complete (i.e. offset==file_entry.size)
-at which point the server sends back the final FILE_ENTRY
-
-CLIENT --> BASE64  offset bytes content
-SERVER --> FILE_ENTRY
-
-
-
-### GET
-
-CLIENT -> GET \t dir \t filename
-SERVER --> PUT \t dir \r FILE_ENTRY \r\n
-
-If the file can not be sent in a single BASE64 buffer,
-multiple BASE64/CONTINUE transactions take place:
-
-CLIENT --> CONTINUE
-SERVER --> BASE64  offset bytes content
-
-Until finally the client has received sufficient bytes
-and the file is complete (i.e. offset==file_entry.size).
-
-Since GET is only executed as an optimized XFER (a
-server never GETs a file) the GET is considered finished
-when the file contents have been all received, and
-technically no further reply to the server is necessary,
-however, the implementation treats GET as a wrapper
-around a method called handlePUT, and so returns
-the final FILE_ENTRY
-
-CLIENT -> FILE_ENTRY
-
-
-
-### Special case of XFER with the BridgeServer
-
-When connected the SerialBridge the base Session never tries
-to do an XFER operation in its own process. It always passes
-the full XFER command packet to the SerialBridge which handles
-the command in it's process, thus minimizing socket traffic.
-
-The BridgeServer then does the single_filename GET/PUT optimization,
-handles is_local=1 XFERS as a series of PUTs, or passes the entire
-command via a serial_file_request to the teensy.
-
-The entire system is implemented so as to re-use the mechanisms
-in the base Session for doing these things from a local or remote
-perspective.
-
-Therefore the Base Session needs to know what kind of a socket
-it is connected to with IS_BRIDGED set to 1 if it is
-connected to a SerialBridge.
-
-Note, finally, that in this conceptualization a BRIDGE is a
-Server that is running on the local machine.  The possibility
-of a REMOTE_BRIDGE exists which would be treated like a regular
-remote server exists.
