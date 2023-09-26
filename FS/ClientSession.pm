@@ -225,7 +225,7 @@ sub checkPacket
 {
 	my ($this,$ppacket,$progress) = @_;
 
-	return $$ppacket if $$ppacket =~ /^($PROTOCOL_ERROR)/;
+	return $$ppacket if $$ppacket =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
 
 	if ($$ppacket =~ s/^$PROTOCOL_PROGRESS\t(.*?)\t//)
 	{

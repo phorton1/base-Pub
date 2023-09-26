@@ -331,8 +331,6 @@ sub onIdle
 	if ($this->{port} &&	# these two should be synonymous
 		$this->{session})
 	{
-		# EXIT is directed to the Pane, but we close the Window
-		# and let the last Window close the app.
 
 		my $do_exit = 0;
 		if ($this->{session}->{SOCK})
@@ -375,13 +373,13 @@ sub onIdle
 		# check if we need to send an ABORT
 
 		if ($this->{progress} &&	# should be synonymous
-			$this->{parent}->{thread} &&
+			$this->{thread} &&
 			$this->{session}->{SOCK})
 		{
 			my $aborted = $this->{progress}->aborted();
 			if ($aborted && !$this->{aborted})
 			{
-				display($dbg_idle,-1,"pane$this->{pane_num} sending PROTOCOL_ABORT");
+				warning($dbg_idle,-1,"pane$this->{pane_num} sending PROTOCOL_ABORT");
 				$this->{aborted} = 1;
 				$this->{session}->sendPacket($PROTOCOL_ABORT,1);
 					# no error checking on result

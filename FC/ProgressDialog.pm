@@ -24,7 +24,7 @@ use threads::shared;
 use Time::HiRes qw( sleep );
 use Wx qw(:everything);
 use Wx::Event qw(EVT_CLOSE EVT_BUTTON);
-use Pub::Utils qw(getAppFrame display);
+use Pub::Utils qw(getAppFrame display warning);
 use base qw(Wx::Dialog);
 
 
@@ -122,7 +122,7 @@ sub Destroy
 sub onButton
 {
     my ($this,$event) = @_;
-	display($dbg_fpd,0,"ProgressDialog::onButton()");
+	warning($dbg_fpd-1,0,"ProgressDialog::ABORTING");
     $this->{aborted} = 1;
     $event->Skip();
 }

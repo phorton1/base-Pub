@@ -167,6 +167,7 @@ sub getPacket
 {
     my ($this,$ppacket,$is_protocol) = @_;
 	$is_protocol ||= 0;
+	$$ppacket = '';
 
     my $sock = $this->{SOCK};
 	return error("$this->{NAME} no socket in getPacket",1,1)

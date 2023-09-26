@@ -56,7 +56,7 @@ my $REMOTE_TIMEOUT = 15;
 my $com_port_connected:shared = 0;
 
 
-my $request_number:shared = 0;
+my $request_number:shared = 1;
 our $serial_file_request:shared = '';
 our %serial_file_reply:shared;
 our %serial_file_reply_ready:shared;
@@ -116,11 +116,12 @@ sub waitSerialReply
 
 		my $err = $this->getPacket(\$packet,0);
 		return $err if $err;
+		warning(0,0,"got packet=$packet") if $packet;
 		if ($packet && $packet =~ /^$PROTOCOL_ABORT/)
 		{
-			my $request = "$req_num\t$PROTOCOL_ABORT";
+			my $request = "$PROTOCOL_ABORT";
 			my $len = length($request);
-			$serial_file_request = "file_command\t$len\t$request\n";
+			$serial_file_request = "file_message\t$req_num\t$len\t$request\n";
 		}
 
 		# waiting for numbered file_server reply continued
@@ -130,7 +131,7 @@ sub waitSerialReply
 		return $this->serialError("doSerialRequest() timed out")
 			if time() > $started + $REMOTE_TIMEOUT;
 		display($dbg_request+2,0,"doSerialRequest() waiting for reply ...");
-		# sleep(0.01);	# 0.2);
+		sleep(1);	# 0.01);	# 0.2);
 	}
 
 	$packet = $serial_file_reply{$req_num};
@@ -178,9 +179,9 @@ sub doSerialRequest
 
 
 	my $req_num = $request_number++;
-	$request = "$req_num\t$request";
-	my $len = length($request);
-	$request = "file_command\t$len\t$request\n";
+	$request .= "\r" if $request !~ /\r$/;
+	my $len = length($request);  # the \r is considerd part of the packet
+	$request = "file_command\t$req_num\t$len\t$request\n";
 
 	$serial_file_reply{$req_num} = '';
 	$serial_file_reply_ready{$req_num} = 0;

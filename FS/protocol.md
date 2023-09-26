@@ -222,8 +222,8 @@ give the client information needed to update a progress dialog.
 
 	PROGRESS ADD	num_dirs num_files  // adds dirs and files to progress range
 	PROGRESS DONE   is_dir              // increments num_done for dirs and files
-	PROGRESS ENTRY  entry               // displays the path or filename. hides the 2nd gauge if shown
-	PROGRESS SIZE   size/               // start showing the 2nd 'bytes transferred' gauge
+	PROGRESS ENTRY  entry  [size]       // displays the path or filename. sets the range if [size] or hides guage if not
+	// PROGRESS SIZE   size/            // no longer separate
 	PROGRESS BYTES  bytes               // set the value for the 2nd bytes transferred gauge
 
 ABORT can be sent by the Client to stop an asyncrhonous command,
