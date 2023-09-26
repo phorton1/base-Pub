@@ -232,7 +232,6 @@ Any errors were already reported.
 
 ## Generalizations
 
-The correct verb is PUT not XFER
 There is an additional FILE verb.
 doCommand() probably needs another parameter.
 There are base Session _put(), _file(), and _base64() methods/commands.

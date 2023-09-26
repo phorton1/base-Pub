@@ -28,16 +28,15 @@ depend on the packet type.
 - ABORTED
 - PROGRESS		ADD 	num_dirs num_files
 - PROGRESS		DONE 	is_dir
-- PROGRESS		ENTRY 	entry
-- PROGRESS      SIZE    size
+- PROGRESS		ENTRY 	entry  [size]
 - PROGRESS      BYTES   bytes
 - DELETE		dir [single_filename | (ENTRY_LIST)]
 
-- XFER			is_local dir target_dir [single_file_name | (ENTRY_LIST)]
-- GET           dir filename
-- PUT			dir (FILE_ENTRY)
+- PUT			dir target_dir [single_filename | (ENTRY_LIST)]
+- FILE          size ts fully_qualified_target_filename
+- BASE64		offset bytes ENCODED_CONTENT
 - CONTINUE
-- BASE64		offset bytes content
+- OK
 
 
 The delimiter for fields in packet lines
@@ -190,7 +189,7 @@ delimiter between the verb and the message parameter.
 - LIST			dir
 - MKDIR			dir name
 - RENAME		dir name1 name2
-- DELETE		single_filename
+- DELETE		dir single_filename
 
 These commands are passed as a single line packet, and
 considered to be executed in a single operation, with a
@@ -211,11 +210,12 @@ packets.
 
 ### Asynchronous Commands
 
-The XFER and 'DELETE ENTRY_LIST' commands can take
+The PUT and "DELETE dir ENTRY_LIST" commands can take
 a long time, can retun intermediate PROGRESS messages,
 and can be ABORTED.
 
-Upon final success they return a DIR_LIST.
+Upon final success DELETE returns a DIR_LIST.
+Protocol-wise, upon final success PUT returns an OK.
 
 PROGRESS messages are sent from the Server to the Client to
 give the client information needed to update a progress dialog.
@@ -223,7 +223,6 @@ give the client information needed to update a progress dialog.
 	PROGRESS ADD	num_dirs num_files  // adds dirs and files to progress range
 	PROGRESS DONE   is_dir              // increments num_done for dirs and files
 	PROGRESS ENTRY  entry  [size]       // displays the path or filename. sets the range if [size] or hides guage if not
-	// PROGRESS SIZE   size/            // no longer separate
 	PROGRESS BYTES  bytes               // set the value for the 2nd bytes transferred gauge
 
 ABORT can be sent by the Client to stop an asyncrhonous command,

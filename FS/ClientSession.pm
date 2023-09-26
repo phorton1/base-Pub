@@ -358,10 +358,7 @@ sub doCommand
 		$rslt = $this->_delete($param1,$param2,$progress);
 	}
 
-	# elsif ($command eq $PROTOCOL_XFER)			# $dir, $entries_or_filename, $target_dir, $progress
-	# {
-	# 		$rslt = $this->_xfer($param1,$param2,$param3,$progress);
-	# }
+	# error if unsupported command
 
 	else
 	{

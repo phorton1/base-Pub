@@ -12,11 +12,7 @@
 #
 # Anything that is purely local will be handled by the base Session
 # and will never make its way to this SerialSession.
-#
-# For XFER requests it receives from the ClientSession, it will
-# work with the remote SerialServer to actually do the XFER,
-# and will merely return PROGESS messages and the final result
-# back to the ClientSession, thus minimize traffic over the socket.
+
 
 package Pub::FS::SerialSession;
 use strict;

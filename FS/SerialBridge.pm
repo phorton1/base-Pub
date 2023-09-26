@@ -5,14 +5,6 @@
 # and a device that implements a SerialServer.
 # The only current SerialServer is the teensyExpression,
 # There is currently no Perl SerialServer.
-#
-# Note that the notion of is_local is NOT passed by the
-# protocol for most commands (XFER being the exception).
-# Normally when a Server recievs a command the context
-# for the command is the local file system on the machine
-# the Server is running on.  But for a Bridge, most commands
-# it receives are actually intended to be forwarded to
-# the SerialServer.
 
 
 package Pub::FS::SerialBridge;
