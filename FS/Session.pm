@@ -24,7 +24,7 @@ my $TEST_DELAY = 0;
  	# delay local operatios to test progress stuff
  	# set this to 1 or 2 seconds to slow things down for testing
 
-our $dbg_commands:shared = -2;
+our $dbg_commands:shared = 0;
 	# 0 = show atomic commands
 	# -1 = show command header and return results
 	# -2 = show recursive operation details

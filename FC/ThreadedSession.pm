@@ -77,7 +77,7 @@ sub doCommand
 		$progress,		# ignored
 		$caller) = @_;
 
-	warning($dbg_thread,0,"doCommand(pane$this->{pane}{pane_num},$command,$caller) called");
+	display($dbg_thread,0,"doCommand(pane$this->{pane}{pane_num},$command,$caller) called");
 
 	# Without detaching or joining, each command eats 26M+ of memory
 	# and gives Perl exited with XXX threads, but I get to see the
