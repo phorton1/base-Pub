@@ -317,7 +317,7 @@ sub doCommandSelected
 		$PROTOCOL_DELETE;
 	my $target_dir =
 
-	$this->{progress} = !$num_dirs && $num_files==1 ? '' :
+	$this->{progress} = # !$num_dirs && $num_files==1 ? '' :
 		Pub::FC::ProgressDialog->new(
 			undef,
 			uc($display_command));

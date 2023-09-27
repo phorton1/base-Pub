@@ -86,7 +86,7 @@ sub new
 		is_bridged => $ARGV[0] ? 1 : 0 };		# will need this later
 
 
-	if (0)
+	if (1)
 	{
 		$params2 = {
 			pane_num => 2,

@@ -134,8 +134,9 @@ sub connect
 
 
 #--------------------------------------------------------
-# remote atomic commands
+# overriden atomic commands from base Session
 #--------------------------------------------------------
+# each _method does socket packet protocol
 
 sub _list
 {
@@ -224,7 +225,7 @@ sub _rename
 
 sub checkPacket
 {
-	my ($this,$ppacket,$progress) = @_;
+	my ($this,$ppacket) = @_;
 
 	return $$ppacket if $$ppacket =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
 
@@ -233,15 +234,15 @@ sub checkPacket
 		my $command = $1;
 		$$ppacket =~ s/\s+$//g;
 		display($dbg_progress,-2,"handleProgress() PROGRESS($command) $$ppacket");
-		if ($progress)
+		if ($this->{progress})
 		{
 			my @params = split(/\t/,$$ppacket);
-			return $PROTOCOL_ABORTED
-				if $command eq 'ADD' && !$progress->addDirsAndFiles($params[0],$params[1]);
-			return $PROTOCOL_ABORTED
-				if $command eq 'DONE' && !$progress->setDone($params[0]);
-			return $PROTOCOL_ABORTED
-				if $command eq 'ENTRY' && !$progress->setEntry($params[0]);
+			return $PROTOCOL_ABORTED if $command eq 'ADD' &&
+				!$this->{progress}->addDirsAndFiles($params[0],$params[1]);
+			return $PROTOCOL_ABORTED if $command eq 'DONE' &&
+				!$this->{progress}->setDone($params[0]);
+			return $PROTOCOL_ABORTED if $command eq 'ENTRY' &&
+				!$this->{progress}->setEntry($params[0]);
 		}
 		$$ppacket = '';
 	}
@@ -254,8 +255,7 @@ sub _delete
 {
 	my ($this,
 		$dir,				# MUST BE FULLY QUALIFIED
-		$entries,			# single_filename or valid hash of sub-entries
-		$progress ) = @_;
+		$entries) = @_;		# single_filename or valid hash of sub-entries
 
 	if ($dbg_commands <= 0)
 	{
@@ -286,16 +286,15 @@ sub _delete
 
 	$this->incInProtocol();
 
-	# so here we have the prototype of a progressy remote command
-	# note that an abort or any errors currently leaves the client
-	# remote listing unchanged
+	# delete is an asynchronous socket command
+	# that allows for progress messages
 
 	my $retval = '';
 	while (1)
 	{
 		my $packet;
 		$err = $this->getPacket(\$packet, 1);
-		$err ||= $this->checkPacket(\$packet,$progress);
+		$err ||= $this->checkPacket(\$packet);
 		if ($err)
 		{
 			$retval = $err;
@@ -313,67 +312,6 @@ sub _delete
 
 }
 
-
-
-#------------------------------------------------------
-# doCommand
-#------------------------------------------------------
-
-# sub doCommand
-# {
-#     my ($this,
-# 		$command,
-#         $param1,
-#         $param2,
-#         $param3,
-# 		$progress,
-# 		$caller,
-# 		$other_session) = @_;
-#
-# 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$param3)");
-# 		# ,".ref($progress).",$caller,".ref($other_session).") called");
-#
-# 	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
-#
-# 	my $rslt;
-# 	if ($command eq $PROTOCOL_LIST)					# $dir
-# 	{
-# 		$rslt = $this->_list($param1);
-# 	}
-# 	elsif ($command eq $PROTOCOL_MKDIR)				# $dir, $subdir
-# 	{
-# 		$rslt = $this->_mkdir($param1,$param2);
-# 	}
-# 	elsif ($command eq $PROTOCOL_RENAME)			# $dir, $old_name, $new_name
-# 	{
-# 		$rslt = $this->_rename($param1,$param2,$param3);
-# 	}
-#
-# 	# unlike base class we pass all deletes over the socket
-#
-# 	elsif ($command eq $PROTOCOL_DELETE)			# $dir, $entries_or_filename, undef, $progress
-# 	{
-# 		$rslt = $this->_delete($param1,$param2,$progress);
-# 	}
-#
-# 	# error if unsupported command
-#
-# 	else
-# 	{
-# 		$rslt = error("$this->{NAME} unsupported command: $command",0,1);
-# 	}
-#
-# 	# finished, unlike base class we don't report the error
-#
-# 	$rslt ||= error("$this->{NAME} unexpected empty doCommand() rslt",0,1);
-#
-# 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command) returning $rslt");
-# 	return $rslt;
-#
-# }	# ClientSession::doCommand()
-#
-#
-#
 
 
 1;

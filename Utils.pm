@@ -12,6 +12,8 @@ use threads;
 use threads::shared;
 use Scalar::Util qw(blessed);
 use Cava::Packager;
+use MIME::Base64;
+use Time::Local;
 use Win32::Console;
 use Win32::DriveInfo;
 use Win32::Mutex;
@@ -63,6 +65,7 @@ BEGIN
 		printVarToFile
 		diskFree
 		setTimestamp
+		gmtToLocalTime
 		my_mkdir
 
 		encode64
@@ -583,6 +586,24 @@ sub setTimestamp
 	return utime $to_time,$to_time,$filename;
 }
 
+sub gmtToLocalTime
+    # takes a GMT time in the format 2013-07-05 12:31:22
+    # and returns a local date time in the same format.
+{
+    my ($ts) = @_;
+	$ts =~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/;
+	my $gm_time = timegm($6,$5,$4,$3,($2-1),$1);
+	my @time_parts = localtime($gm_time);
+	return
+		($time_parts[5]+1900) .'-'.
+		pad2($time_parts[4]+1).'-'.
+		pad2($time_parts[3])  .' '.
+		pad2($time_parts[2])  .':'.
+		pad2($time_parts[1])  .':'.
+		pad2($time_parts[0]);
+}
+
+
 
 
 sub my_mkdir
@@ -599,6 +620,8 @@ sub my_mkdir
 
 	my @parts = split(/\//,$path);
 	pop @parts if $is_filename;
+	return 1 if !@parts;
+	shift @parts if !$parts[0];
 	return 1 if !@parts;
 
 	my $dir = $parts[0] =~ /^[A-Z]:$/i ? shift @parts : '';

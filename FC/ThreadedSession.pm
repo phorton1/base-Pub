@@ -79,7 +79,10 @@ sub doCommand
 		$other_session ) = @_;
 
 	$other_session ||= '';
-	display($dbg_thread,0,"$this->{NAME} doCommand($command,$param1,$param2,$param3,".ref($progress).",$caller,".ref($other_session).") called");
+
+	my $show3 = $command eq $PROTOCOL_BASE64 ?
+		length($param3)." encoded bytes" : $param3;
+	display($dbg_thread,0,"$this->{NAME} doCommand($command,$param1,$param2,$show3,$caller");
 
 	# Without detaching or joining, each command eats 26M+ of memory
 	# and gives Perl exited with XXX threads, but I get to see the
@@ -157,7 +160,9 @@ sub doCommandThreaded
 		$caller,
 		$other_session) = @_;
 
-	warning($dbg_thread,0,"$this->{NAME} doCommandThreaded($command,$param1,$param2,$param3,$caller)");
+	my $show3 = $command eq $PROTOCOL_BASE64 ?
+		length($param3)." encoded bytes" : $param3;
+	warning($dbg_thread,0,"$this->{NAME} doCommandThreaded($command,$param1,$param2,$show3,$caller)");
 		#.ref($progress).",$caller,".ref($other_session).") called");
 
 	my $rslt = $this->SUPER::doCommand(

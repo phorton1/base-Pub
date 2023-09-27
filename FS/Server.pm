@@ -560,7 +560,7 @@ sub processPacket
 	# The local file system is the context for command requests
 	# received by this base Server.
 
-	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3],$this);
+	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3],$this,'','');
 	$rslt ||= '';
 
 	# Stops the thread/session if it can't send the packet

@@ -19,6 +19,7 @@ use Time::HiRes qw( sleep  );
 use Pub::Utils;
 use Pub::FS::FileInfo;
 
+my $DECODED_BUF_SIZE = 10000;
 
 my $TEST_DELAY = 0;
  	# delay local operatios to test progress stuff
@@ -177,8 +178,7 @@ sub deleteCallback
 		$is_dir,
 		$dir,
 		$entry,
-		$target_dir,		# unused for _delete
-		$progress) = @_;	# unused for _delete
+		$target_dir) = @_;	# unused for _delete
 
 	if ($is_dir)
 	{
@@ -201,15 +201,14 @@ sub _delete
 {
 	my ($this,
 		$dir,
-		$entries,
-		$progress) = @_;
+		$entries) = @_;
 
 	display($dbg_commands,0,"$this->{NAME} _delete($dir,$entries)");
 
 	my $rslt;
 	if (!ref($entries))
 	{
-		$rslt = $this->deleteCallback(1,$dir,$entries,'',$progress);
+		$rslt = $this->deleteCallback(0,$dir,$entries,'');
 	}
 	else
 	{
@@ -218,8 +217,7 @@ sub _delete
 			\&deleteCallback,
 			$dir,
 			$entries,
-			'',					# unused target_dir for DELETE
-			$progress);
+			'');					# unused target_dir for DELETE
 	}
 
 	$rslt ||= $this->_list($dir);
@@ -232,10 +230,10 @@ sub _delete
 #------------------------------------------------------
 
 
-sub abortFile
+sub closeFile
 {
 	my ($this) = @_;
-	display($dbg_commands,0,"$this->{NAME} abortFile($this->{file_name})");
+	display($dbg_commands,0,"$this->{NAME} closeFile($this->{file_name})");
 
 	$this->{file_handle}->close()
 		if $this->{file_handle};
@@ -270,9 +268,9 @@ sub finishFile
 		{
 			$rslt = error("$this->{NAME} finishFile() Could not unlink old($this->{file_name}");
 		}
-		elsif (!rename($this->{temp_file_name},$this->{file_name}))
+		elsif (!rename($this->{file_temp_name},$this->{file_name}))
 		{
-			$rslt = error("$this->{NAME} finishFile() Could not unlink rename($this->{temp_file_name},$this->{file_name})");
+			$rslt = error("$this->{NAME} finishFile() Could not rename($this->{file_temp_name},$this->{file_name})");
 		}
 	}
 
@@ -281,7 +279,7 @@ sub finishFile
 		$rslt = error("$this->{NAME} finishFile() Could not setTimestamp($this->{file_name},$this->{file_ts})");
 	}
 
-	$this->abortFile() if $rslt;
+	$this->closeFile() if $rslt;
 	$rslt ||= $PROTOCOL_OK;
 	return $rslt;
 }
@@ -289,13 +287,11 @@ sub finishFile
 
 
 sub _file
-	# it is not clear what this $progres parameter means
 {
 	my ($this,
 		$size,
 		$ts,
-		$full_name,
-		$progress) = @_;
+		$full_name) = @_;
 
 	display($dbg_commands,0,"$this->{NAME} _file($size,$ts,$full_name)");
 	my $free = diskFree();
@@ -317,9 +313,8 @@ sub _file
 		$use_name = $temp_name;
 	}
 
-	my $fh = open ">$use_name";
 	return error("$this->{NAME} _file Could not open '$use_name' for output")
-		if !$fh;
+		if !open(my $fh, ">", $use_name);
 	binmode $fh;
 
 	$this->{file_handle} = $fh;
@@ -335,18 +330,30 @@ sub _file
 
 
 
+sub calcChecksum
+{
+	my ($data) = @_;
+	my $calc_cs = 0;
+	for (my $i=0; $i<length($data); $i++)
+	{
+		$calc_cs += ord(substr($data,$i,1));
+	}
+	$calc_cs &= 0xFFFFFFFF;
+	return $calc_cs;
+}
+
+
+
 sub _base64
 	# it is not clear what this $progres parameter means
 {
 	my ($this,
 		$offset,
 		$bytes,
-		$content,
-		$progress) = @_;
+		$content) = @_;
+
 
 	my $rslt = '';
-	my $ok = $PROTOCOL_CONTINUE;
-
 	my $len = length($content);
 	display($dbg_commands,0,"$this->{NAME} _base64($offset,$bytes,$len encoded_bytes)");
 
@@ -372,22 +379,17 @@ sub _base64
 		{
 			my $cs_bytes = substr($data,$len-4);
 			$data = substr($data,0,$len-4);
-			$len = length($data);
+			display_bytes(0,0,"got CS",$cs_bytes);
 
 			# MSB first
 
 			my $got_cs =
-				ord(substr($cs_bytes,0,1)) << 24 +
-				ord(substr($cs_bytes,1,1)) << 16 +
-				ord(substr($cs_bytes,2,1)) << 8 +
+				(ord(substr($cs_bytes,0,1)) << 24) +
+				(ord(substr($cs_bytes,1,1)) << 16) +
+				(ord(substr($cs_bytes,2,1)) << 8 ) +
 				ord(substr($cs_bytes,3,1));
 
-			my $calc_cs = 0;
-			for (my $i=0; $i<$len; $i++)
-			{
-				$calc_cs += ord(substr($data,$i,1));
-			}
-			$calc_cs &= 0xFFFFFFFF;
+			my $calc_cs = calcChecksum($data);
 			display($dbg_commands+1,1,"$this->{NAME} got_cs($got_cs) calc_cs($calc_cs)");
 
 			if ($got_cs != $calc_cs)
@@ -396,24 +398,23 @@ sub _base64
 			}
 			else
 			{
-				my $wrote = syswrite($this->{file_handle}, $data, $bytes, $offset);
+				my $wrote = syswrite($this->{file_handle}, $data, $bytes);
 				$rslt = error("$this->{NAME} _base64 bad write($wrote) expected($bytes)")
 					if $wrote != $bytes;
 				$this->{file_offset} += $bytes;
 
-				updateBytes
-
-				$ok = $this->finishFile()
-					if $this->{file_offset} == $this->{size};
+				$rslt ||= $this->{file_offset} == $this->{file_size} ?
+					$this->finishFile() :
+					$PROTOCOL_CONTINUE;
 			}
 		}
 	}
 
-	if ($rslt)
-	{
-		$this->abortFile();
-		return $rslt;
-	}
+	$this->closeFile() if
+		$rslt ne $PROTOCOL_OK &&
+		$rslt ne $PROTOCOL_CONTINUE;
+
+	return $rslt;
 }
 
 
@@ -428,33 +429,132 @@ sub putCallback
 		$is_dir,
 		$dir,
 		$entry,
-		$target_dir,
-		$progress) = @_;
+		$target_dir) = @_;
+
+	# just getting file across to begin with ..
 
 	display($dbg_commands,0,"$this->{NAME} putCallback($is_dir,$dir,$entry,$target_dir)");
-		#,".ref($progress).")");
+	return if $is_dir;
 
-	return '';
+	# ThreadedCommands for FILE and BASE64 will need some work ..
+	# Assuming everything works peachy locally ...
+
+	my $rslt = '';
+	my $info = Pub::FS::FileInfo->new(0,$dir,$entry);
+	$rslt = $info if !isValidInfo($info);
+
+	if (!$rslt)
+	{
+		my $ts = $info->{ts};
+		my $size = $info->{size};
+		my $full_name = makePath($dir,$entry);
+		my $other_full_name = makePath($target_dir,$entry);
+		if (!open(my $fh, "<", $full_name))
+		{
+			$rslt = error("$this->{NAME} putCallback($full_name) could not open file for reading");
+		}
+		else
+		{
+			binmode $fh;
+
+			$rslt = $this->{other_session}->doCommand($PROTOCOL_FILE,
+				$size,
+				$ts,
+				$other_full_name,
+				'','','');
+
+		    # how do we tell the other size we are stopping
+			# on errors ?!?!?  BASE64 0 0 ABORTED?
+
+			my $offset = 0;
+			while ($rslt eq $PROTOCOL_CONTINUE)
+			{
+				my $data = '';
+				my $bytes = $size - $offset;
+				$bytes = $DECODED_BUF_SIZE if $bytes > $DECODED_BUF_SIZE;
+				if ($bytes <= 0)
+				{
+					$rslt = error("$this->{NAME} putCallback($full_name) unexpected CONTINUE at offset($offset) size($size)");
+					last;
+				}
+				my $got = sysread($fh, $data, $bytes);
+				if ($got != $bytes)
+				{
+					$rslt = error("$this->{NAME} _base64 bad read($got) expected($bytes)");
+					last;
+				}
+				else
+				{
+					my $calc_cs = calcChecksum($data);
+					display($dbg_commands+1,1,"$this->{NAME} _put calc_cs($calc_cs)");
+					my $cs_bytes =
+						chr(($calc_cs >> 24) & 0xff).
+						chr(($calc_cs >> 16) & 0xff).
+						chr(($calc_cs >> 8) & 0xff).
+						chr($calc_cs & 0xff);
+					display_bytes(0,0,"put CS",$cs_bytes);
+					my $encoded = encode64($data.$cs_bytes);
+
+					$rslt = $this->{other_session}->doCommand($PROTOCOL_BASE64,
+						$offset,
+						$bytes,
+						$encoded,
+						'','','');
+
+					$offset += $bytes;
+
+				}	# got == bytes
+			}	# $rslt eq $PROTOCOL_CONTINUE;
+
+			close $fh;
+			display($dbg_commands,0,"$this->{NAME} putCallback() ended with $rslt");
+			$rslt = '' if $rslt eq $PROTOCOL_OK;
+
+		}	# file opened
+	}	# isValidInfo
+
+	# returns blank to continue or an error
+
+	return $rslt;
 }
 
 
 
 sub _put
+	# yikes - i don't think I can implement sparse creation
+	# of empty dirs on the remote, cuz I don't know if they
+	# ARE empty on the remote.  The best I can do is tell it
+	# to make dirs which are empty on my side, but don't report
+	# errors.
+	#
+	# The optimization idea is that PUT keeps track of the last file
+	# transferred, i.e. /junk/data/songs/bigRiver.song, from which
+	# it can tell that any subirectories of that HAVE been created
+	# as it unwinds in a depth first manner.
+	#
+	# So this PUT ONLY sends MKDIR commands to the other guy if it
+	# is empty on our side, and not a subdirectory, but we need
+	# a new VERB, or parameter, to tell it to not report an error
+	# if the directory already exists (or is a file or whatever).
+	#
+	# For now, let's just try to do files.
 {
 	my ($this,
 		$dir,
 		$entries,		# ref() or single_file_name
-		$target_dir,
-		$progress,
-		$other_session) = @_;
+		$target_dir) = @_;
 
 	display($dbg_commands,0,"$this->{NAME} _put($dir,$entries,$target_dir)");
-		# ,".ref($progress).",".ref($other_session).")");
+
+	my $save_other = $this->{other_session}->{RETURN_ERRORS};
+	$this->{other_session}->{RETURN_ERRORS} = 1;
 
 	my $rslt;
 	if (!ref($entries))
 	{
-		$rslt = $this->putCallback(0,$dir,$entries,$target_dir,$progress);
+		$rslt = $PROTOCOL_ABORTED if $this->{progress} &&
+			!$this->{progress}->addDirsAndFiles(0,1);
+		$rslt ||= $this->putCallback(0,$dir,$entries,$target_dir);
 	}
 	else
 	{
@@ -463,13 +563,11 @@ sub _put
 			\&putCallback,
 			$dir,
 			$entries,
-			$target_dir,
-			$progress);
+			$target_dir);
 	}
 
-	# note that we do not pass $progress to the other session
-
-	$rslt ||= $other_session->doCommand($PROTOCOL_LIST,$target_dir,'','','','','');
+	$this->{other_session}->{RETURN_ERRORS} = $save_other;
+	$rslt ||= $this->{other_session}->doCommand($PROTOCOL_LIST,$target_dir,'','','','','');
 	return $rslt;
 
 }
@@ -488,14 +586,14 @@ sub recurseFxn
 		$dir,				# MUST BE FULLY QUALIFIED
 		$entries,
 		$target_dir,		# unused for DELETE
-		$progress,
 		$level) = @_;
 
 	$level ||= 0;
 
 	display($dbg_commands,0,"$this->{NAME} $command($dir,$level)");
 
-    return $PROTOCOL_ABORTED if $progress && $progress->aborted();
+    return $PROTOCOL_ABORTED
+		if $this->{progress} && $this->{progress}->aborted();
 	sleep($TEST_DELAY) if $TEST_DELAY;
 
 	#----------------------------------------------------
@@ -546,8 +644,8 @@ sub recurseFxn
 
 	if (scalar(keys %$subdirs) || scalar(keys %$files))
 	{
-		return $PROTOCOL_ABORTED if $progress &&
-			!$progress->addDirsAndFiles(
+		return $PROTOCOL_ABORTED if $this->{progress} &&
+			!$this->{progress}->addDirsAndFiles(
 				scalar(keys %$subdirs),
 				scalar(keys %$files));
 	}
@@ -565,7 +663,6 @@ sub recurseFxn
 			makePath($dir,$entry),			# growing dir
 			$info->{entries},				# child entries
 			makePath($target_dir,$entry),	# growing target_dir
-			$progress,
 			$level + 1);
 		return $err if $err;
 	}
@@ -578,33 +675,42 @@ sub recurseFxn
 	{
 		sleep($TEST_DELAY) if $TEST_DELAY;
 		my $path = makePath($dir,$entry);
-		return $PROTOCOL_ABORTED if $progress && $progress->aborted();
-		return $PROTOCOL_ABORTED if $progress && !$progress->setEntry($path);
+
+		if ($this->{progress})
+		{
+			return $PROTOCOL_ABORTED if $this->{progress}->aborted();
+			return $PROTOCOL_ABORTED if !$this->{progress}->setEntry($path);
+		}
 
 		display($dbg_commands,1,"$this->{NAME} $command local file: $path");
-		my $err = &$callback($this,0,$dir,$target_dir,$entry,$progress);
+		my $err = &$callback($this,0,$dir,$entry,$target_dir,);
 		return $err if $err;
 
-		return $PROTOCOL_ABORTED if $progress && !$progress->setDone(0);
+		return $PROTOCOL_ABORTED
+			if $this->{progress} && !$this->{progress}->setDone(0);
 	}
 
 
 	#----------------------------------------------
-	# finally, delete the dir itself at level>0
+	# finally, do the dir itself at level>0
 	#----------------------------------------------
 	# recursions return 1 upon success
 
 	if ($level)
 	{
 		sleep($TEST_DELAY) if $TEST_DELAY;
-		return $PROTOCOL_ABORTED if $progress && $progress->aborted();
-		return $PROTOCOL_ABORTED if $progress && !$progress->setEntry($dir);
+		if ($this->{progress})
+		{
+			return $PROTOCOL_ABORTED if $this->{progress}->aborted();
+			return $PROTOCOL_ABORTED if !$this->{progress}->setEntry($dir);
+		}
+		display($dbg_commands,1,"$this->{NAME} $command local dir: $dir");
 
-		display($dbg_commands,1,"$this->{NAME} DELETE local dir: $dir");
-		my $err = &$callback($this,1,$dir,$target_dir,$progress);
+		my $err = &$callback($this,1,$dir,'',$target_dir);
 		return $err if $err;
 
-		return $PROTOCOL_ABORTED if $progress && !$progress->setDone(1);
+		return $PROTOCOL_ABORTED
+			if $this->{progress} && !$this->{progress}->setDone(1);
 
 	}
 
@@ -630,8 +736,13 @@ sub doCommand
 		$caller,
 		$other_session) = @_;
 
-	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$param3)");
-		# ,".ref($progress).",$caller,".ref($other_session).")");
+	$this->{progress} = $progress;
+	$this->{caller} = $caller;
+	$this->{other_session} = $other_session;
+
+	my $show3 = $command eq $PROTOCOL_BASE64 ?
+		length($param3)." encoded bytes" : $param3;
+	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$show3)");
 
 	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
 
@@ -651,24 +762,24 @@ sub doCommand
 
 	# for DELETE and PUT a single filename name or list of entries
 
-	elsif ($command eq $PROTOCOL_DELETE)			# $dir, $entries_or_filename, undef, $progress
+	elsif ($command eq $PROTOCOL_DELETE)			# $dir, $entries_or_filename
 	{
-		$rslt = $this->_delete($param1,$param2,$progress);
+		$rslt = $this->_delete($param1,$param2);
 	}
-	elsif ($command eq $PROTOCOL_PUT)			# $dir, $target_dir, $entries_or_filename, $progress
+	elsif ($command eq $PROTOCOL_PUT)			# $dir, $target_dir, $entries_or_filename
 	{
-		$rslt = $this->_put($param1, $param2, $param3, $progress, $other_session);
+		$rslt = $this->_put($param1, $param2, $param3);
 	}
 
 	# File handling protocols
 
-	elsif ($command eq $PROTOCOL_FILE)			# $size, $ts, $fully_qualified_local_filename $progress
+	elsif ($command eq $PROTOCOL_FILE)			# $size, $ts, $fully_qualified_local_filename
 	{
-		$rslt = $this->_file($param1, $param2, $param3, $progress);
+		$rslt = $this->_file($param1, $param2, $param3);
 	}
-	elsif ($command eq $PROTOCOL_BASE64)		# $offset, $bytes, ENCODED_CONTENT $progress
+	elsif ($command eq $PROTOCOL_BASE64)		# $offset, $bytes, ENCODED_CONTENT
 	{
-		$rslt = $this->_base64($param1, $param2, $param3, $progress);
+		$rslt = $this->_base64($param1, $param2, $param3);
 	}
 
 
@@ -692,7 +803,9 @@ sub doCommand
 	{
 		if ($this->{RETURN_ERRORS})
 		{
-			$rslt = $PROTOCOL_ERROR.$rslt;
+			$rslt = $PROTOCOL_ERROR.$rslt if
+				$rslt ne $PROTOCOL_OK &&
+				$rslt ne $PROTOCOL_CONTINUE;
 		}
 		else
 		{

@@ -698,7 +698,7 @@ sub setListRow
 			# the index into $this->{list} is persistent
 			# and passed back in sort
 		$ctrl->SetItem($row,3,($is_dir?'':$info->{size}));
-		$ctrl->SetItem($row,4,$info->{ts} || '');	# PRH - need gmtToLocalTime($info->{ts}));
+		$ctrl->SetItem($row,4,gmtToLocalTime($info->{ts}));
 	}
 
 	# things that might have changed due to rename
