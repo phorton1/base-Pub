@@ -13,6 +13,7 @@ use threads::shared;
 use Scalar::Util qw(blessed);
 use Cava::Packager;
 use Win32::Console;
+use Win32::DriveInfo;
 use Win32::Mutex;
 
 our $debug_level = 0;
@@ -41,7 +42,6 @@ BEGIN
 		waitSTDOUTSemaphore
 		releaseSTDOUTSemaphore
 
-
 		pad
 		pad2
 		_def
@@ -61,6 +61,9 @@ BEGIN
 		filenameFromWin
         getTextFile
 		printVarToFile
+		diskFree
+		setTimestamp
+		my_mkdir
 
 		encode64
         decode64
@@ -94,19 +97,20 @@ our $DISPLAY_COLOR_ERROR 	= 3;
 
 my $STD_OUTPUT_HANDLE = -11;
 my $CONSOLE_STDOUT = Win32::Console->new($STD_OUTPUT_HANDLE);
-my $STD_ERROR_HANDLE = -12;
-my $CONSOLE_STDERR = Win32::Console->new($STD_ERROR_HANDLE);
+# my $STD_ERROR_HANDLE = -12;
+# my $CONSOLE_STDERR = Win32::Console->new($STD_ERROR_HANDLE);
 
-# choose whether to use STDOUT or STDERR
+# Weird - somehow now STDOUT no longer works in child apps
+# but it does work if handed to a variable like this:
 
-my $USE_CONSOLE = $CONSOLE_STDOUT;
 my $USE_HANDLE = *STDOUT;
+my $USE_CONSOLE = $CONSOLE_STDOUT;
 
-if (0)
-{
-	$USE_CONSOLE = $CONSOLE_STDERR;
-	$USE_HANDLE = *STDERR;
-}
+# if (0)
+# {
+# 	$USE_CONSOLE = $CONSOLE_STDERR;
+# 	$USE_HANDLE = *STDERR;
+# }
 
 
 #---------------
@@ -538,6 +542,87 @@ sub printVarToFile
 		close OFILE;
 	}
 }
+
+
+
+sub diskFree
+	# win32 only
+	# returns free space for the drive in the given $path.
+	# if no DRIVER_LETTER COLON is specified, defaults to C:
+{
+	my ($path) = @_;
+	my $drive = 'C:';
+	$drive = $1 if $path && $path =~ /^([A-Z]:)/i;
+	my ($SectorsPerCluster,
+		$BytesPerSector,
+		$NumberOfFreeClusters,
+		$TotalNumberOfClusters,
+		$FreeBytesAvailableToCaller,
+		$TotalNumberOfBytes,
+		$TotalNumberOfFreeBytes) = Win32::DriveInfo::DriveSpace($drive);
+	return $TotalNumberOfFreeBytes;
+
+}
+
+
+sub setTimestamp
+    # takes a delimited GMT timestamp
+    # and sets the given file's modification time.
+    # takes an optional parameter to accept a local
+    # file modification timestamp
+{
+	my ($filename,$ts,$local) = @_;
+    $filename =~ s/\/$//;
+        # for dirs with dangling slashes
+
+	$ts =~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/;
+	display(9,0,"setTimestamp($filename) = ($6,$5,$4,$3,$2,$1)");
+	my $to_time = $local ?
+        timelocal($6,$5,$4,$3,($2-1),$1) :
+        timegm($6,$5,$4,$3,($2-1),$1);
+	return utime $to_time,$to_time,$filename;
+}
+
+
+
+sub my_mkdir
+	# recursively make directories for a fully qualified path
+{
+	my ($path,$is_filename,$dbg_level) = @_;
+	$dbg_level ||= 0;
+
+	if ($path !~ /^(\/|[A-Z]:)/i)
+	{
+		error("unqualified path($path) in my_makedir");
+		return 0;
+	}
+
+	my @parts = split(/\//,$path);
+	pop @parts if $is_filename;
+	return 1 if !@parts;
+
+	my $dir = $parts[0] =~ /^[A-Z]:$/i ? shift @parts : '';
+	return 1 if !@parts;
+
+	while (@parts)
+	{
+		$dir .= "/".shift @parts;
+		if (!-d $dir)
+		{
+			display($dbg_level,0,"making directory $dir");
+			mkdir $dir;
+			if (!-d $dir)
+			{
+				error("Could not create sub_dir($dir)  for path($path)");
+				return 0;
+			}
+		}
+	}
+
+	return 1;
+}
+
+
 
 
 #--------------------------------------

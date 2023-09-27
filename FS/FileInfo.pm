@@ -27,7 +27,7 @@ our $dbg_text:shared = 1;
 BEGIN {
     use Exporter qw( import );
 	our @EXPORT = qw (
-        makepath
+        makePath
 		isValidInfo
 		dirInfoToText
 		textToDirInfo
@@ -59,8 +59,7 @@ sub new
 	#     but it still is a dangerous way to do things.
 {
     my ($class,
-        $session,
-		$is_dir,
+        $is_dir,
 		$dir,		# parent directory
         $entry,		# directory or filename
         $no_checks ) = @_;
@@ -74,7 +73,7 @@ sub new
 		$dir = '';
 	}
 
-	display($dbg_info,0,"FileInfo->new($is_dir,$is_dir,$dir,$entry)");
+	display($dbg_info,0,"FileInfo->new($is_dir,$dir,$entry)");
 
     my $this = shared_clone({
         is_dir    => $is_dir,
@@ -83,7 +82,7 @@ sub new
     bless $this,$class;
     return $this if ($no_checks);
 
-    my $filename = $dir ? makepath($dir,$entry) : $entry;
+    my $filename = $dir ? makePath($dir,$entry) : $entry;
 
 	# errors at $call_level=1 with $suppress_show
 	return error("directory $filename not found",1,1)
@@ -113,7 +112,7 @@ sub new
 }
 
 
-sub makepath
+sub makePath
     # static, handles '/'
 {
     my ($dir,$entry) = @_;

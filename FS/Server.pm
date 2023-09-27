@@ -560,7 +560,7 @@ sub processPacket
 	# The local file system is the context for command requests
 	# received by this base Server.
 
-	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3]);
+	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3],$this);
 	$rslt ||= '';
 
 	# Stops the thread/session if it can't send the packet
@@ -570,6 +570,51 @@ sub processPacket
 	$retval = 0 if $new_packet && $session->sendPacket($new_packet);
 	return $retval;
 }
+
+
+# The base class Server is $progress-like
+
+
+
+sub aborted
+{
+	my ($this) = @_;
+	my $packet;
+	my $err = $this->getPacket(\$packet);
+	return 1 if !$err && $packet && $packet =~ /^$PROTOCOL_ABORT/;
+	return 0;
+}
+
+
+sub addDirsAndFiles
+{
+	my ($this,$num_dirs,$num_files) = @_;
+    return 0 if $this->aborted();
+	my $packet = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
+	my $err = $this->sendPacket($packet);
+	return $err ? 0 : 1;
+}
+
+
+sub setEntry
+{
+	my ($this,$entry,$size) = @_;
+    return 0 if $this->aborted();
+	my $packet = "$PROTOCOL_PROGRESS\tENTRY\t$entry\t$size";
+	my $err = $this->sendPacket($packet);
+	return $err ? 0 : 1;
+}
+
+
+sub setDone
+{
+	my ($this,$is_dir) = @_;
+    return 0 if $this->aborted();
+	my $packet = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
+	my $err = $this->sendPacket($packet);
+	return $err ? 0 : 1;
+}
+
 
 
 1;

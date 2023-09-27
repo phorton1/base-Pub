@@ -11,6 +11,9 @@ closely mimics the Protocol.
 - **Server**
   - creates *ServerSession* by default
   - implements processPacket() to parse packets to parms and entries and call $session->doCommand()
+  - is progress-like
+    - implements aborted() to call getPacket() to see if an abort has been issued
+	- implements addDirsAndFiles, setEntry, and setDone, to send packets
   - **fileServer** is a vanilla *Server* executable program
 	- has while (1) {sleep(10;)} wait loop
   - **SerialBridge** - instantiated by **buddy**
@@ -26,8 +29,6 @@ closely mimics the Protocol.
     - **ServerSession**
 	  - implements doCommand() to call base class and convert FileInfo objects or error messages
 	    to packets that it sends back to the connected client
-	  - implements _delete() to recurse and send intermediate PROGRESS packets back
-	    to the client while checking for ABORT packets
 	  - Thus it always terminate with a FileInfo packet, or an ERROR or ABORTED text packet
 	- **SerialSession**
 	  - implements doSerialRequest() which serializes requests (packets) and sends them

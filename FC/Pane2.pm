@@ -85,9 +85,10 @@ sub doMakeDir
 			$PROTOCOL_MKDIR,	# command
 			$this->{dir},		# param1
 			$new_name,			# param2
-			undef,				# param3
-			undef,				# progress
-			'doMakeDir');		# caller
+			'',					# param3
+			'',					# progress
+			'doMakeDir',		# caller
+			'');				# other_session
 
 		return if $rslt && $rslt eq '-2';
 		$this->setContents($rslt);
@@ -163,8 +164,9 @@ sub onEndEditLabel
 		$this->{dir},			# param1
 		$this->{save_entry},	# param2
 		$entry,					# param3
-		undef,					# progress
-		'doMakeDir');			# calle
+		'',						# progress
+		'doMakeDir',			# caller
+		'');					# other_session
 
 	return if $info && $info eq '-2';
 		# PRH -2 indicates threaded command underway
@@ -239,9 +241,7 @@ sub doCommandSelected
     my $num_dirs = 0;
     my $ctrl = $this->{list_ctrl};
     my $num = $ctrl->GetItemCount();
-    my $other = $this->{pane_num} == 1 ?
-        $this->{parent}->{pane2}  :
-        $this->{parent}->{pane1}  ;
+	my $other = $this->otherPane();
 
 	my $display_command = $id == $COMMAND_XFER ?
 		'xfer' :
@@ -254,7 +254,6 @@ sub doCommandSelected
 	# and add the actual selected infos to it.
 
 	my $dir_info = Pub::FS::FileInfo->new(
-        $this->{session},
 		1,					# $is_dir,
 		undef,				# parent directory
         $this->{dir},		# directory or filename
@@ -314,34 +313,36 @@ sub doCommandSelected
 		CapFirst($display_command)." Confirmation");
 
 	my $command = $id == $COMMAND_XFER ?
-		$PROTOCOL_XFER :
+		$PROTOCOL_PUT :
 		$PROTOCOL_DELETE;
 	my $target_dir =
 
-	$this->{progress} = Pub::FC::ProgressDialog->new(
-		undef,
-		uc($display_command))
-		if $num_dirs || $num_files>1;
-
-	# call the command processor
-	# no progress dialog at this time
-	# note special case of single file
+	$this->{progress} = !$num_dirs && $num_files==1 ? '' :
+		Pub::FC::ProgressDialog->new(
+			undef,
+			uc($display_command));
 
 	my $param2 = !$num_dirs && $num_files == 1 ?
 		$first_entry :
 		$dir_info->{entries};
-
 
 	my $rslt = $this->{session}->doCommand(
 		$command,				# command
 		$this->{dir},			# param1
 		$param2,				# param2
 		$other->{dir},			# param3
-		undef,					# progress
-		'doCommandSelected');			# calle
+		$this->{progress},	  	# progress
+		'doCommandSelected',	# caller
+		$other->{session} );	# other_session
+
+	# ThreadedSession::doComand() is used for all non-local Sessions.
+	# It invariantly sets this->{thread} and returns -2 indicating that
+	# and there is a threaded command underway.
 
 	return if $rslt && $rslt eq '-2';
-		# PRH -2 means threaded command underway
+
+	# The base local Session will either return a valid info
+	# or $PROTOCOL_ABORTED
 
 	if ($rslt && $rslt =~ /^$PROTOCOL_ABORTED/)
 	{
@@ -352,14 +353,23 @@ sub doCommandSelected
 	$this->{progress}->Destroy() if $this->{progress};
 	$this->{progress} = undef;
 
-	# We repopulate regardless of the command result
-	# For Xfer the directory returned is the one that was modified
+	# For any DELETE we want to repopulate this pane with
+	#     $rslt which still might be a local DIR_LIST.
+	# However, for PUT we only want to repopulate the
+	#   OTHER pane if there IS a result, which should
+	#   generally be the case for a local Session, but
+	#   will be '' for a ThreadedSession
 
-	my $update_win = $id == $COMMAND_DELETE ?
-		$this : $other;
-
-	$update_win->setContents($rslt);
-	$update_win->populate();
+	if ($id == $COMMAND_DELETE)
+	{
+		$this->setContents($rslt);
+		$this->populate();
+	}
+	elsif ($rslt)
+	{
+		$other->setContents($rslt);
+		$other->populate();
+	}
 
 }   # doCommandSelected()
 

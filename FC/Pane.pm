@@ -144,6 +144,8 @@ sub new
 		$this->{session} = Pub::FS::Session->new();
 	}
 
+	$this->{session}->{NAME} .= "(pane$this->{pane_num})";
+
 	# create the {dir_ctrl{}
 
     $this->{dir_ctrl} = Wx::StaticText->new($this,-1,'',[10,0]);
@@ -199,6 +201,16 @@ sub new
 }   # filePane::new()
 
 
+# accessor for the "other" pane
+
+sub otherPane
+{
+	my ($this) = @_;
+	return $this->{pane_num} == 1 ?
+		$this->{parent}->{pane2} :
+		$this->{parent}->{pane1} ;
+}
+
 
 #--------------------------------------------
 # simple event handlers and layout
@@ -250,11 +262,8 @@ sub onRepopulate
 {
     my ($this,$event) = @_;
     display($dbg_pop,0,"onRepopulate()");
-    my $other = $this->{pane_num} == 1 ?
-        $this->{parent}->{pane2} :
-        $this->{parent}->{pane1} ;
     $this->populate(1);
-    $other->populate(1);
+    $this->otherPane()->populate(1);
 }
 
 
@@ -348,10 +357,7 @@ sub onCommandUI
 
     elsif ($id == $COMMAND_XFER)
     {
-		my $other = $this->{pane_num} == 1 ?
-			$this->{parent}->{pane2} :
-			$this->{parent}->{pane1};
-
+		my $other = $this->otherPane();
         $enabled &&= $ctrl->GetSelectedItemCount() &&
 			(!$port || $this->{session}->isConnected()) &&
 			(!$other->{port} || $other->{session}->isConnected());
@@ -611,9 +617,7 @@ sub compareLists
     my ($this) = @_;
 
     my $hash = $this->{hash};
-    my $other = $this->{pane_num} == 1 ?
-        $this->{parent}->{pane2} :
-        $this->{parent}->{pane1} ;
+    my $other = $this->otherPane();
     my $other_hash = $other->{hash};
 
     display($dbg_comp,0,"compareLists(pane$this->{pane_num},other$other->{pane_num}");
@@ -736,11 +740,13 @@ sub setContents
     {
 		$dir_info = $this->{session}->doCommand(
 			$PROTOCOL_LIST,
-			$dir,	# param1
-			undef,	# param2
-			undef,	# param3
-			undef,	# progress
-			'setContents');
+			$dir,			# param1
+			'',				# param2
+			'',				# param3
+			'',				# progress
+			'setContents',	# caller
+			'');			# other session
+
 		return if $dir_info && $dir_info eq '-2';
 			# PRH -2 indicates a threaded command underway
 	}
@@ -895,19 +901,17 @@ sub onDoubleClick
         }
         else
         {
-            $entry = makepath($dir,$entry);
+            $entry = makePath($dir,$entry);
         }
         $this->{dir} = $entry;
 
         my $follow = $this->{parent}->{follow_dirs}->GetValue();
 
-        my $other = $this->{pane_num} == 1 ?
-            $this->{parent}->{pane2} :
-            $this->{parent}->{pane1};
 		$this->setContents();
 
         if ($follow)
         {
+			my $other = $this->otherPane();
             $other->{dir} = $this->{dir};
             $other->setContents();
         }

@@ -50,6 +50,7 @@ sub new
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
+	$params->{RETURN_ERRORS} ||= 1;
 	my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
@@ -318,63 +319,61 @@ sub _delete
 # doCommand
 #------------------------------------------------------
 
-sub doCommand
-{
-    my ($this,
-		$command,
-        $param1,
-        $param2,
-        $param3,
-		$progress) = @_;
-
-	$command ||= '';
-	$param1 ||= '';
-	$param2 ||= '';
-	$param3 ||= '';
-	$progress ||= '';
-
-	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$param3) progress=$progress");
-
-	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
-
-	my $rslt;
-	if ($command eq $PROTOCOL_LIST)					# $dir
-	{
-		$rslt = $this->_list($param1);
-	}
-	elsif ($command eq $PROTOCOL_MKDIR)				# $dir, $subdir
-	{
-		$rslt = $this->_mkdir($param1,$param2);
-	}
-	elsif ($command eq $PROTOCOL_RENAME)			# $dir, $old_name, $new_name
-	{
-		$rslt = $this->_rename($param1,$param2,$param3);
-	}
-
-	# unlike base class we pass all deletes over the socket
-
-	elsif ($command eq $PROTOCOL_DELETE)			# $dir, $entries_or_filename, undef, $progress
-	{
-		$rslt = $this->_delete($param1,$param2,$progress);
-	}
-
-	# error if unsupported command
-
-	else
-	{
-		$rslt = error("$this->{NAME} unsupported command: $command",0,1);
-	}
-
-	# finished, unlike base class we don't report the error
-
-	$rslt ||= error("$this->{NAME} unexpected empty doCommand() rslt",0,1);
-
-	return $rslt;
-
-}	# ClientSession::doCommand()
-
-
-
+# sub doCommand
+# {
+#     my ($this,
+# 		$command,
+#         $param1,
+#         $param2,
+#         $param3,
+# 		$progress,
+# 		$caller,
+# 		$other_session) = @_;
+#
+# 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$param3)");
+# 		# ,".ref($progress).",$caller,".ref($other_session).") called");
+#
+# 	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
+#
+# 	my $rslt;
+# 	if ($command eq $PROTOCOL_LIST)					# $dir
+# 	{
+# 		$rslt = $this->_list($param1);
+# 	}
+# 	elsif ($command eq $PROTOCOL_MKDIR)				# $dir, $subdir
+# 	{
+# 		$rslt = $this->_mkdir($param1,$param2);
+# 	}
+# 	elsif ($command eq $PROTOCOL_RENAME)			# $dir, $old_name, $new_name
+# 	{
+# 		$rslt = $this->_rename($param1,$param2,$param3);
+# 	}
+#
+# 	# unlike base class we pass all deletes over the socket
+#
+# 	elsif ($command eq $PROTOCOL_DELETE)			# $dir, $entries_or_filename, undef, $progress
+# 	{
+# 		$rslt = $this->_delete($param1,$param2,$progress);
+# 	}
+#
+# 	# error if unsupported command
+#
+# 	else
+# 	{
+# 		$rslt = error("$this->{NAME} unsupported command: $command",0,1);
+# 	}
+#
+# 	# finished, unlike base class we don't report the error
+#
+# 	$rslt ||= error("$this->{NAME} unexpected empty doCommand() rslt",0,1);
+#
+# 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command) returning $rslt");
+# 	return $rslt;
+#
+# }	# ClientSession::doCommand()
+#
+#
+#
 
 
 1;

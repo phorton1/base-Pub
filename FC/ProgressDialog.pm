@@ -39,14 +39,14 @@ sub new
 {
     my ($class,
 		$parent,
-		$what,
+		$command,
 		$num_dirs,
 		$num_files) = @_;
 
 	$num_files ||= 0;
 	$num_dirs ||= 0;
 
-	display($dbg_fpd,0,"ProgressDialog::new($what,$num_files,$num_dirs)");
+	display($dbg_fpd,0,"ProgressDialog::new($command,$num_files,$num_dirs)");
 
 	$parent = getAppFrame() if !$parent;
 	$parent->Enable(0) if $parent;
@@ -54,28 +54,27 @@ sub new
     my $this = $class->SUPER::new($parent,$ID_WINDOW,'',[-1,-1],[500,230]);
 
 	$this->{parent} 	= $parent;
-	$this->{what} 		= $what;
+	$this->{command} 	= $command;
 	$this->{num_dirs} 	= $num_dirs;
 	$this->{num_files} 	= $num_files;
 	$this->{entry}      = '';
 	$this->{aborted}    = 0;
 	$this->{files_done} = 0;
 	$this->{dirs_done} 	= 0;
-	$this->{sub_range}  = 0;
-	$this->{sub_done}   = 0;
-	$this->{sub_msg}    = '';
+	$this->{byte_range} = 0;
+	$this->{bytes_done} = 0;
 
-	$this->{range}      = $num_files+$num_dirs-1;
+	$this->{range}      = $num_files + $num_dirs;
 	$this->{value}		= 0;
 
-	$this->{what_msg} 	= Wx::StaticText->new($this,-1,$what,	 [20,10],  [170,20]);
+	$this->{command_msg}= Wx::StaticText->new($this,-1,$command,	[20,10],  [170,20]);
 	$this->{dir_msg} 	= Wx::StaticText->new($this,-1,'',		 [200,10], [120,20]);
 	$this->{file_msg} 	= Wx::StaticText->new($this,-1,'',		 [340,10], [120,20]);
 	$this->{entry_msg} 	= Wx::StaticText->new($this,-1,'',		 [20,30],  [470,20]);
     $this->{gauge} 		= Wx::Gauge->new($this,$ID_GUAGE,0,		 [20,60],[455,20]);
-	$this->{sub_ctrl} 	= Wx::StaticText->new($this,-1,'', 		 [20,100],[455,20]);
-    $this->{sub_gauge} 	= Wx::Gauge->new($this,-1,$num_files+$num_dirs,[20,130],[455,16]);
-	$this->{sub_gauge}->Hide();
+
+    $this->{byte_guage} = Wx::Gauge->new($this,-1,$num_files+$num_dirs,[20,130],[455,16]);
+	$this->{byte_guage}->Hide();
 
     Wx::Button->new($this,$ID_CANCEL,'Cancel',[400,170],[60,20]);
 
@@ -144,7 +143,7 @@ sub update
 	my $dirs_done 	= $this->{dirs_done};
 	my $files_done 	= $this->{files_done};
 
-	my $title = "$this->{what} ";
+	my $title = "$this->{command} ";
 	$title .= "$num_dirs directories " if $num_dirs;
 	$title .= "and " if $num_files && $num_dirs;
 	$title .= "$num_files files " if $num_files;
@@ -180,17 +179,15 @@ sub update
         # $this->AddPendingEvent($new_event2);
 	}
 
-	$this->{sub_ctrl}->SetLabel($this->{sub_msg});
-
-	if ($this->{sub_range})
+	if ($this->{bytes_range})
 	{
-		$this->{sub_gauge}->SetRange($this->{sub_range});
-		$this->{sub_gauge}->SetValue($this->{sub_done});
-		$this->{sub_gauge}->Show();
+		$this->{byte_guage}->SetRange($this->{byte_range});
+		$this->{byte_guage}->SetValue($this->{bytes_done});
+		$this->{byte_guage}->Show();
 	}
 	else
 	{
-		$this->{sub_gauge}->Hide();
+		$this->{byte_guage}->Hide();
 	}
 
 	# yield occasionally
@@ -223,10 +220,12 @@ sub addDirsAndFiles
 
 sub setEntry
 {
-	my ($this,$entry) = @_;
-	display($dbg_fpd,0,"setEntry($entry)");
-
+	my ($this,$entry,$size) = @_;
+	$size ||= 0;
+	display($dbg_fpd,0,"setEntry($entry,$size)");
 	$this->{entry} = $entry;
+	$this->{byte_range} = $size;
+	$this->{bytes_done} = 0;
 	return $this->update();
 }
 
@@ -234,31 +233,17 @@ sub setDone
 {
 	my ($this,$is_dir) = @_;
 	display($dbg_fpd,0,"setDone($is_dir)");
-
 	$this->{$is_dir ? 'dirs_done' : 'files_done'} ++;
-	$this->{sub_range} = 0;
-	$this->{sub_msg} = '';
+	$this->{byte_range} = 0;
+	$this->{bytes_done} = 0;
 	return $this->update();
 }
 
-sub setSubRange
+sub updateBytes
 {
-	my ($this,$sub_range,$sub_msg) = @_;
-	display($dbg_fpd,0,"setSubRange($sub_range,$sub_msg)");
-
-	$this->{sub_done} = 0;
-	$this->{sub_msg} = $sub_msg;
-	$this->{sub_range} = $sub_range;
-	return $this->update();
-}
-
-sub updateSubRange
-{
-	my ($this,$sub_done,$sub_msg) = @_;
-	display($dbg_fpd,0,"updateSubRange($sub_msg)");
-
-	$this->{sub_done} = $sub_done;
-	$this->{sub_msg} = $sub_msg;
+	my ($this,$bytes) = @_;
+	display($dbg_fpd,0,"updateSubRange($bytes)");
+	$this->{bytes_done} = $bytes;
 	return $this->update();
 }
 

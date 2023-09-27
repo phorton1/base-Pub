@@ -7,7 +7,7 @@
 #
 # It actually wraps the thread around ClientSession::doCommand().
 #
-# ThreadedSession::doCommand() has an additional parameter, $caller,
+# ThreadedSession::doCommand() usds the $caller parameter,
 # which is ignored by the standard Session used by local Panes.
 #
 # When the ThreadedSession is constsructed, keeps a pointer to the Pane.
@@ -75,9 +75,11 @@ sub doCommand
         $param2,
         $param3,
 		$progress,		# ignored
-		$caller) = @_;
+		$caller,
+		$other_session ) = @_;
 
-	display($dbg_thread,0,"doCommand(pane$this->{pane}{pane_num},$command,$caller) called");
+	$other_session ||= '';
+	display($dbg_thread,0,"$this->{NAME} doCommand($command,$param1,$param2,$param3,".ref($progress).",$caller,".ref($other_session).") called");
 
 	# Without detaching or joining, each command eats 26M+ of memory
 	# and gives Perl exited with XXX threads, but I get to see the
@@ -101,11 +103,13 @@ sub doCommand
 
 	my $thread = threads->create(\&doCommandThreaded,
 		$this,
-		$caller,
 		$command,
 		$param1,
 		$param2,
-		$param3);
+		$param3,
+		$progress,
+		$caller,
+		$other_session);
 	$this->{pane}->{thread} = 1; # $thread;
 		# to prevent commands while in threaded command
 
@@ -133,7 +137,7 @@ sub doCommand
 	# 	display(0,-1,"threads=$thread_count running=$running joinable=$joinable");
 	# }
 
-	display($dbg_thread,0,"doCommand(pane$this->{pane}{pane_num},$command,$caller) returning -2");
+	display($dbg_thread,0,"$this->{NAME} doCommand($command) returning -2");
 	return -2;		# PRH -2 indicates threaded command in progress
 
 }
@@ -145,22 +149,27 @@ sub doCommandThreaded
 	local *STDERR;
 
     my ($this,
-		$caller,
 		$command,
         $param1,
         $param2,
-        $param3) = @_;
+        $param3,
+		$progress,
+		$caller,
+		$other_session) = @_;
 
-	warning($dbg_thread,0,"doCommandThreaded(pane$this->{pane}{pane_num},$command,$caller) called");
+	warning($dbg_thread,0,"$this->{NAME} doCommandThreaded($command,$param1,$param2,$param3,$caller)");
+		#.ref($progress).",$caller,".ref($other_session).") called");
 
 	my $rslt = $this->SUPER::doCommand(
 		$command,
 		$param1,
 		$param2,
 		$param3,
-		$this);		# progress replaced with a pointer to $this
+		$this,		# progress replaced with a pointer to $this
+		$caller,
+		$other_session );
 
-	warning($dbg_thread,0,"doCommandThreaded(pane$this->{pane}{pane_num},$command,$caller) got rslt=$rslt");
+	warning($dbg_thread,0,"$this->{NAME} doCommandThreaded($command) got rslt=$rslt");
 
 	# promote everything non-progress to a shared hash
 	# with a caller and pass it to onThreadEvent
@@ -174,7 +183,7 @@ sub doCommandThreaded
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
 
-	display($dbg_thread,0,"doCommandThreaded(pane$this->{pane}{pane_num},$command,$caller) finished");
+	display($dbg_thread,0,"$this->{NAME} doCommandThreaded($command)) finished");
 
 	# try different ways of killing the thread
 	# threads->detach();	# same as detaching anywhere else
@@ -191,7 +200,7 @@ sub aborted
 sub addDirsAndFiles
 {
 	my ($this,$num_dirs,$num_files) = @_;
-	display($dbg_thread,-1,"THIS->addDirsAndFiles($num_dirs,$num_files)");
+	display($dbg_thread,-1,"$this->{NAME}::addDirsAndFiles($num_dirs,$num_files)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
@@ -200,7 +209,7 @@ sub addDirsAndFiles
 sub setDone
 {
 	my ($this,$is_dir) = @_;
-	display($dbg_thread,-1,"THIS->setDone($is_dir)");
+	display($dbg_thread,-1,"$this->{NAME}::setDone($is_dir)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
@@ -209,7 +218,7 @@ sub setDone
 sub setEntry
 {
 	my ($this,$entry) = @_;
-	display($dbg_thread,-1,"THIS->setEntry($entry)");
+	display($dbg_thread,-1,"$this->{NAME}::setEntry($entry)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
@@ -251,12 +260,16 @@ sub onThreadEvent
 		my $command = $rslt->{command};
 		display($dbg_thread,1,"onThreadEvent caller($caller) command(($command) rslt=$rslt");
 
+		# if not a FileInfo demote created hashes back to outer $rslt
+
 		my $is_info = isValidInfo($rslt);
-		if (!$is_info)  # demote created hashes back to outer $rslt
+		if (!$is_info)
 		{
 			$rslt = $rslt->{rslt} || '';
 			display($dbg_thread,2,"inner rslt=$rslt");
 		}
+
+		# report ABORTS and ERRORS
 
 		if ($rslt =~ s/^$PROTOCOL_ERROR//)
 		{
@@ -269,15 +282,38 @@ sub onThreadEvent
 			$rslt = '';
 		}
 
+		# shut the progress dialog
+
 		$this->{progress}->Destroy() if $this->{progress};
 		$this->{progress} = undef;
 
+		#--------------------------
+		# POPULATE AS NECCESARY
+		#--------------------------
+		# Set special -1 value for setContents to display
+		# red could not get directory listing message
+
 		$rslt = $caller eq 'setContents' ? -1 : '' if !$is_info;
+
+		# endRename as a special case
 
 		if ($caller eq 'doRename')
 		{
 			$this->endRename($rslt);
 		}
+
+		# Invariantly re-populate other pane for PUT,
+
+		elsif ($command eq $PROTOCOL_PUT)
+		{
+			my $other = $this->otherPane();
+			$other->setContents($rslt);
+			$other->populate();
+		}
+
+		# or this one, except if there's no result and
+		# the caller was setContents()
+
 		elsif ($rslt || $caller ne 'setContents')
 		{
 			$this->setContents($rslt);

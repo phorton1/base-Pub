@@ -76,15 +76,23 @@ sub new
 	my $params1 = {
 		pane_num => 1,
 		dir => '/junk/data',
-		port => 0,				# equivilant to 'is_local'
-	};
+		port => 0 };				# equivilant to 'is_local'
+
 	my $params2 = {
 		pane_num => 2,
 		dir => $ARGV[0] ? '/' : "/junk",
 		host => 'localhost',
 		port => $ARGV[0] || $DEFAULT_PORT,		# !is_local
-		is_bridged => $ARGV[0] ? 1 : 0,			# will need this later
-	};
+		is_bridged => $ARGV[0] ? 1 : 0 };		# will need this later
+
+
+	if (0)
+	{
+		$params2 = {
+			pane_num => 2,
+			dir => '/junk/data',
+			port => 0 };			# equivilant to 'is_local'
+	}
 
     $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
     $this->{pane1}    = Pub::FC::Pane->new($this,$this->{splitter},$params1);
