@@ -5,15 +5,11 @@
 # A ClientSession is specifically running a SOCKET
 # to a Server of some type.
 #
-# This object shouldl likely be moved to FC:: and
-# encapsulate the threadedDoCommand.
-#
-# It completely overrides doCommand() to operate as
-# client to the socket it connects to, using the
-# PROTOCOL to communicate with it, and unlike the
+# It overrides the atomoix _XXX methods called by the base
+# Session to operate as client to the socket it connects to,
+# using the PROTOCOL to communicate with it, and unlike the
 # base class, it either returns valid FileInfo objects
 # or a text error message (including $PROTOCOL_ABORTED).
-
 
 
 package Pub::FS::ClientSession;
@@ -137,6 +133,7 @@ sub connect
 # overriden atomic commands from base Session
 #--------------------------------------------------------
 # each _method does socket packet protocol
+
 
 sub _list
 {
@@ -311,6 +308,14 @@ sub _delete
 	return $retval;
 
 }
+
+
+
+#---------------------------------------------
+# PUT protocol
+#---------------------------------------------
+
+
 
 
 

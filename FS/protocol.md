@@ -35,6 +35,7 @@ depend on the packet type.
 - PUT			dir target_dir [single_filename | (ENTRY_LIST)]
 - FILE          size ts fully_qualified_target_filename
 - BASE64		offset bytes ENCODED_CONTENT
+- BASE64 		0 0 ERROR - message
 - CONTINUE
 - OK
 
@@ -53,16 +54,12 @@ line containing the command and listed parameters, always including a
 fully qualified *dir* parameter, with subsequent lines containing
 a series of DIR_ENTRIES.
 
-The PUT packet is multiple lines with the first line containing
-the dir param, and the next line being a FILE_ENTRY for the PUT.
-
 
 ### ENTRY_LIST, DIR_LIST, DIR_ENTRY, and FILE_ENTRY
 
 In addition to the above packets which explicitly start with a protocol
-*verb*, final command *reply packets* typicially consist of a text
-representation of a directory listing or an entry within a directory
-listing.
+*verb*, some *command packets*, and most final *reply packets* consist
+of a text representation of all or part of a directory listing.
 
 A DIR_ENTRY is a tab delimited line of text consisting of three fields:
 
@@ -70,8 +67,8 @@ A DIR_ENTRY is a tab delimited line of text consisting of three fields:
 - the **timestamp** of a file or directory
 - the **name** of the file, or the name of the directory terminated with '/'
 
-If the name is not terminated with '/', the DIR_ENTRY can be considered
-to be a FILE_ENTRY.
+If the name is not terminated with '/', the DIR_ENTRY is also to be
+considered to be a FILE_ENTRY.
 
 An ENTRY_LIST is a series of lines containing DIR_ENTRIES
 that are relative to the fully qualified dir given in the command.
@@ -95,6 +92,7 @@ of the given dir upon success:
 - DELETE		dir (single_filename | entry_list]
 
 
+
 ### Session Connection
 
 A Session is initiated by a client after successfully
@@ -108,10 +106,9 @@ to start receiving command packets:
 - CLIENT <-- WASSUP
 
 Either the client or the server consider the Session to be
-irretrievably 'lost' (dead) if a call to *sendPacket()* fails (which
-apparently never happens), or a call to **getPacket()** *times out* or
-receives a *null (empty) reply* (which is the typical failure mode).
-In either case the method invalidates the Session (by setting the
+irretrievably 'lost' (dead) if a call to call to **getPacket()**
+*times out* or receives a *null (empty) reply*,
+In either case getPacket() invalidates the Session (by setting the
 *SOCK* member of the Session to NULL) which then ceases to call
 sendPacket() or getPacket().
 
@@ -171,20 +168,30 @@ Note that ENABLE and DISABLE use " - " (space dash space) as the
 delimiter between the verb and the message parameter.
 
 
-### ERROR
+### Terminal Packets - ERROR, ABORTED, OK
 
 Any command can terminate in an ERROR message.
-
 Regardless of the configuration, ERROR messages are ultimately
-sent to the FC::Pane that is executing the command,
-and reported to the user in a dialog box.
-
+shown to the user in a dialog box.
 Note that ERROR uses " - " (space dash space) as the
 delimiter between the verb and the message parameter.
 
+Session-like commands can terminate with ABORTED
+message if the command is ABORTED by the user.
+
+The PUT command can additionally terminate with OK,
+indicating that the PUT 'session' has completed
+successfully.
+
+There is a special case of a failure during a PUT
+command if the host cannot read from the file while
+generating a BASE64 packet where it returns an
+ERROR within the BASE64 packet.
+
+	BASE64 0 0 ERROR - msg
 
 
-### Synchronous Commands
+### Simple Commands
 
 - LIST			dir
 - MKDIR			dir name
@@ -203,19 +210,24 @@ in that case).
 There are no PROGRESS messages returned by these
 commands and they cannot be ABORTED once issued.
 
-Note that the Client Session::doCommand() handles local
+Note that the base Session::doCommand() handles local
 synchronous commands and so they never make it into protocol
 packets.
 
 
-### Asynchronous Commands
+### Session-like Commands
 
-The PUT and "DELETE dir ENTRY_LIST" commands can take
-a long time, can retun intermediate PROGRESS messages,
-and can be ABORTED.
+The PUT and "DELETE dir ENTRY_LIST" commands are session-like
+in nature can take a long time, can retun intermediate PROGRESS
+messages, and can be ABORTED.
 
 Upon final success DELETE returns a DIR_LIST.
-Protocol-wise, upon final success PUT returns an OK.
+Upon final success PUT returns an OK.
+
+*note that we are talking about the PROTOCOL. In the
+implementation of doCommand() PUT can return a DIR_LIST
+for the 'other' pane upon success, depending on the
+context of the doCommand() call.*
 
 PROGRESS messages are sent from the Server to the Client to
 give the client information needed to update a progress dialog.
@@ -225,6 +237,106 @@ give the client information needed to update a progress dialog.
 	PROGRESS ENTRY  entry  [size]       // displays the path or filename. sets the range if [size] or hides guage if not
 	PROGRESS BYTES  bytes               // set the value for the 2nd bytes transferred gauge
 
-ABORT can be sent by the Client to stop an asyncrhonous command,
+ABORT can be sent by the Client to stop an session-like command,
 which case the Server returns ABORTED to acknowledge the cessation
 has taken place.
+
+
+
+### PUT Protocol
+
+PUT commands are sent to the HOST device which has local access to the
+file system containing the files for the PUT command. It then
+sends FILE and BASE64 commands to the CLIENT device which is receiving
+the file and which writes it out to its file system.
+
+	CLIENT 	--> PUT dir target_dir [single_filename | (ENTRY_LIST)]
+	HOST 	<-- PUT dir target_dir [single_filename | (ENTRY_LIST)]
+
+The HOST recurses it's local file system as necessary to send
+one or more FILE messages back to the CLIENT, and for each
+FILE message, zero or more BASE64 messages.  For 0 sized
+files there is an understanding that no BASE64 packets will
+be sent for that particular file and the CLIENT will immediately
+reply with OK.
+
+	HOST 	--> FILE size ts fully_qualified_target_filename
+	CLIENT  <-- FILE size ts fully_qualified_target_filename
+	CLIENT  --> CONTINUE | OK | ERROR | ABORTED
+	HOST 	<-- CONTINUE | OK | ERROR | ABORTED
+
+While the HOST receives appropriate CONTINUE messages, it will
+continue to send BASE64 messages
+
+	HOST	--> BASE64 offset bytes ENCODED_CONTENT
+	CLIENT  <-- BASE64 offset bytes ENCODED_CONTENT
+	CLIENT  --> CONTINUE | OK | ERROR | ABORTED
+	HOST 	<-- CONTINUE | OK | ERROR | ABORTED
+
+When the HOST has finished successfully sending all of the
+files, it will reply with its own OK message signalling
+that the PUT session is finished.
+
+	HOST 	--> OK
+	CLIENT	<-- OK
+
+#### Unsuccesful termination of a PUT session
+
+PUT sessions can terminate for a number of different reasons.
+There is a general agreement between the HOST and the CLIENT
+that a session that a FILE in progress that is terminated
+will also terminate the PUT session, however, in all cases
+the PUT session itself is terminated with a final message
+back to the client.  Here are some examples.
+
+PUT session terminated because client could not open the output file:
+
+	...
+	HOST 	--> FILE size ts fully_qualified_target_filename
+	CLIENT  <-- FILE size ts fully_qualified_target_filename
+		// at this point the client gets an error opening the file
+		// and effectively ends its PUT session
+	CLIENT  --> ERROR - could not open file for output
+	HOST 	<-- ERROR - could not open file for output
+		// host stops sending any more FILE or BASE64 messages.
+		// and ends it's put session without sending any more
+		// messages
+
+PUT session ABORTED by the client during a BASE64 message:
+
+	...
+	HOST 	--> BASE64 offset bytes ENCODED_CONTENT
+	CLIENT  <-- BASE64 offset bytes ENCODED_CONTENT
+	CLIENT  --> ABORTED
+		// client closes and unlinks its output file
+		// and ends it's PUT session
+	HOST 	<-- ABORTED
+		// host stops sending any more FILE or BASE64 messages.
+		// and ends it's put session without sending any more
+		// messages
+
+PUT session terminated because host gets an error reading the file:
+
+	...
+	HOST 	--> BASE64 0 0 ERROR - could not read from file
+	CLIENT  <-- BASE64 0 0 ERROR - could not read from file
+		// At this point the client closes and unlinks its output file
+		// Both sides know the PUT session has been terminated.
+		// and no more messges will be sent
+
+#### PROGRESS messages during a PUT session
+
+The host is the only one who can know how many dirs and files
+are being transferred, so it sends the PROGRESS ADD messages.
+
+However, the FILE and BASE64 messages already contain enough
+information for the Client to update the progress for
+PROGRESS ENTRY, BYTES, and DONE, so the HOST does not
+send those messags.
+
+A special case is the SerialSession communicating over a
+socket to the windows App.   In this case, the Serial Session
+is actualing doing the protocol with the SerialServer,
+and generally only forwarding PROGRESS and terminal messages
+back to the App.  And so, in that case, it will send
+PROGRESS ENTRY, BYTES, and DONE messages back to the App.

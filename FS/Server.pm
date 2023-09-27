@@ -521,9 +521,11 @@ sub processPacket
 	# socket connection to the client.
 {
 	my ($this,$session,$packet) = @_;
+
 	my @lines = split(/\r/,$packet);
 	my $line = shift @lines;
 	$line =~ s/\s$//g;
+
 	my @params = split(/\t/,$line);
 	$params[0] ||= '';
 	$params[1] ||= '';
@@ -560,7 +562,8 @@ sub processPacket
 	# The local file system is the context for command requests
 	# received by this base Server.
 
-	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3],$this,'','');
+	$session->{progress} = $this;
+	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3]);
 	$rslt ||= '';
 
 	# Stops the thread/session if it can't send the packet

@@ -1,8 +1,9 @@
 #!/usr/bin/perl
 #-------------------------------------------
-# filePane
+# FC::Pane
 #-------------------------------------------
 # The workhorse window of the application.
+#
 # For a discussion if threads in wxPerl, see:
 # https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
 
@@ -30,10 +31,8 @@ use Wx::Event qw(
 use Pub::Utils;
 use Pub::WX::Dialogs;
 use Pub::FS::FileInfo;
-# use Pub::FS::Session;
-use Pub::FC::ThreadedSession;
+use Pub::FS::ClientSession;
 use Pub::FC::Resources;
-
 use base qw(Wx::Window);
 
 
@@ -60,6 +59,7 @@ BEGIN {
 
 
 our $COMMAND_REPOPULATE = 8765;
+our $THREAD_EVENT:shared = Wx::NewEventType;
 
 
 #-----------------------------------
@@ -112,7 +112,7 @@ sub new
     my ($class,$parent,$splitter,$params) = @_;
     my $this = $class->SUPER::new($splitter);
 
-	display($dbg_life,0,"new $params->{pane_num} port=$params->{port}");
+	display($dbg_life,0,"new Pane($params->{pane_num}) port=$params->{port}");
 
     $this->{parent}    = $parent;
     $this->{dir}       = $params->{dir};
@@ -130,7 +130,7 @@ sub new
 		my $use_instance = $params->{pane_num} * 100 +
 			$parent->{instance};
 
-		$this->{session} = Pub::FC::ThreadedSession->new({
+		$this->{session} = Pub::FS::ClientSession->new({
 			pane => $this,
 			HOST => $params->{host},
 			PORT => $params->{port},
@@ -189,12 +189,9 @@ sub new
     EVT_LIST_ITEM_SELECTED($ctrl,-1,\&onItemSelected);
     EVT_LIST_ITEM_ACTIVATED($ctrl,-1,\&onDoubleClick);
 
-	# in fileClientCommands.pm
-
     EVT_LIST_BEGIN_LABEL_EDIT($ctrl,-1,\&onBeginEditLabel);
     EVT_LIST_END_LABEL_EDIT($ctrl,-1,\&onEndEditLabel);
-	EVT_COMMAND($this, -1, $THREAD_EVENT, \&onThreadEvent )
-		if $this->{port};
+	EVT_COMMAND($this, -1, $THREAD_EVENT, \&onThreadEvent );
 
     return $this;
 
@@ -738,15 +735,10 @@ sub setContents
 
     if (!$dir_info)
     {
-		$dir_info = $this->{session}->doCommand(
+		$dir_info = $this->doCommand(
+			'setContents',
 			$PROTOCOL_LIST,
-			$dir,			# param1
-			'',				# param2
-			'',				# param3
-			'',				# progress
-			'setContents',	# caller
-			'');			# other session
-
+			$dir);
 		return if $dir_info && $dir_info eq '-2';
 			# PRH -2 indicates a threaded command underway
 	}

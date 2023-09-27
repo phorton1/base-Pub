@@ -16,8 +16,8 @@ use Pub::FS::FileInfo;
 use Pub::FS::ClientSession;
 use Pub::FC::Dialogs;
 use Pub::FC::ProgressDialog;
-use Pub::FC::Pane;		# needed for $COMMAND_XXXX
-use base qw(Wx::Window);
+use Pub::FC::Pane;		# for $COMMAND_XXXX
+
 
 my $dbg_ops  = 0;		# commands
 	# -1, -2 = more detail
@@ -81,14 +81,11 @@ sub doMakeDir
 
     if ($dlg_rslt == wxID_OK)
 	{
-		my $rslt = $this->{session}->doCommand(
-			$PROTOCOL_MKDIR,	# command
-			$this->{dir},		# param1
-			$new_name,			# param2
-			'',					# param3
-			'',					# progress
-			'doMakeDir',		# caller
-			'');				# other_session
+		my $rslt = $this->doCommand(
+			'doMakeDir',
+			$PROTOCOL_MKDIR,
+			$this->{dir},
+			$new_name);
 
 		return if $rslt && $rslt eq '-2';
 		$this->setContents($rslt);
@@ -159,14 +156,12 @@ sub onEndEditLabel
 
 	return if $is_cancelled || $entry eq $this->{save_entry};
 
-	my $info = $this->{session}->doCommand(
-		$PROTOCOL_RENAME,		# command
-		$this->{dir},			# param1
-		$this->{save_entry},	# param2
-		$entry,					# param3
-		'',						# progress
-		'doMakeDir',			# caller
-		'');					# other_session
+	my $info = $this->doCommand(
+		'doMakeDir',
+		$PROTOCOL_RENAME,
+		$this->{dir},
+		$this->{save_entry},
+		$entry);
 
 	return if $info && $info eq '-2';
 		# PRH -2 indicates threaded command underway
@@ -326,16 +321,14 @@ sub doCommandSelected
 		$first_entry :
 		$dir_info->{entries};
 
-	my $rslt = $this->{session}->doCommand(
-		$command,				# command
-		$this->{dir},			# param1
-		$param2,				# param2
-		$other->{dir},			# param3
-		$this->{progress},	  	# progress
-		'doCommandSelected',	# caller
-		$other->{session} );	# other_session
+	my $rslt = $this->doCommand(
+		'doCommandSelected',
+		$command,
+		$this->{dir},
+		$param2,
+		$other->{dir} );
 
-	# ThreadedSession::doComand() is used for all non-local Sessions.
+	# doCommandThreaded is used for all non-local Sessions and PUTS
 	# It invariantly sets this->{thread} and returns -2 indicating that
 	# and there is a threaded command underway.
 

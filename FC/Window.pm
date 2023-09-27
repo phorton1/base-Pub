@@ -25,7 +25,8 @@ use Pub::WX::Window;
 use Pub::FS::ClientSession;		# for $DEFAULT_PORT
 use Pub::FC::Resources;
 use Pub::FC::Pane;
-use Pub::FC::Pane2;
+use Pub::FC::PaneCommand;
+use Pub::FC::PaneThread;
 use base qw(Wx::Window Pub::WX::Window);
 
 

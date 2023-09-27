@@ -63,15 +63,16 @@ sub doCommand
 		$command,
         $param1,
         $param2,
-        $param3,
-		$progress,					# the Server is a progress thing
-		$caller,					# unused on server
-		$other_session) = @_;		# unused on server
+        $param3) = @_;		# unused on server
+
+	$param1 ||= '';
+	$param2 ||= '';
+	$param3 ||= '';
 
 	my $show3 = $command eq $PROTOCOL_BASE64 ?
 		length($param3)." encoded bytes" : $param3;
 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$show3) called");
-	my $rslt = $this->SUPER::doCommand($command,$param1,$param2,$param3,$progress,'','');
+	my $rslt = $this->SUPER::doCommand($command,$param1,$param2,$param3);
 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command) returning $rslt");
 
 	my $packet = $rslt;

@@ -6,8 +6,9 @@
 #
 # The base Session is purely local and has no SOCK.
 #
-# The doCommand() method returns FS::FileInfo objects
-# or reports an error() and returns ''.
+# By default, the ase doCommand() method returns FS::FileInfo
+# objects or reports an error() and returns ''. It can
+# be made to return errors by setting $this->{RETURN_ERRORS}.
 
 package Pub::FS::Session;
 use strict;
@@ -104,8 +105,6 @@ sub new
 #------------------------------------------------------
 # local atomic commands
 #------------------------------------------------------
-# return a valid FileInfo directory objects or a
-# text error(with call_level 0, and suppress_show)
 
 sub _list
 	# $dir must be fully qualified
@@ -172,7 +171,7 @@ sub _rename
 }
 
 
-sub deleteCallback
+sub _deleteOne
 {
 	my ($this,
 		$is_dir,
@@ -208,13 +207,13 @@ sub _delete
 	my $rslt;
 	if (!ref($entries))
 	{
-		$rslt = $this->deleteCallback(0,$dir,$entries,'');
+		$rslt = $this->_deleteOne(0,$dir,$entries,'');
 	}
 	else
 	{
 		my $rslt = $this->recurseFxn(
 			'_delete',
-			\&deleteCallback,
+			\&_deleteOne,
 			$dir,
 			$entries,
 			'');					# unused target_dir for DELETE
@@ -229,23 +228,30 @@ sub _delete
 #  _file(), and _base64()
 #------------------------------------------------------
 
-
-sub closeFile
+sub initPut
 {
 	my ($this) = @_;
-	display($dbg_commands,0,"$this->{NAME} closeFile($this->{file_name})");
-
-	$this->{file_handle}->close()
-		if $this->{file_handle};
-	unlink $this->{file_temp_name}
-		if $this->{file_temp_name} && -f $this->{file_temp_name};
-
 	$this->{file_handle} = '';
 	$this->{file_size}   = '';
 	$this->{file_ts} 	 = '';
 	$this->{file_name} 	 = '';
 	$this->{file_temp_name} = '';
 	$this->{file_offset} = 0;
+}
+
+sub closeFile
+{
+	my ($this) = @_;
+	display($dbg_commands,0,"$this->{NAME} closeFile($this->{file_name})");
+
+	if ($this->{file_handle})
+	{
+		$this->{file_handle}->close();
+		unlink $this->{file_temp_name} ?
+			$this->{file_temp_name} :
+			$this->{file_name};
+	}
+	$this->initPut();
 }
 
 
@@ -293,6 +299,7 @@ sub _file
 		$ts,
 		$full_name) = @_;
 
+	$this->initPut();
 	display($dbg_commands,0,"$this->{NAME} _file($size,$ts,$full_name)");
 	my $free = diskFree();
 
@@ -357,7 +364,11 @@ sub _base64
 	my $len = length($content);
 	display($dbg_commands,0,"$this->{NAME} _base64($offset,$bytes,$len encoded_bytes)");
 
-	if ($offset != $this->{file_offset})
+	if ($content =~ s/^$PROTOCOL_ERROR//)
+	{
+		$rslt = $content;
+	}
+	elsif ($offset != $this->{file_offset})
 	{
 		$rslt = error("$this->{NAME} _base64 Unexpected offset($offset) for =($this->{file_name}) expected($this->{file_offset}")
 	}
@@ -423,7 +434,7 @@ sub _base64
 # _put
 #-----------------------------------------------------
 
-sub putCallback
+sub _putOne
 {
 	my ($this,
 		$is_dir,
@@ -433,7 +444,7 @@ sub putCallback
 
 	# just getting file across to begin with ..
 
-	display($dbg_commands,0,"$this->{NAME} putCallback($is_dir,$dir,$entry,$target_dir)");
+	display($dbg_commands,0,"$this->{NAME} _putOne($is_dir,$dir,$entry,$target_dir)");
 	return if $is_dir;
 
 	# ThreadedCommands for FILE and BASE64 will need some work ..
@@ -451,7 +462,7 @@ sub putCallback
 		my $other_full_name = makePath($target_dir,$entry);
 		if (!open(my $fh, "<", $full_name))
 		{
-			$rslt = error("$this->{NAME} putCallback($full_name) could not open file for reading");
+			$rslt = error("$this->{NAME} _putOne($full_name) could not open file for reading");
 		}
 		else
 		{
@@ -463,30 +474,30 @@ sub putCallback
 				$other_full_name,
 				'','','');
 
-		    # how do we tell the other size we are stopping
-			# on errors ?!?!?  BASE64 0 0 ABORTED?
-
 			my $offset = 0;
+			my $err_msg = '';
 			while ($rslt eq $PROTOCOL_CONTINUE)
 			{
 				my $data = '';
 				my $bytes = $size - $offset;
 				$bytes = $DECODED_BUF_SIZE if $bytes > $DECODED_BUF_SIZE;
+
 				if ($bytes <= 0)
 				{
-					$rslt = error("$this->{NAME} putCallback($full_name) unexpected CONTINUE at offset($offset) size($size)");
+					$err_msg = "$this->{NAME} _putOne($full_name) unexpected CONTINUE at offset($offset) size($size)";
 					last;
 				}
+
 				my $got = sysread($fh, $data, $bytes);
 				if ($got != $bytes)
 				{
-					$rslt = error("$this->{NAME} _base64 bad read($got) expected($bytes)");
+					$err_msg = "$this->{NAME} _putOne bad read($got) expected($bytes)";
 					last;
 				}
 				else
 				{
 					my $calc_cs = calcChecksum($data);
-					display($dbg_commands+1,1,"$this->{NAME} _put calc_cs($calc_cs)");
+					display($dbg_commands+1,1,"$this->{NAME} _putOne calc_cs($calc_cs)");
 					my $cs_bytes =
 						chr(($calc_cs >> 24) & 0xff).
 						chr(($calc_cs >> 16) & 0xff).
@@ -498,8 +509,7 @@ sub putCallback
 					$rslt = $this->{other_session}->doCommand($PROTOCOL_BASE64,
 						$offset,
 						$bytes,
-						$encoded,
-						'','','');
+						$encoded);
 
 					$offset += $bytes;
 
@@ -507,7 +517,21 @@ sub putCallback
 			}	# $rslt eq $PROTOCOL_CONTINUE;
 
 			close $fh;
-			display($dbg_commands,0,"$this->{NAME} putCallback() ended with $rslt");
+
+			# in the case of an error reading the file
+			# once we have sent a FILE and received CONTINUE,
+			# we call the other with a BASE64 0 0 ERROR message,
+			# but do not check the results of the call
+
+			if ($err_msg)
+			{
+				error($err_msg);
+				$rslt = $err_msg;
+				$this->{other_session}->doCommand($PROTOCOL_BASE64,0,0,
+					$PROTOCOL_ERROR.$err_msg);
+			}
+
+			display($dbg_commands,0,"$this->{NAME} _putOne() ended with $rslt");
 			$rslt = '' if $rslt eq $PROTOCOL_OK;
 
 		}	# file opened
@@ -521,23 +545,6 @@ sub putCallback
 
 
 sub _put
-	# yikes - i don't think I can implement sparse creation
-	# of empty dirs on the remote, cuz I don't know if they
-	# ARE empty on the remote.  The best I can do is tell it
-	# to make dirs which are empty on my side, but don't report
-	# errors.
-	#
-	# The optimization idea is that PUT keeps track of the last file
-	# transferred, i.e. /junk/data/songs/bigRiver.song, from which
-	# it can tell that any subirectories of that HAVE been created
-	# as it unwinds in a depth first manner.
-	#
-	# So this PUT ONLY sends MKDIR commands to the other guy if it
-	# is empty on our side, and not a subdirectory, but we need
-	# a new VERB, or parameter, to tell it to not report an error
-	# if the directory already exists (or is a file or whatever).
-	#
-	# For now, let's just try to do files.
 {
 	my ($this,
 		$dir,
@@ -554,13 +561,13 @@ sub _put
 	{
 		$rslt = $PROTOCOL_ABORTED if $this->{progress} &&
 			!$this->{progress}->addDirsAndFiles(0,1);
-		$rslt ||= $this->putCallback(0,$dir,$entries,$target_dir);
+		$rslt ||= $this->_putOne(0,$dir,$entries,$target_dir);
 	}
 	else
 	{
 		$rslt = $this->recurseFxn(
 			'_put',
-			\&putCallback,
+			\&_putOne,
 			$dir,
 			$entries,
 			$target_dir);
@@ -721,9 +728,6 @@ sub recurseFxn
 #------------------------------------------------------
 # doCommand
 #------------------------------------------------------
-# $caller is usually undef and unused by local Seesion
-# $other_session is the destination session, if available,
-# for PUTs
 
 sub doCommand
 {
@@ -731,20 +735,15 @@ sub doCommand
 		$command,
         $param1,
         $param2,
-        $param3,
-		$progress,
-		$caller,
-		$other_session) = @_;
+        $param3) = @_;
 
-	$this->{progress} = $progress;
-	$this->{caller} = $caller;
-	$this->{other_session} = $other_session;
+	$param1 ||= '';
+	$param2 ||= '';
+	$param3 ||= '';
 
 	my $show3 = $command eq $PROTOCOL_BASE64 ?
 		length($param3)." encoded bytes" : $param3;
 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$show3)");
-
-	# For these calls param1 MUST BE A FULLY QUALIFIED DIR
 
 	my $rslt;
 	if ($command eq $PROTOCOL_LIST)					# $dir
@@ -759,45 +758,28 @@ sub doCommand
 	{
 		$rslt = $this->_rename($param1,$param2,$param3);
 	}
-
-	# for DELETE and PUT a single filename name or list of entries
-
 	elsif ($command eq $PROTOCOL_DELETE)			# $dir, $entries_or_filename
 	{
 		$rslt = $this->_delete($param1,$param2);
 	}
-	elsif ($command eq $PROTOCOL_PUT)			# $dir, $target_dir, $entries_or_filename
+	elsif ($command eq $PROTOCOL_PUT)				# $dir, $target_dir, $entries_or_filename
 	{
 		$rslt = $this->_put($param1, $param2, $param3);
 	}
-
-	# File handling protocols
-
-	elsif ($command eq $PROTOCOL_FILE)			# $size, $ts, $fully_qualified_local_filename
+	elsif ($command eq $PROTOCOL_FILE)				# $size, $ts, $fully_qualified_local_filename
 	{
 		$rslt = $this->_file($param1, $param2, $param3);
 	}
-	elsif ($command eq $PROTOCOL_BASE64)		# $offset, $bytes, ENCODED_CONTENT
+	elsif ($command eq $PROTOCOL_BASE64)			# $offset, $bytes, ENCODED_CONTENT
 	{
 		$rslt = $this->_base64($param1, $param2, $param3);
 	}
-
-
-	# error for unsupported commands
-
 	else
 	{
 		$rslt = error("$this->{NAME} unsupported command: $command",0,1);
 	}
 
-	# finished, error have already been reported ?!?!
-
 	$rslt ||= error("$this->{NAME} unexpected empty doCommand() rslt",0,1);
-
-	# RETURN_ERRORS == 0 for the base Session as used by the
-	# Pane, as it reports errors in realtime, and expects a
-	# blank or a FileInfo.  Other Session expects a file_info
-	# or an error.
 
 	if (!isValidInfo($rslt) && $rslt ne $PROTOCOL_ABORTED)
 	{

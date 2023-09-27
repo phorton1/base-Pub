@@ -577,8 +577,11 @@ sub setTimestamp
 	my ($filename,$ts,$local) = @_;
     $filename =~ s/\/$//;
         # for dirs with dangling slashes
-
-	$ts =~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/;
+	if ($ts !~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/)
+	{
+		error("bad timeStamp($ts)");
+		return 0;
+	}
 	display(9,0,"setTimestamp($filename) = ($6,$5,$4,$3,$2,$1)");
 	my $to_time = $local ?
         timelocal($6,$5,$4,$3,($2-1),$1) :
@@ -591,7 +594,16 @@ sub gmtToLocalTime
     # and returns a local date time in the same format.
 {
     my ($ts) = @_;
-	$ts =~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/;
+
+	# catch bad epoch from unix like system
+
+	$ts = '2000-01-01 01:00:00'
+		if $ts lt '2000-01-01 01:00:00';
+		if ($ts !~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/)
+	{
+		error("bad timeStamp($ts)");
+		return 0;
+	}
 	my $gm_time = timegm($6,$5,$4,$3,($2-1),$1);
 	my @time_parts = localtime($gm_time);
 	return

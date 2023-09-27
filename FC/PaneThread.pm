@@ -14,91 +14,66 @@
 # to point to the onThreadedEvent method. This allows the thread to
 # communnicate back to the (Pane) UI using WX events.
 
-package Pub::FC::ThreadedSession;
+
+package Pub::FC::Pane;	# continued
 use strict;
 use warnings;
 use threads;
 use threads::shared;
 use Wx qw(:everything);
-use IO::Socket::INET;
 use Pub::Utils;
 use Pub::FS::FileInfo;
-use Pub::FS::ClientSession;
-use base qw(Pub::FS::ClientSession);
-
-our $dbg_thread = 0;
-our $dbg_idle = 0;
-
-our $THREAD_EVENT:shared = Wx::NewEventType;
+use Pub::FS::ClientSession;	# for $PROTOCOL_XXX
+use Pub::FC::Pane;			# for $THREAD_EVENT
 
 
-BEGIN {
-    use Exporter qw( import );
-	our @EXPORT = (
-		qw (
-			$dbg_thread
-			$dbg_idle
+# package Pub::FC::ThreadedSession;
+# use strict;
+# use warnings;
+# use threads;
+# use threads::shared;
+# use Wx qw(:everything);
+# use IO::Socket::INET;
+# use Pub::Utils;
+# use Pub::FS::ClientSession;
+# use base qw(Pub::FS::ClientSession);
 
-			$THREAD_EVENT
-		),
-	    # forward base class exports
-        @Pub::FS::ClientSession::EXPORT,
-	);
-};
-
-
-
-
-sub new
-	# requires $params->{pane}
-{
-	my ($class, $params) = @_;
-	$params ||= {};
-	$params->{NAME} ||= "ThreadedSession";
-	my $this = $class->SUPER::new($params);
-	return if !$this;
-	bless $this,$class;
-	return $this;
-}
+my $dbg_thread = 0;
+my $dbg_idle = 0;
 
 
 #------------------------------------------------------
 # doCommand
 #------------------------------------------------------
 
-
 sub doCommand
 {
     my ($this,
+		$caller,
 		$command,
         $param1,
         $param2,
-        $param3,
-		$progress,		# ignored
-		$caller,
-		$other_session ) = @_;
+        $param3 ) = @_;
 
-	$other_session ||= '';
+	$param1 ||= '';
+	$param2 ||= '';
+	$param3 ||= '';
 
 	my $show3 = $command eq $PROTOCOL_BASE64 ?
 		length($param3)." encoded bytes" : $param3;
-	display($dbg_thread,0,"$this->{NAME} doCommand($command,$param1,$param2,$show3,$caller");
+	display($dbg_thread,0,"Pane$this->{pane_num} doCommand($caller,$command,$param1,$param2,$show3)");
 
-	# Without detaching or joining, each command eats 26M+ of memory
-	# and gives Perl exited with XXX threads, but I get to see the
-	# debugging output.
+	my $session = $this->{session};
+	$session->{caller} = $caller || '';
+	$session->{progress} = $this->{progress};
 
-	# Detaching loses STDOUT.
-	# Various efforts to keep STDOUT/STDERR working
-	# 	 local *STDOUT;
-	# 	 local *STDERR;
-	# 	 my $SAVE_STDOUT = *STDOUT;
-	# 	 my $SAVE_STDERR = *STDERR;
-	# 	 open(STDERR,">&MY_ERR") if !$first;
-	# 	 open(MY_OUT,">&STDERR");
-	# 	 open(STDERR, ">&STDOUT");
-	# 	 open(STDERR, ">>/junk/xyz2.txt") || die "PRH Error stderr: $!";
-	# 	 open(STDOUT, ">>/junk/xyz.txt") || die "PRH Error stderr: $!";
+	my $other_pane = $this->otherPane();
+	$session->{other_session} = $other_pane ? $other_pane->{session} : '';
+
+	# Cases of direct calls to $this->{session}->doCommand()
+
+	return $session->doCommand($command,$param1,$param2,$param3)
+		if !$this->{port} || $command ne $PROTOCOL_PUT;
 
 	# @_ = ();
 		# said to be necessary to avoid "Scalars leaked"
@@ -109,36 +84,16 @@ sub doCommand
 		$command,
 		$param1,
 		$param2,
-		$param3,
-		$progress,
-		$caller,
-		$other_session);
-	$this->{pane}->{thread} = 1; # $thread;
+		$param3);
+
+	$this->{thread} = 1; # $thread;
 		# to prevent commands while in threaded command
-
-	# *STDOUT = $SAVE_STDOUT;
-	# *STDERR = $SAVE_STDERR;
-	# close(STDOUT);
-	# open(STDERR, ">&MY_OUT");
-	# open(MY_ERR, ">&STD_ERR");
-
-	# no warnings 'threads';
-		# Set in in FC::Window::onClose()
-		# to prevent showing Perl exited with XXX threads message
 
 	###### THE ISSUE #######
 
 	# $thread->detach();
 
 	########################
-	#
-	# if (0)
-	# {
-	# 	my $thread_count = threads->list();
-	# 	my $running = threads->list(threads::running);
-	# 	my $joinable = threads->list(threads::joinable);
-	# 	display(0,-1,"threads=$thread_count running=$running joinable=$joinable");
-	# }
 
 	display($dbg_thread,0,"$this->{NAME} doCommand($command) returning -2");
 	return -2;		# PRH -2 indicates threaded command in progress
@@ -148,33 +103,28 @@ sub doCommand
 
 sub doCommandThreaded
 {
-	local *STDOUT;
-	local *STDERR;
-
     my ($this,
 		$command,
         $param1,
         $param2,
-        $param3,
-		$progress,
-		$caller,
-		$other_session) = @_;
+        $param3) = @_;
 
 	my $show3 = $command eq $PROTOCOL_BASE64 ?
 		length($param3)." encoded bytes" : $param3;
-	warning($dbg_thread,0,"$this->{NAME} doCommandThreaded($command,$param1,$param2,$show3,$caller)");
+	warning($dbg_thread,0,"Pane$this->{pane_num} doCommandThreaded($command,$param1,$param2,$show3)");
 		#.ref($progress).",$caller,".ref($other_session).") called");
 
-	my $rslt = $this->SUPER::doCommand(
+	my $session = $this->{session};
+	$session->{progrss} = $this;
+		# progress replaced with a pointer to $this
+
+	my $rslt = $this->{session}->doCommand(
 		$command,
 		$param1,
 		$param2,
-		$param3,
-		$this,		# progress replaced with a pointer to $this
-		$caller,
-		$other_session );
+		$param3 );
 
-	warning($dbg_thread,0,"$this->{NAME} doCommandThreaded($command) got rslt=$rslt");
+	warning($dbg_thread,0,"Pane$this->{pane_num} doCommandThreaded($command) got rslt=$rslt");
 
 	# promote everything non-progress to a shared hash
 	# with a caller and pass it to onThreadEvent
@@ -183,16 +133,12 @@ sub doCommandThreaded
 		rslt => $rslt || ''
 	}) if !$rslt || !ref($rslt);
 
-	$rslt->{caller} = $caller;
+	$rslt->{caller} = $session->{caller};
 	$rslt->{command} = $command;
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
 
-	display($dbg_thread,0,"$this->{NAME} doCommandThreaded($command)) finished");
-
-	# try different ways of killing the thread
-	# threads->detach();	# same as detaching anywhere else
-	# threads->exit();	# the thread already goes to non-running
+	display($dbg_thread,0,"Pane$this->{pane_num} doCommandThreaded($command)) finished");
 }
 
 
@@ -205,7 +151,7 @@ sub aborted
 sub addDirsAndFiles
 {
 	my ($this,$num_dirs,$num_files) = @_;
-	display($dbg_thread,-1,"$this->{NAME}::addDirsAndFiles($num_dirs,$num_files)");
+	display($dbg_thread,-1,"Pane$this->{pane_num}::addDirsAndFiles($num_dirs,$num_files)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
@@ -214,7 +160,7 @@ sub addDirsAndFiles
 sub setDone
 {
 	my ($this,$is_dir) = @_;
-	display($dbg_thread,-1,"$this->{NAME}::setDone($is_dir)");
+	display($dbg_thread,-1,"Pane$this->{pane_num}::setDone($is_dir)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
@@ -223,7 +169,7 @@ sub setDone
 sub setEntry
 {
 	my ($this,$entry) = @_;
-	display($dbg_thread,-1,"$this->{NAME}::setEntry($entry)");
+	display($dbg_thread,-1,"Pane$this->{pane_num}::setEntry($entry)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this->{pane}, $evt );
@@ -231,22 +177,9 @@ sub setEntry
 }
 
 
-
-
-
 #---------------------------------------------------------------
 # These methods access the Pane WX::UI
 #---------------------------------------------------------------
-
-package Pub::FC::Pane;	# continued
-use strict;
-use warnings;
-use threads;
-use threads::shared;
-use Wx qw(:everything);
-use Pub::Utils;
-use Pub::FS::ClientSession;	# for $PROTOCOL_XXX
-
 
 sub onThreadEvent
 {
@@ -263,7 +196,7 @@ sub onThreadEvent
 	{
 		my $caller = $rslt->{caller};
 		my $command = $rslt->{command};
-		display($dbg_thread,1,"onThreadEvent caller($caller) command(($command) rslt=$rslt");
+		display($dbg_thread,1,"Pane$this->{pane_num} onThreadEvent caller($caller) command(($command) rslt=$rslt");
 
 		# if not a FileInfo demote created hashes back to outer $rslt
 
@@ -372,19 +305,20 @@ sub onIdle
 	if ($this->{port} &&	# these two should be synonymous
 		$this->{session})
 	{
+		my $session = $this->{session};
 
 		my $do_exit = 0;
-		if ($this->{session}->{SOCK})
+		if ($session->{SOCK})
 		{
 			my $packet;
-			my $err = $this->{session}->getPacket(\$packet);
+			my $err = $session->getPacket(\$packet);
 			error($err) if $err;
 			if ($packet && !$err)
 			{
-				display($dbg_idle,-1,"pane$this->{pane_num} got packet $packet");
+				display($dbg_idle,-1,"Pane$this->{pane_num} got packet $packet");
 				if ($packet eq $PROTOCOL_EXIT)
 				{
-					display($dbg_idle,-1,"pane$this->{pane_num} onIdle() EXIT");
+					display($dbg_idle,-1,"Pane$this->{pane_num} onIdle() EXIT");
 					$this->{GOT_EXIT} = 1;
 					$do_exit = 1;
 				}
@@ -400,13 +334,13 @@ sub onIdle
 		}
 		elsif (!$this->{disconnected_by_pane})
 		{
-			display($dbg_idle,-1,"pane$this->{pane_num} lost SOCKET");
+			display($dbg_idle,-1,"Pane$this->{pane_num} lost SOCKET");
 			$do_exit = 1;
 		}
 
 		if ($do_exit)
 		{
-			warning(0,0,"pane$this->{pane_num} closing parent Window");
+			warning(0,0,"Pane$this->{pane_num} closing parent Window");
 			$this->{parent}->closeSelf();
 			return;
 		}
@@ -415,14 +349,14 @@ sub onIdle
 
 		if ($this->{progress} &&	# should be synonymous
 			$this->{thread} &&
-			$this->{session}->{SOCK})
+			$session->{SOCK})
 		{
 			my $aborted = $this->{progress}->aborted();
 			if ($aborted && !$this->{aborted})
 			{
-				warning($dbg_idle,-1,"pane$this->{pane_num} sending PROTOCOL_ABORT");
+				warning($dbg_idle,-1,"Pane$this->{pane_num} sending PROTOCOL_ABORT");
 				$this->{aborted} = 1;
-				$this->{session}->sendPacket($PROTOCOL_ABORT,1);
+				$session->sendPacket($PROTOCOL_ABORT,1);
 					# no error checking on result
 					# 1 == $override_protocol to allow sending
 					# another packet while INSTANCE->{in_protocol}
