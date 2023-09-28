@@ -16,7 +16,7 @@ use threads;
 use threads::shared;
 use Pub::Utils;
 
-our $dbg_info = 1;
+our $dbg_info = 0;
 	# 0 = show new() events
 	# -1 = show fromText hashes
 our $dbg_text:shared = 1;
@@ -130,11 +130,14 @@ sub makePath
 
 sub fromText
 {
-    my ($class,$text,$use_dir) = @_;
+    my ($class,$text,$call_level) = @_;
+	$call_level ||= 0;
+	$call_level++;
+
     display($dbg_info,0,"fromText($text)");
 	my @parts = split(/\t/,$text);
     my $this = shared_clone({
-		size   => $parts[0] || '',
+		size   => defined($parts[0]) ? $parts[0] : '',
 		ts     => $parts[1] || '',
 		entry  => $parts[2] || '',
 		is_dir => 0,
@@ -144,14 +147,14 @@ sub fromText
 	$this->{entry} = '/' if $this->{is_dir} && !$this->{entry};
 
 	# errors at $call_level=1 with $suppress_show
-	return error("bad FS::FileInfo size($this->{size}) for directory",1,1)
+	return error("bad FS::FileInfo size($this->{size}) for directory: $text",$call_level)
 		if $this->{is_dir} && $this->{size};
-	return error("bad FS::FileInfo size($this->{size}) for file",1,1)
+	return error("bad FS::FileInfo size($this->{size}) for file: $text",$call_level)
 		if !$this->{is_dir} && $this->{size} !~ /^\d+$/;
-	return error("bad FS::FileInfo timestamp($this->{ts})",1,1)
+	return error("bad FS::FileInfo timestamp($this->{ts}): $text",$call_level)
 		if $this->{ts} !~ /^[\s\d\-\:]+$/;
 
-	$this->{dir} = $use_dir if $use_dir;
+
 	$this->{entries} = shared_clone({}) if $this->{is_dir};
 	display($dbg_info+1,0,"fromText",toText($this,1));
 	bless $this,$class;
@@ -224,7 +227,7 @@ sub textToDirInfo
 
     for my $line (@lines)
     {
-        my $info = Pub::FS::FileInfo->fromText($line);
+        my $info = Pub::FS::FileInfo->fromText($line,1);
 		if (!isValidInfo($info))
 		{
 			$result = $info;

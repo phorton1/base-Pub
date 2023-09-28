@@ -23,13 +23,8 @@ use Pub::FS::Session;
 use base qw(Pub::FS::Session);
 
 
-
 our $dbg_packets:shared =  0;
 our $dbg_progress:shared = 0;
-
-my $TEST_DELAY:shared = 0;
- 	# delay remote operatios to test progress stuff
- 	# set this to 1 or 2 seconds to slow things down for testing
 
 
 BEGIN {
@@ -62,8 +57,9 @@ our $DEFAULT_TIMEOUT = 15;
 my $instance_in_protocol:shared = shared_clone({});
 	# re-entrancy protection for fileClientWindows
 
+
 #------------------------------------------------
-# lifecycle
+# new()
 #------------------------------------------------
 
 sub new
@@ -233,8 +229,6 @@ sub getPacket
 	return '';
 
 }	# getPacket()
-
-
 
 
 

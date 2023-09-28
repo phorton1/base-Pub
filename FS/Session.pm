@@ -6,9 +6,9 @@
 #
 # The base Session is purely local and has no SOCK.
 #
-# By default, the ase doCommand() method returns FS::FileInfo
-# objects or reports an error() and returns ''. It can
-# be made to return errors by setting $this->{RETURN_ERRORS}.
+# The doCommand() method returns FS::FileInfo objects,
+# an ERROR or one of the ABORT, ABORTED, CONTINUE, or OK
+# messges.
 
 package Pub::FS::Session;
 use strict;
@@ -57,7 +57,7 @@ BEGIN {
 	    $PROTOCOL_CONTINUE
 	    $PROTOCOL_OK
 
-		recurseFxn
+		show_params
 
 	);
 }
@@ -95,10 +95,25 @@ sub new
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
 	$params->{NAME} ||= 'Session';
-	$params->{RETURN_ERRORS}  ||= 0;
 	my $this = { %$params };
 	bless $this,$class;
 	return $this;
+}
+
+# utility for displaying length of BASE64 packets in debugging
+
+sub show_params
+{
+	my ($what,$command,$param1,$param2,$param3) = @_;
+
+	$param1 ||= '';
+	$param2 ||= '';
+	$param3 ||= '';
+
+	$param3 = length($param3)." encoded bytes"
+		if $command eq $PROTOCOL_BASE64 && $param3 !~ /^$PROTOCOL_ERROR/;
+	$param2 = ref($param2) if ref($param2);
+	return "$what $command($param1,$param2,$param3)";
 }
 
 
@@ -193,9 +208,6 @@ sub _deleteOne
 	return '';
 }
 
-
-
-
 sub _delete
 {
 	my ($this,
@@ -228,7 +240,7 @@ sub _delete
 #  _file(), and _base64()
 #------------------------------------------------------
 
-sub initPut
+sub initFile
 {
 	my ($this) = @_;
 	$this->{file_handle} = '';
@@ -251,9 +263,8 @@ sub closeFile
 			$this->{file_temp_name} :
 			$this->{file_name};
 	}
-	$this->initPut();
+	$this->initFile();
 }
-
 
 sub finishFile
 {
@@ -290,8 +301,6 @@ sub finishFile
 	return $rslt;
 }
 
-
-
 sub _file
 {
 	my ($this,
@@ -299,7 +308,7 @@ sub _file
 		$ts,
 		$full_name) = @_;
 
-	$this->initPut();
+	$this->initFile();
 	display($dbg_commands,0,"$this->{NAME} _file($size,$ts,$full_name)");
 	my $free = diskFree();
 
@@ -336,7 +345,6 @@ sub _file
 }
 
 
-
 sub calcChecksum
 {
 	my ($data) = @_;
@@ -348,8 +356,6 @@ sub calcChecksum
 	$calc_cs &= 0xFFFFFFFF;
 	return $calc_cs;
 }
-
-
 
 sub _base64
 	# it is not clear what this $progres parameter means
@@ -471,8 +477,7 @@ sub _putOne
 			$rslt = $this->{other_session}->doCommand($PROTOCOL_FILE,
 				$size,
 				$ts,
-				$other_full_name,
-				'','','');
+				$other_full_name);
 
 			my $offset = 0;
 			my $err_msg = '';
@@ -543,7 +548,6 @@ sub _putOne
 }
 
 
-
 sub _put
 {
 	my ($this,
@@ -552,9 +556,6 @@ sub _put
 		$target_dir) = @_;
 
 	display($dbg_commands,0,"$this->{NAME} _put($dir,$entries,$target_dir)");
-
-	my $save_other = $this->{other_session}->{RETURN_ERRORS};
-	$this->{other_session}->{RETURN_ERRORS} = 1;
 
 	my $rslt;
 	if (!ref($entries))
@@ -573,8 +574,7 @@ sub _put
 			$target_dir);
 	}
 
-	$this->{other_session}->{RETURN_ERRORS} = $save_other;
-	$rslt ||= $this->{other_session}->doCommand($PROTOCOL_LIST,$target_dir,'','','','','');
+	$rslt ||= $PROTOCOL_OK;
 	return $rslt;
 
 }
@@ -697,7 +697,6 @@ sub recurseFxn
 			if $this->{progress} && !$this->{progress}->setDone(0);
 	}
 
-
 	#----------------------------------------------
 	# finally, do the dir itself at level>0
 	#----------------------------------------------
@@ -737,13 +736,7 @@ sub doCommand
         $param2,
         $param3) = @_;
 
-	$param1 ||= '';
-	$param2 ||= '';
-	$param3 ||= '';
-
-	my $show3 = $command eq $PROTOCOL_BASE64 ?
-		length($param3)." encoded bytes" : $param3;
-	display($dbg_commands+1,0,"$this->{NAME} doCommand($command,$param1,$param2,$show3)");
+	display($dbg_commands+1,0,show_params("$this->{NAME} doCommand",$command,$param1,$param2,$param3));
 
 	my $rslt;
 	if ($command eq $PROTOCOL_LIST)					# $dir
@@ -780,20 +773,6 @@ sub doCommand
 	}
 
 	$rslt ||= error("$this->{NAME} unexpected empty doCommand() rslt",0,1);
-
-	if (!isValidInfo($rslt) && $rslt ne $PROTOCOL_ABORTED)
-	{
-		if ($this->{RETURN_ERRORS})
-		{
-			$rslt = $PROTOCOL_ERROR.$rslt if
-				$rslt ne $PROTOCOL_OK &&
-				$rslt ne $PROTOCOL_CONTINUE;
-		}
-		else
-		{
-			$rslt = ''
-		}
-	}
 
 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command) returning $rslt");
 	return $rslt;

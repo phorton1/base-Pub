@@ -13,7 +13,6 @@ use Wx qw(:everything);
 use Pub::Utils;
 use Pub::WX::Dialogs;
 use Pub::FS::FileInfo;
-use Pub::FS::ClientSession;
 use Pub::FC::Dialogs;
 use Pub::FC::ProgressDialog;
 use Pub::FC::Pane;		# for $COMMAND_XXXX

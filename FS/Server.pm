@@ -72,7 +72,7 @@ sub notifyAll
 #
 # Threading seems to work perfectly, and I don't need the circular buffer.
 #
-# Using the circular buffer, when 1, I noticed that even if I
+# Using the circular buffer, I noticed that even if I
 # open more than 10 threads, which would wrap the @client_threads array,
 # thus effectively undef'ing them, there didn't seem to be any problems.
 # So I tried to use a local $thread handle, and it it barfed.
@@ -526,11 +526,10 @@ sub processPacket
 	my $line = shift @lines;
 	$line =~ s/\s$//g;
 
-	my @params = split(/\t/,$line);
-	$params[0] ||= '';
-	$params[1] ||= '';
-	$params[2] ||= '';
-	$params[3] ||= '';
+	my ($command,
+		$param1,
+		$param2,
+		$param3) = split(/\t/,$line);
 
 	if ($dbg_server <= 0)
 	{
@@ -538,16 +537,15 @@ sub processPacket
 		$show_packet =~ s/\r/\r\n/g;
 		display($dbg_server,0,"processPacket packet=$show_packet");
 	}
-	display($dbg_server,0,"processPacket($params[0]) param1($params[1]) param2($params[2]) param3($params[3]) lines=".scalar(@lines));
+	display($dbg_server,0,show_params("processPacket",$command,$param1,$param2,$param3)." lines=".scalar(@lines));
 
-	my $entries = $params[2];
-
+	my $entries = $param2;
 	if (@lines)
 	{
 		$entries = {};
 		for my $line (@lines)
 		{
-			my $info = Pub::FS::FileInfo->fromText($line);
+			my $info = Pub::FS::FileInfo->fromText($line,1);
 			if (isValidInfo($info))
 			{
 				$entries->{$info->{entry}} = $info;
@@ -562,8 +560,8 @@ sub processPacket
 	# The local file system is the context for command requests
 	# received by this base Server.
 
-	$session->{progress} = $this;
-	my $rslt = $session->doCommand($params[0],$params[1],$entries,$params[3]);
+	$session->{progress} = $session;
+	my $rslt = $session->doCommand($command,$param1,$entries,$param3);
 	$rslt ||= '';
 
 	# Stops the thread/session if it can't send the packet
@@ -572,50 +570,6 @@ sub processPacket
 	my $new_packet = isValidInfo($rslt) ? $session->listToText($rslt) : $rslt;
 	$retval = 0 if $new_packet && $session->sendPacket($new_packet);
 	return $retval;
-}
-
-
-# The base class Server is $progress-like
-
-
-
-sub aborted
-{
-	my ($this) = @_;
-	my $packet;
-	my $err = $this->getPacket(\$packet);
-	return 1 if !$err && $packet && $packet =~ /^$PROTOCOL_ABORT/;
-	return 0;
-}
-
-
-sub addDirsAndFiles
-{
-	my ($this,$num_dirs,$num_files) = @_;
-    return 0 if $this->aborted();
-	my $packet = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
-	my $err = $this->sendPacket($packet);
-	return $err ? 0 : 1;
-}
-
-
-sub setEntry
-{
-	my ($this,$entry,$size) = @_;
-    return 0 if $this->aborted();
-	my $packet = "$PROTOCOL_PROGRESS\tENTRY\t$entry\t$size";
-	my $err = $this->sendPacket($packet);
-	return $err ? 0 : 1;
-}
-
-
-sub setDone
-{
-	my ($this,$is_dir) = @_;
-    return 0 if $this->aborted();
-	my $packet = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
-	my $err = $this->sendPacket($packet);
-	return $err ? 0 : 1;
 }
 
 

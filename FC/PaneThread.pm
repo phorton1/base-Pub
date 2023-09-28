@@ -23,20 +23,8 @@ use threads::shared;
 use Wx qw(:everything);
 use Pub::Utils;
 use Pub::FS::FileInfo;
-use Pub::FS::ClientSession;	# for $PROTOCOL_XXX
+use Pub::FS::Session;		# for $PROTOCOL_XXX
 use Pub::FC::Pane;			# for $THREAD_EVENT
-
-
-# package Pub::FC::ThreadedSession;
-# use strict;
-# use warnings;
-# use threads;
-# use threads::shared;
-# use Wx qw(:everything);
-# use IO::Socket::INET;
-# use Pub::Utils;
-# use Pub::FS::ClientSession;
-# use base qw(Pub::FS::ClientSession);
 
 my $dbg_thread = 0;
 my $dbg_idle = 0;
@@ -59,9 +47,7 @@ sub doCommand
 	$param2 ||= '';
 	$param3 ||= '';
 
-	my $show3 = $command eq $PROTOCOL_BASE64 ?
-		length($param3)." encoded bytes" : $param3;
-	display($dbg_thread,0,"Pane$this->{pane_num} doCommand($caller,$command,$param1,$param2,$show3)");
+	display($dbg_thread,0,show_params("Pane$this->{pane_num} doCommand $caller",$command,$param1,$param2,$param3));
 
 	my $session = $this->{session};
 	$session->{caller} = $caller || '';
@@ -71,9 +57,13 @@ sub doCommand
 	$session->{other_session} = $other_pane ? $other_pane->{session} : '';
 
 	# Cases of direct calls to $this->{session}->doCommand()
+	# return a blank or a valid file info
 
-	return $session->doCommand($command,$param1,$param2,$param3)
-		if !$this->{port} || $command ne $PROTOCOL_PUT;
+	if (!$this->{port} && $command ne $PROTOCOL_PUT)
+	{
+		my $rslt = $session->doCommand($command,$param1,$param2,$param3);
+		$rslt = '' if !isValidInfo($rslt);
+	}
 
 	# @_ = ();
 		# said to be necessary to avoid "Scalars leaked"
@@ -95,7 +85,7 @@ sub doCommand
 
 	########################
 
-	display($dbg_thread,0,"$this->{NAME} doCommand($command) returning -2");
+	display($dbg_thread,0,"Pane$this->{pane_num} doCommand($command) returning -2");
 	return -2;		# PRH -2 indicates threaded command in progress
 
 }
@@ -109,13 +99,10 @@ sub doCommandThreaded
         $param2,
         $param3) = @_;
 
-	my $show3 = $command eq $PROTOCOL_BASE64 ?
-		length($param3)." encoded bytes" : $param3;
-	warning($dbg_thread,0,"Pane$this->{pane_num} doCommandThreaded($command,$param1,$param2,$show3)");
-		#.ref($progress).",$caller,".ref($other_session).") called");
+	warning($dbg_thread,0,show_params("Pane$this->{pane_num} doCommandThreaded",$command,$param1,$param2,$param3));
 
 	my $session = $this->{session};
-	$session->{progrss} = $this;
+	$session->{progress} = $this;
 		# progress replaced with a pointer to $this
 
 	my $rslt = $this->{session}->doCommand(
@@ -125,8 +112,9 @@ sub doCommandThreaded
 		$param3 );
 
 	warning($dbg_thread,0,"Pane$this->{pane_num} doCommandThreaded($command) got rslt=$rslt");
+	$session->{progress} = undef;;
 
-	# promote everything non-progress to a shared hash
+	# promote any non ref resultsto a shared hash
 	# with a caller and pass it to onThreadEvent
 
 	$rslt = shared_clone({
@@ -136,7 +124,7 @@ sub doCommandThreaded
 	$rslt->{caller} = $session->{caller};
 	$rslt->{command} = $command;
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this->{pane}, $evt );
+	Wx::PostEvent( $this, $evt );
 
 	display($dbg_thread,0,"Pane$this->{pane_num} doCommandThreaded($command)) finished");
 }
@@ -154,7 +142,7 @@ sub addDirsAndFiles
 	display($dbg_thread,-1,"Pane$this->{pane_num}::addDirsAndFiles($num_dirs,$num_files)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tADD\t$num_dirs\t$num_files";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this->{pane}, $evt );
+	Wx::PostEvent( $this, $evt );
 	return 1;	# !$this->{aborted};
 }
 sub setDone
@@ -163,7 +151,7 @@ sub setDone
 	display($dbg_thread,-1,"Pane$this->{pane_num}::setDone($is_dir)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tDONE\t$is_dir";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this->{pane}, $evt );
+	Wx::PostEvent( $this, $evt );
 	return 1;	# !$this->{aborted};
 }
 sub setEntry
@@ -172,7 +160,7 @@ sub setEntry
 	display($dbg_thread,-1,"Pane$this->{pane_num}::setEntry($entry)");
 	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
-	Wx::PostEvent( $this->{pane}, $evt );
+	Wx::PostEvent( $this, $evt );
 	return 1;	# !$this->{aborted};
 }
 
@@ -191,6 +179,7 @@ sub onThreadEvent
 	}
 
 	my $rslt = $event->GetData();
+	display($dbg_thread,1,"onThreadEvent rslt=$rslt");
 
 	if (ref($rslt))
 	{
@@ -245,7 +234,7 @@ sub onThreadEvent
 		elsif ($command eq $PROTOCOL_PUT)
 		{
 			my $other = $this->otherPane();
-			$other->setContents($rslt);
+			$other->setContents();
 			$other->populate();
 		}
 
@@ -266,8 +255,6 @@ sub onThreadEvent
 	}
 
 	# the only pure text $rslt are PROGRESS message
-
-	display($dbg_thread,1,"onThreadEvent rslt=$rslt");
 
 	if ($rslt =~ /^$PROTOCOL_PROGRESS/)
 	{

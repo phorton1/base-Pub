@@ -13,7 +13,6 @@
 # Anything that is purely local will be handled by the base Session
 # and will never make its way to this SerialSession.
 
-
 package Pub::FS::SerialSession;
 use strict;
 use warnings;
@@ -49,15 +48,12 @@ BEGIN {
 my $REMOTE_TIMEOUT = 15;
 	# timeout, in seconds, to wait for a file_reply
 
-my $com_port_connected:shared = 0;
-
-
-my $request_number:shared = 1;
 our $serial_file_request:shared = '';
 our %serial_file_reply:shared;
 our %serial_file_reply_ready:shared;
 
-
+my $com_port_connected:shared = 0;
+my $request_number:shared = 1;
 
 
 sub new
@@ -172,7 +168,6 @@ sub doSerialRequest
 		}
 		warning(0,-2,"doSerialRequest done waiting");
 	}
-
 
 	my $req_num = $request_number++;
 	$request .= "\r" if $request !~ /\r$/;

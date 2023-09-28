@@ -38,7 +38,6 @@ BEGIN {
 
 
 
-
 sub new
 {
 	my ($class, $params) = @_;
@@ -56,7 +55,6 @@ sub new
 
 	return $this;
 }
-
 
 
 sub isConnected
@@ -78,8 +76,6 @@ sub disconnect
     }
     $this->{SOCK} = undef;
 }
-
-
 
 
 sub connect
@@ -127,13 +123,10 @@ sub connect
 }
 
 
-
-
 #--------------------------------------------------------
 # overriden atomic commands from base Session
 #--------------------------------------------------------
 # each _method does socket packet protocol
-
 
 sub _list
 {
@@ -220,17 +213,38 @@ sub _rename
 
 
 
+#--------------------------------------------------------
+# checkPacket() && _delete()
+#--------------------------------------------------------
+
 sub checkPacket
 {
 	my ($this,$ppacket) = @_;
 
-	return $$ppacket if $$ppacket =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
+	return $$ppacket if $$ppacket =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED|$PROTOCOL_OK)/;
 
-	if ($$ppacket =~ s/^$PROTOCOL_PROGRESS\t(.*?)\t//)
+	if ($$ppacket =~ /^($PROTOCOL_FILE|$PROTOCOL_BASE64)/)
+	{
+		my ($command,$param1,$param2,$param3) = split(/\t/,$$ppacket);
+		display($dbg_commands,-2,show_params("$this->{NAME} checkPacket",$command,$param1,$param2,$param3));
+
+		my $other_session = $this->{other_session};
+		my $save_return = $other_session->{RETURN_ERRORS};
+		$other_session->{RETURN_ERRORS} = 1;
+
+		my $rslt = $other_session->doCommand($command,$param1,$param2,$param3);
+
+		$other_session->{RETURN_ERRORS} = $save_return;
+
+		my $err = $this->sendPacket($rslt,1);
+		return $err if $err;
+		$$ppacket = '';
+	}
+	elsif ($$ppacket =~ s/^$PROTOCOL_PROGRESS\t(.*?)\t//)
 	{
 		my $command = $1;
 		$$ppacket =~ s/\s+$//g;
-		display($dbg_progress,-2,"handleProgress() PROGRESS($command) $$ppacket");
+		display($dbg_progress,-2,"checkPacket() PROGRESS($command) $$ppacket");
 		if ($this->{progress})
 		{
 			my @params = split(/\t/,$$ppacket);
@@ -247,18 +261,13 @@ sub checkPacket
 }
 
 
-
 sub _delete
 {
 	my ($this,
 		$dir,				# MUST BE FULLY QUALIFIED
 		$entries) = @_;		# single_filename or valid hash of sub-entries
 
-	if ($dbg_commands <= 0)
-	{
-		my $show_entries = ref($entries) ? '' : $entries;
-		display($dbg_commands,0,"$this->{NAME} _delete($dir,$show_entries)");
-	}
+	display($dbg_commands,0,"$this->{NAME} _delete($dir,$entries)");
 
     my $command = "$PROTOCOL_DELETE\t$dir";
 
@@ -306,16 +315,70 @@ sub _delete
 
 	$this->decInProtocol();
 	return $retval;
-
 }
 
 
-
 #---------------------------------------------
-# PUT protocol
+# _put()
 #---------------------------------------------
+# The FILE and BASE64 commands are handled by the base class.
 
+sub _put
+{
+	my ($this,
+		$dir,
+		$entries,		# ref() or single_file_name
+		$target_dir) = @_;
 
+	display($dbg_commands,0,"$this->{NAME} _put($dir,$entries,$target_dir)");
+
+    my $command = "$PROTOCOL_PUT\t$dir";
+
+	if (!ref($entries))
+	{
+		$command .= "\t$entries\t$target_dir";	# single filename version
+	}
+	else	# full version
+	{
+		$command .= "\t\t$target_dir\r";
+		for my $entry (sort keys %$entries)
+		{
+			my $info = $entries->{$entry};
+			my $text = $info->toText();
+			display($dbg_commands+1,1,"entry=$text");
+			$command .= "$text\r";
+		}
+	}
+
+	my $err = $this->sendPacket($command);
+	return $err if $err;
+
+	$this->incInProtocol();
+
+	# delete is an asynchronous socket command
+	# that allows for progress messages
+
+	my $retval = '';
+	while (1)
+	{
+		my $packet;
+		$err = $this->getPacket(\$packet, 1);
+		$err ||= $this->checkPacket(\$packet);
+		if ($err)
+		{
+			$retval = $err;
+			last;
+		}
+		if ($packet)
+		{
+			$retval = textToDirInfo($packet);
+			last;
+		}
+	}
+
+	$this->decInProtocol();
+	return $retval;
+}
 
 
 

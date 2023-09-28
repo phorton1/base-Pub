@@ -57,19 +57,18 @@ BEGIN
 
 		now
 		today
-
-        mergeHash
+		gmtToLocalTime
 
 		filenameFromWin
+		setTimestamp
         getTextFile
 		printVarToFile
-		diskFree
-		setTimestamp
-		gmtToLocalTime
 		my_mkdir
+		diskFree
 
 		encode64
         decode64
+        mergeHash
     );
 }
 
@@ -180,7 +179,6 @@ my $WITH_SEMAPHORES = 0;
 my $STD_OUT_SEM;
 my $MUTEX_TIMEOUT = 1000;
 
-
 sub createSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
@@ -192,6 +190,7 @@ sub createSTDOUTSemaphore
 
 }
 
+
 sub openSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
@@ -202,10 +201,12 @@ sub openSTDOUTSemaphore
 	error("Could not OPEN $process_group_name SEMAPHORE") if !$STD_OUT_SEM;
 }
 
+
 sub waitSTDOUTSemaphore
 {
 	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
 }
+
 
 sub releaseSTDOUTSemaphore
 {
@@ -224,6 +225,7 @@ sub _def
     return defined($var) ? $var : 'undef';
 }
 
+
 sub pad
 {
 	my ($s,$len) = @_;
@@ -235,12 +237,14 @@ sub pad
 	return $s;
 }
 
+
 sub pad2
 {
 	my ($d) = @_;
 	$d = '0'.$d if (length($d)<2);
 	return $d;
 }
+
 
 sub get_indent
 {
@@ -271,6 +275,7 @@ sub get_indent
         $call_level++;
     }
 }
+
 
 sub _setColor
 {
@@ -344,6 +349,7 @@ sub display
 	return $msg;
 }
 
+
 sub LOG
 {
     my ($indent_level,$msg,$call_level) = @_;
@@ -351,6 +357,7 @@ sub LOG
 	_output($indent_level,$msg,$DISPLAY_COLOR_LOG,$call_level+1);
 	return $msg;
 }
+
 
 sub error
 {
@@ -368,6 +375,7 @@ sub error
 
 	return $msg;
 }
+
 
 sub warning
 {
@@ -394,6 +402,7 @@ sub display_hash
 	}
 	return 1;
 }
+
 
 sub display_bytes
 	# does not currently work through whole display system
@@ -438,6 +447,7 @@ sub display_bytes
 	print "..." if ($i < length($packet));
 	print "\n" ;
 }
+
 
 sub CapFirst
 	# changed implementation on 2014/07/19
@@ -490,105 +500,6 @@ sub now
 }
 
 
-#----------------------------------------
-# Hash Utilities
-#----------------------------------------
-
-sub mergeHash
-{
-	my ($h1,$h2) = @_;
-	return if (!defined($h2));
-	foreach my $k (keys(%$h2))
-	{
-        next if (!defined($$h2{$k}));
-		display(9,2,"mergeHash $k=$$h2{$k}");
-		$$h1{$k} = $$h2{$k};
-	}
-	return $h1;
-}
-
-
-#----------------------------------------------------------
-# File Routines
-#----------------------------------------------------------
-
-sub filenameFromWin
-{
-	my ($filename) = @_;
-	$filename =~ s/^.*://;
-	$filename =~ s/\\/\//g;
-	return $filename;
-}
-
-sub getTextFile
-{
-    my ($ifile,$bin_mode) = @_;
-    my $text = "";
-    if (open INPUT_TEXT_FILE,"<$ifile")
-    {
-		#binmode(INPUT_TEXT_FILE, ":utf8");
-		binmode INPUT_TEXT_FILE if ($bin_mode);
-        $text = join("",<INPUT_TEXT_FILE>);
-        close INPUT_TEXT_FILE;
-    }
-    return $text;
-}
-
-sub printVarToFile
-{
-	my ($isOutput,$filename,$var,$bin_mode) = @_;
-	if ($isOutput)
-	{
-		open OFILE,">$filename" || mydie("Could not open $filename for printing");
-		binmode OFILE if ($bin_mode);
-		print OFILE $var;
-		close OFILE;
-	}
-}
-
-
-
-sub diskFree
-	# win32 only
-	# returns free space for the drive in the given $path.
-	# if no DRIVER_LETTER COLON is specified, defaults to C:
-{
-	my ($path) = @_;
-	my $drive = 'C:';
-	$drive = $1 if $path && $path =~ /^([A-Z]:)/i;
-	my ($SectorsPerCluster,
-		$BytesPerSector,
-		$NumberOfFreeClusters,
-		$TotalNumberOfClusters,
-		$FreeBytesAvailableToCaller,
-		$TotalNumberOfBytes,
-		$TotalNumberOfFreeBytes) = Win32::DriveInfo::DriveSpace($drive);
-	return $TotalNumberOfFreeBytes;
-
-}
-
-
-sub setTimestamp
-    # takes a delimited GMT timestamp
-    # and sets the given file's modification time.
-    # takes an optional parameter to accept a local
-    # file modification timestamp
-{
-	my ($filename,$ts,$local) = @_;
-    $filename =~ s/\/$//;
-        # for dirs with dangling slashes
-	if ($ts !~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/)
-	{
-		error("bad timeStamp($ts)");
-		return 0;
-	}
-	display(9,0,"setTimestamp($filename) = ($6,$5,$4,$3,$2,$1)");
-	my $to_time = $local ?
-        timelocal($6,$5,$4,$3,($2-1),$1) :
-        timegm($6,$5,$4,$3,($2-1),$1);
-	return utime $to_time,$to_time,$filename;
-}
-
 sub gmtToLocalTime
     # takes a GMT time in the format 2013-07-05 12:31:22
     # and returns a local date time in the same format.
@@ -616,6 +527,88 @@ sub gmtToLocalTime
 }
 
 
+#----------------------------------------------------------
+# File Routines
+#----------------------------------------------------------
+
+sub filenameFromWin
+{
+	my ($filename) = @_;
+	$filename =~ s/^.*://;
+	$filename =~ s/\\/\//g;
+	return $filename;
+}
+
+
+sub getTextFile
+{
+    my ($ifile,$bin_mode) = @_;
+    my $text = "";
+    if (open INPUT_TEXT_FILE,"<$ifile")
+    {
+		#binmode(INPUT_TEXT_FILE, ":utf8");
+		binmode INPUT_TEXT_FILE if ($bin_mode);
+        $text = join("",<INPUT_TEXT_FILE>);
+        close INPUT_TEXT_FILE;
+    }
+    return $text;
+}
+
+
+sub printVarToFile
+{
+	my ($isOutput,$filename,$var,$bin_mode) = @_;
+	if ($isOutput)
+	{
+		open OFILE,">$filename" || mydie("Could not open $filename for printing");
+		binmode OFILE if ($bin_mode);
+		print OFILE $var;
+		close OFILE;
+	}
+}
+
+
+sub setTimestamp
+    # takes a delimited GMT timestamp
+    # and sets the given file's modification time.
+    # takes an optional parameter to accept a local
+    # file modification timestamp
+{
+	my ($filename,$ts,$local) = @_;
+    $filename =~ s/\/$//;
+        # for dirs with dangling slashes
+	if ($ts !~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/)
+	{
+		error("bad timeStamp($ts)");
+		return 0;
+	}
+	display(9,0,"setTimestamp($filename) = ($6,$5,$4,$3,$2,$1)");
+	my $to_time = $local ?
+        timelocal($6,$5,$4,$3,($2-1),$1) :
+        timegm($6,$5,$4,$3,($2-1),$1);
+	return utime $to_time,$to_time,$filename;
+}
+
+
+sub diskFree
+	# win32 only
+	# returns free space for the drive in the given $path.
+	# if no DRIVER_LETTER COLON is specified, defaults to C:
+{
+	my ($path) = @_;
+	my $drive = 'C:';
+	$drive = $1 if $path && $path =~ /^([A-Z]:)/i;
+	my ($SectorsPerCluster,
+		$BytesPerSector,
+		$NumberOfFreeClusters,
+		$TotalNumberOfClusters,
+		$FreeBytesAvailableToCaller,
+		$TotalNumberOfBytes,
+		$TotalNumberOfFreeBytes) = Win32::DriveInfo::DriveSpace($drive);
+	# display(0,0,"diskFree=$TotalNumberOfFreeBytes");
+	return $TotalNumberOfFreeBytes;
+
+}
 
 
 sub my_mkdir
@@ -658,11 +651,23 @@ sub my_mkdir
 }
 
 
+#--------------------------------------
+# miscellaneous
+#--------------------------------------
 
 
-#--------------------------------------
-# base64
-#--------------------------------------
+sub mergeHash
+{
+	my ($h1,$h2) = @_;
+	return if (!defined($h2));
+	foreach my $k (keys(%$h2))
+	{
+        next if (!defined($$h2{$k}));
+		display(9,2,"mergeHash $k=$$h2{$k}");
+		$$h1{$k} = $$h2{$k};
+	}
+	return $h1;
+}
 
 
 sub encode64
