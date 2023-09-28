@@ -150,7 +150,6 @@ sub aborted
 	return 0;
 }
 
-
 sub addDirsAndFiles
 {
 	my ($this,$num_dirs,$num_files) = @_;
@@ -159,7 +158,6 @@ sub addDirsAndFiles
 	my $err = $this->sendPacket($packet);
 	return $err ? 0 : 1;
 }
-
 
 sub setEntry
 {
@@ -171,7 +169,6 @@ sub setEntry
 	return $err ? 0 : 1;
 }
 
-
 sub setDone
 {
 	my ($this,$is_dir) = @_;
@@ -181,6 +178,14 @@ sub setDone
 	return $err ? 0 : 1;
 }
 
+sub setBytes
+{
+	my ($this,$bytes) = @_;
+    return 0 if $this->aborted();
+	my $packet = "$PROTOCOL_PROGRESS\tBYTES\t$bytes";
+	my $err = $this->sendPacket($packet);
+	return $err ? 0 : 1;
+}
 
 
 1;

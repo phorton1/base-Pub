@@ -63,6 +63,7 @@ sub doCommand
 	{
 		my $rslt = $session->doCommand($command,$param1,$param2,$param3);
 		$rslt = '' if !isValidInfo($rslt);
+		return $rslt;
 	}
 
 	# @_ = ();
@@ -156,9 +157,19 @@ sub setDone
 }
 sub setEntry
 {
-	my ($this,$entry) = @_;
-	display($dbg_thread,-1,"Pane$this->{pane_num}::setEntry($entry)");
-	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry";
+	my ($this,$entry,$size) = @_;
+	$size ||= 0;
+	display($dbg_thread,-1,"Pane$this->{pane_num}::setEntry($entry,$size)");
+	my $rslt:shared = "$PROTOCOL_PROGRESS\tENTRY\t$entry\t$size";
+	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
+	Wx::PostEvent( $this, $evt );
+	return 1;	# !$this->{aborted};
+}
+sub setBytes
+{
+	my ($this,$bytes) = @_;
+	display($dbg_thread,-1,"Pane$this->{pane_num}::setBytes($bytes)");
+	my $rslt:shared = "$PROTOCOL_PROGRESS\tBYTES\t$bytes";
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
 	return 1;	# !$this->{aborted};
@@ -272,8 +283,10 @@ sub onThreadEvent
 				if $command eq 'ADD';
 			$this->{progress}->setDone($params[0])
 				if $command eq 'DONE';
-			$this->{progress}->setEntry($params[0])
+			$this->{progress}->setEntry($params[0],$params[1])
 				if $command eq 'ENTRY';
+			$this->{progress}->setBytes($params[0])
+				if $command eq 'BYTES';
 
 			Wx::App::GetInstance()->Yield();
 		}

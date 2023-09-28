@@ -161,7 +161,7 @@ sub _mkdir
     my ($this, $dir, $subdir) = @_;
     display($dbg_commands,0,"$this->{NAME} _mkdir($dir)");
     my $path = makePath($dir,$subdir);
-	return error("Could not _mkdir $path",0,1)
+	return error("Could not _mkdir $path: $!",0,1)
 		if !mkdir($path);
 	return $this->_list($dir);
 }
@@ -194,6 +194,8 @@ sub _deleteOne
 		$entry,
 		$target_dir) = @_;	# unused for _delete
 
+	return $PROTOCOL_ABORTED if $this->{progress} &&
+		!$this->{progress}->setEntry($entry,0);
 	if ($is_dir)
 	{
 		return error("$this->{NAME} Could not delete local dir $dir",0,1)
@@ -310,6 +312,7 @@ sub _file
 
 	$this->initFile();
 	display($dbg_commands,0,"$this->{NAME} _file($size,$ts,$full_name)");
+	sleep($TEST_DELAY) if $TEST_DELAY;
 	my $free = diskFree();
 
 	return error("$this->{NAME} _file Attempt to overwrite directory($full_name) with file!")
@@ -365,10 +368,10 @@ sub _base64
 		$bytes,
 		$content) = @_;
 
-
 	my $rslt = '';
 	my $len = length($content);
 	display($dbg_commands,0,"$this->{NAME} _base64($offset,$bytes,$len encoded_bytes)");
+	sleep($TEST_DELAY) if $TEST_DELAY;
 
 	if ($content =~ s/^$PROTOCOL_ERROR//)
 	{
@@ -464,6 +467,9 @@ sub _putOne
 	{
 		my $ts = $info->{ts};
 		my $size = $info->{size};
+		return $PROTOCOL_ABORTED if $this->{progress} &&
+			!$this->{progress}->setEntry($entry,$size);
+
 		my $full_name = makePath($dir,$entry);
 		my $other_full_name = makePath($target_dir,$entry);
 		if (!open(my $fh, "<", $full_name))
@@ -517,6 +523,9 @@ sub _putOne
 						$encoded);
 
 					$offset += $bytes;
+
+					return $PROTOCOL_ABORTED if $this->{progress} &&
+						!$this->{progress}->setBytes($offset);
 
 				}	# got == bytes
 			}	# $rslt eq $PROTOCOL_CONTINUE;
@@ -683,11 +692,8 @@ sub recurseFxn
 		sleep($TEST_DELAY) if $TEST_DELAY;
 		my $path = makePath($dir,$entry);
 
-		if ($this->{progress})
-		{
-			return $PROTOCOL_ABORTED if $this->{progress}->aborted();
-			return $PROTOCOL_ABORTED if !$this->{progress}->setEntry($path);
-		}
+		return $PROTOCOL_ABORTED if $this->{progress} &&
+			$this->{progress}->aborted();
 
 		display($dbg_commands,1,"$this->{NAME} $command local file: $path");
 		my $err = &$callback($this,0,$dir,$entry,$target_dir,);
@@ -705,11 +711,10 @@ sub recurseFxn
 	if ($level)
 	{
 		sleep($TEST_DELAY) if $TEST_DELAY;
-		if ($this->{progress})
-		{
-			return $PROTOCOL_ABORTED if $this->{progress}->aborted();
-			return $PROTOCOL_ABORTED if !$this->{progress}->setEntry($dir);
-		}
+
+		return $PROTOCOL_ABORTED if $this->{progress} &&
+			$this->{progress}->aborted();
+
 		display($dbg_commands,1,"$this->{NAME} $command local dir: $dir");
 
 		my $err = &$callback($this,1,$dir,'',$target_dir);

@@ -29,10 +29,9 @@ use base qw(Wx::Dialog);
 
 
 my $ID_WINDOW = 18000;
-my $ID_GUAGE = 18001;
 my $ID_CANCEL = 4567;
 
-my $dbg_fpd = 1;
+my $dbg_fpd = 0;
 
 
 sub new
@@ -51,7 +50,7 @@ sub new
 	$parent = getAppFrame() if !$parent;
 	$parent->Enable(0) if $parent;
 
-    my $this = $class->SUPER::new($parent,$ID_WINDOW,'',[-1,-1],[500,230]);
+    my $this = $class->SUPER::new($parent,$ID_WINDOW,'',[-1,-1],[500,200]);
 
 	$this->{parent} 	= $parent;
 	$this->{command} 	= $command;
@@ -67,16 +66,17 @@ sub new
 	$this->{range}      = $num_files + $num_dirs;
 	$this->{value}		= 0;
 
-	$this->{command_msg}= Wx::StaticText->new($this,-1,$command,	[20,10],  [170,20]);
+	$this->{command_msg}= Wx::StaticText->new($this,-1,$command, [20,10],  [170,20]);
 	$this->{dir_msg} 	= Wx::StaticText->new($this,-1,'',		 [200,10], [120,20]);
 	$this->{file_msg} 	= Wx::StaticText->new($this,-1,'',		 [340,10], [120,20]);
 	$this->{entry_msg} 	= Wx::StaticText->new($this,-1,'',		 [20,30],  [470,20]);
-    $this->{gauge} 		= Wx::Gauge->new($this,$ID_GUAGE,0,		 [20,60],[455,20]);
-
-    $this->{byte_guage} = Wx::Gauge->new($this,-1,$num_files+$num_dirs,[20,130],[455,16]);
+    $this->{gauge} 		= Wx::Gauge->new($this,-1,0,		 	 [20,60],  [455,20]);
+	$this->{bytes_msg} 	= Wx::StaticText->new($this,-1,'',		 [20,90],  [140,20]);
+    $this->{byte_guage} = Wx::Gauge->new($this,-1,0,			 [150,90], [325,20]);
+	$this->{bytes_msg}->Hide();
 	$this->{byte_guage}->Hide();
 
-    Wx::Button->new($this,$ID_CANCEL,'Cancel',[400,170],[60,20]);
+    Wx::Button->new($this,$ID_CANCEL,'Cancel',[400,130],[60,20]);
 
     EVT_BUTTON($this,$ID_CANCEL,\&onButton);
     EVT_CLOSE($this,\&onClose);
@@ -162,32 +162,20 @@ sub update
 	{
 		$this->{value} = $dirs_done + $files_done;
 		$this->{gauge}->SetValue($this->{value});
-
-		# hmmm .. the guage doesn't update till the second call to this method
-		# and nothing seeed to make it better (including yields and sleeps here
-		# and in other objects).
-        #
-		# $this->{gauge}->Refresh();
-		# $this->{gauge}->Update();
-		# $this->Refresh();
-		# $this->Update();
-        #
-		# my $new_event = Wx::CommandEvent->new($ID_GUAGE);
-        # $this->AddPendingEvent($new_event);
-        #
-		# my $new_event2 = Wx::CommandEvent->new($ID_WINDOW);
-        # $this->AddPendingEvent($new_event2);
 	}
 
-	if ($this->{bytes_range})
+	if ($this->{byte_range})
 	{
+		$this->{bytes_msg}->SetLabel("$this->{bytes_done}/$this->{byte_range}");
 		$this->{byte_guage}->SetRange($this->{byte_range});
 		$this->{byte_guage}->SetValue($this->{bytes_done});
 		$this->{byte_guage}->Show();
+		$this->{bytes_msg}->Show();
 	}
 	else
 	{
 		$this->{byte_guage}->Hide();
+		$this->{bytes_msg}->Hide();
 	}
 
 	# yield occasionally
@@ -239,10 +227,10 @@ sub setDone
 	return $this->update();
 }
 
-sub updateBytes
+sub setBytes
 {
 	my ($this,$bytes) = @_;
-	display($dbg_fpd,0,"updateSubRange($bytes)");
+	display($dbg_fpd,0,"setBytes($bytes)");
 	$this->{bytes_done} = $bytes;
 	return $this->update();
 }

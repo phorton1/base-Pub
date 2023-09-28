@@ -247,7 +247,9 @@ sub checkPacket
 			return $PROTOCOL_ABORTED if $command eq 'DONE' &&
 				!$this->{progress}->setDone($params[0]);
 			return $PROTOCOL_ABORTED if $command eq 'ENTRY' &&
-				!$this->{progress}->setEntry($params[0]);
+				!$this->{progress}->setEntry($params[0],$params[1]);
+			return $PROTOCOL_ABORTED if $command eq 'BYTES' &&
+				!$this->{progress}->setBytes($params[0]);
 		}
 		$$ppacket = '';
 	}
