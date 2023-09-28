@@ -102,9 +102,8 @@ sub new
 # Calls base class and converts result to a packet
 # which is sends back to the client.
 #
-# FILE and BASE64 are weird.  The base session wants
-# to call other_session->doCommand() for these.
-
+# The base session calls other_session->doCommand()
+# for FILE and BASE64 transmisisions.
 
 sub doCommand
 {
@@ -137,9 +136,9 @@ sub doCommand
 }
 
 
-
-
+#----------------------------------------------
 # The ServerSession is $progress-like
+#----------------------------------------------
 
 sub aborted
 {
