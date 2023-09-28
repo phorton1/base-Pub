@@ -139,7 +139,6 @@ sub _list
 	my $packet;
 	$err = $this->getPacketInstance(\$packet,1);
     return $err if $err;
-
 	return $packet if $packet =~ /^($PROTOCOL_ERROR)/;
 
 	my $rslt = textToDirInfo($packet);
@@ -167,7 +166,6 @@ sub _mkdir
 	my $packet;
 	$err = $this->getPacketInstance(\$packet,1);
     return $err if $err;
-
 	return $packet if $packet =~ /^($PROTOCOL_ERROR)/;
 
 	my $rslt = textToDirInfo($packet);
@@ -195,17 +193,16 @@ sub _rename
 	my $packet;
 	$err = $this->getPacketInstance(\$packet,1);
     return $err if $err;
-
 	return $packet if $packet =~ /^($PROTOCOL_ERROR)/;
 
 	my $rslt = Pub::FS::FileInfo->fromText($packet);
 	if (isValidInfo($rslt))
 	{
-		display_hash($dbg_commands+1,1,"$this->{NAME} _rename($dir) returning $rslt=".$rslt->toText())
+		display_hash($dbg_commands+1,1,"$this->{NAME} _rename($dir) returning",$rslt);
 	}
 	else
 	{
-		display($dbg_commands+1,1,"$this->{NAME} _rename($dir}) returning $rslt");
+		display($dbg_commands+1,1,"$this->{NAME} _rename($dir} returning $rslt");
 	}
     return $rslt;
 }

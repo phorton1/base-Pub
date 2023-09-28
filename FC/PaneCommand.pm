@@ -156,7 +156,7 @@ sub onEndEditLabel
 	return if $is_cancelled || $entry eq $this->{save_entry};
 
 	my $info = $this->doCommand(
-		'doMakeDir',
+		'doRename',
 		$PROTOCOL_RENAME,
 		$this->{dir},
 		$this->{save_entry},
