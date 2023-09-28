@@ -45,7 +45,6 @@ sub new
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
-	$params->{RETURN_ERRORS} ||= 1;
 	my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
@@ -229,12 +228,7 @@ sub checkPacket
 		display($dbg_commands,-2,show_params("$this->{NAME} checkPacket",$command,$param1,$param2,$param3));
 
 		my $other_session = $this->{other_session};
-		my $save_return = $other_session->{RETURN_ERRORS};
-		$other_session->{RETURN_ERRORS} = 1;
-
 		my $rslt = $other_session->doCommand($command,$param1,$param2,$param3);
-
-		$other_session->{RETURN_ERRORS} = $save_return;
 
 		my $err = $this->sendPacket($rslt,1);
 		return $err if $err;

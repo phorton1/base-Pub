@@ -202,7 +202,7 @@ sub _deleteOne
 	else
 	{
 		my $path = makePath($dir,$entry);
-		return error("$this->{NAME} Could not delete local file $path",0,1)
+		return error("$this->{NAME} Could not delete local file $path: $!",0,1)
 			if !unlink($path);
 	}
 	return '';
@@ -773,6 +773,10 @@ sub doCommand
 	}
 
 	$rslt ||= error("$this->{NAME} unexpected empty doCommand() rslt",0,1);
+
+	$rslt = $PROTOCOL_ERROR.$rslt if
+		!isValidInfo($rslt) &&
+		$rslt !~ /^($PROTOCOL_ABORT|$PROTOCOL_ABORTED|$PROTOCOL_CONTINUE|$PROTOCOL_OK)/;
 
 	display($dbg_commands+1,0,"$this->{NAME} doCommand($command) returning $rslt");
 	return $rslt;
