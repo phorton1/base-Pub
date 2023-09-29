@@ -118,6 +118,7 @@ sub sendPacket
 	return error("$this->{NAME} no socket in sendPacket",1,1)
 		if !$sock;
 
+	$packet =~ s/\s$//g;
     if (!$sock->send($packet."\r\n"))
     {
         $this->{SOCK} = undef;
@@ -205,7 +206,7 @@ sub getPacket
 		return error("$this->{NAME} no response from peer",1,1);
 	}
 
-	$$ppacket =~ s/(\r|\n)$//g;
+	$$ppacket =~ s/\s$//g;
 	if (!$$ppacket)
 	{
 		$this->{SOCK} = undef;

@@ -24,7 +24,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::SocketSession;
 use base qw(Pub::FS::SocketSession);
 
-our $dbg_request:shared = 0;
+our $dbg_request:shared = -1;
 	# 0 = command, lifetime, and file_reply: and file_reply_end in buddy
 	# -1 = command sends in buddy
 	# -2 = waiting for reply loop (0.2 secs)
@@ -37,7 +37,6 @@ BEGIN {
 
 			$serial_file_request
 			%serial_file_reply
-			%serial_file_reply_ready
 		),
 	    # forward base class exports
         @Pub::FS::SocketSession::EXPORT,
@@ -50,7 +49,6 @@ my $REMOTE_TIMEOUT = 15;
 
 our $serial_file_request:shared = '';
 our %serial_file_reply:shared;
-our %serial_file_reply_ready:shared;
 
 my $com_port_connected:shared = 0;
 my $request_number:shared = 1;
@@ -101,7 +99,7 @@ sub waitSerialReply
 	my $abort = 0;
 	my $packet;
 	my $started = time();
-	while (!$serial_file_reply_ready{$req_num})
+	while (!$serial_file_reply{$req_num})
 	{
 		# check for asynchronous 2nd ABORT packet and send 2nd
 		# numbered serial file_command with ABORT message
@@ -111,8 +109,13 @@ sub waitSerialReply
 		warning(0,0,"got packet=$packet") if $packet;
 		if ($packet && $packet =~ /^$PROTOCOL_ABORT/)
 		{
-			my $request = "$PROTOCOL_ABORT";
+			my $request = "$PROTOCOL_ABORT\r";
 			my $len = length($request);
+			while ($serial_file_request)
+			{
+				warning($dbg_request+2,-1,"waiting for !serial_file_request");
+				sleep(0.01);
+			}
 			$serial_file_request = "file_message\t$req_num\t$len\t$request\n";
 		}
 
@@ -127,16 +130,14 @@ sub waitSerialReply
 	}
 
 	$packet = $serial_file_reply{$req_num};
+	$serial_file_reply{$req_num} = '';
+
 	return $this->serialError("empty reply in doSerialRequest()")
 		if !$packet;
-
 	$packet =~ s/\s+$//g;
+
 	my $err = $this->sendPacket($packet);
 	return $err if $err;
-
-	$serial_file_reply{$req_num} = '';
-	$serial_file_reply_ready{$req_num} = 0;
-
 	return $packet =~ /^$PROTOCOL_PROGRESS/ ? 2 : 1;
 }
 
@@ -175,7 +176,6 @@ sub doSerialRequest
 	$request = "file_command\t$req_num\t$len\t$request\n";
 
 	$serial_file_reply{$req_num} = '';
-	$serial_file_reply_ready{$req_num} = 0;
 	$serial_file_request = $request;
 
 	my $retval = $this->waitSerialReply($req_num);
@@ -185,7 +185,6 @@ sub doSerialRequest
 	}
 
 	delete $serial_file_reply{$req_num};
-	delete $serial_file_reply_ready{$req_num};
 
 	display($dbg_request,0,"doSerialRequest() returning $retval");
 	return $retval;

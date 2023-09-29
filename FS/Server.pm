@@ -521,10 +521,10 @@ sub processPacket
 	# socket connection to the client.
 {
 	my ($this,$session,$packet) = @_;
-
+	$packet =~ s/\s$//g;
 	my @lines = split(/\r/,$packet);
 	my $line = shift @lines;
-	$line =~ s/\s$//g;
+
 
 	my ($command,
 		$param1,

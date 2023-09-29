@@ -191,13 +191,13 @@ sub dirInfoToText
     display($dbg_text,0,"dirInfoToText($dir_info->{entry}) ".
 		($dir_info->{is_dir} ? scalar(keys %{$dir_info->{entries}})." entries" : ""));
 
-	my $text = $dir_info->toText()."\n";
+	my $text = $dir_info->toText()."\r";
 	if ($dir_info->{is_dir})
     {
 		for my $entry (sort keys %{$dir_info->{entries}})
 		{
 			my $info = $dir_info->{entries}->{$entry};
-			$text .= $info->toText()."\n" if $info;
+			$text .= $info->toText()."\r" if $info;
 		}
 	}
     return $text;
@@ -213,7 +213,6 @@ sub textToDirInfo
 	# errors at $call_level=1 with $suppress_show
 {
     my ($text) = @_;
-
 	# Somebody else must check for PROTOCOL_ERROR before calling this
 		# my $err = $session->textError($text);
 		# return $err if $err;
@@ -222,7 +221,7 @@ sub textToDirInfo
 	# all sub-entries go into it's {entries} member
 
     my $result;
-    my @lines = split("\n",$text);
+    my @lines = split("\r",$text);
     display($dbg_text,0,"textToDirInfo() lines=".scalar(@lines));
 
     for my $line (@lines)
