@@ -410,11 +410,11 @@ sub _base64
 				ord(substr($cs_bytes,3,1));
 
 			my $calc_cs = calcChecksum($data);
-			display($dbg_commands+1,1,"$this->{NAME} got_cs($got_cs) calc_cs($calc_cs)");
+			display($dbg_commands+1,1,"$this->{NAME} ".sprintf("got_cs(0%08x) calc_cs(0x%08x)",$got_cs,$calc_cs));
 
 			if ($got_cs != $calc_cs)
 			{
-				$rslt = error("$this->{NAME} _base64 incorrect checksum got_cs($got_cs) calc_cs($calc_cs)");
+				$rslt = error("$this->{NAME} _base64 incorrect checksum ".sprintf("got_cs(0%08x) calc_cs(0x%08x)",$got_cs,$calc_cs));
 			}
 			else
 			{
@@ -508,7 +508,7 @@ sub _putOne
 				else
 				{
 					my $calc_cs = calcChecksum($data);
-					display($dbg_commands+1,1,"$this->{NAME} _putOne calc_cs($calc_cs)");
+					display($dbg_commands+1,1,"$this->{NAME} _putOne ".sprintf("calc_cs(0x%08x)",$calc_cs));
 					my $cs_bytes =
 						chr(($calc_cs >> 24) & 0xff).
 						chr(($calc_cs >> 16) & 0xff).

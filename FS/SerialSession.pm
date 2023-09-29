@@ -106,17 +106,23 @@ sub waitSerialReply
 
 		my $err = $this->getPacket(\$packet,0);
 		return $err if $err;
-		warning(0,0,"got packet=$packet") if $packet;
-		if ($packet && $packet =~ /^$PROTOCOL_ABORT/)
+;
+		my $show_packet = $packet =~ /^$PROTOCOL_BASE64/ ?
+			"BASE64 full packet length(".length($packet).")" :
+			$packet;
+		warning(0,0,"got packet=$show_packet") if $packet;
+		if ($packet =~ /^($PROTOCOL_ABORT|$PROTOCOL_BASE64)/)
 		{
-			my $request = "$PROTOCOL_ABORT\r";
-			my $len = length($request);
+			$packet =~ s/\s$//g;
+			$packet .= "\r";
+			my $len = length($packet);
 			while ($serial_file_request)
 			{
 				warning($dbg_request+2,-1,"waiting for !serial_file_request");
 				sleep(0.01);
 			}
-			$serial_file_request = "file_message\t$req_num\t$len\t$request\n";
+			display(0,0,"forwarding file_message len($len)");
+			$serial_file_request = "file_message\t$req_num\t$len\t$packet\n";
 		}
 
 		# waiting for numbered file_server reply continued
@@ -138,7 +144,8 @@ sub waitSerialReply
 
 	my $err = $this->sendPacket($packet);
 	return $err if $err;
-	return $packet =~ /^$PROTOCOL_PROGRESS/ ? 2 : 1;
+	return $packet =~ /^($PROTOCOL_PROGRESS|$PROTOCOL_CONTINUE)/ ?
+		2 : 1;
 }
 
 
@@ -170,7 +177,16 @@ sub doSerialRequest
 		warning(0,-2,"doSerialRequest done waiting");
 	}
 
+	# There is one SerialSession per connected (IS_BRIDGED) pane->{ClientSession}.
+	# We set $this->{IS_FILE_COMMAND} if the request starts with the FILE command.
+	# We call waitSerialReply() as usual, waiting for it to return != 2.
+	# waitSerialReply() will listen for new packets of the socket, and
+	# if they are ABORT or BASE64 will forward them to the serial port.
+	# It will return 2 on OK or CONTINUE packets for the moment.
+
 	my $req_num = $request_number++;
+	# $this->{IS_FILE_COMMAND} = $request =~ /^$PROTOCOL_FILE/ ? 1 : 0;
+
 	$request .= "\r" if $request !~ /\r$/;
 	my $len = length($request);  # the \r is considerd part of the packet
 	$request = "file_command\t$req_num\t$len\t$request\n";
@@ -184,8 +200,8 @@ sub doSerialRequest
 		$retval = $this->waitSerialReply($req_num)
 	}
 
+	# $this->{IS_FILE_COMMAND} = 0;
 	delete $serial_file_reply{$req_num};
-
 	display($dbg_request,0,"doSerialRequest() returning $retval");
 	return $retval;
 }

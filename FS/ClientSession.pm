@@ -127,19 +127,46 @@ sub connect
 #--------------------------------------------------------
 # each _method does socket packet protocol
 
+sub sendCommandWithReply
+	# returns 1 if $packet is useful
+	# otherwise caller should short retun the packet
+{
+	my ($this,$ppacket,$command) = @_;
+	$$ppacket = '';
+
+	my $ok = 1;
+    my $err = $this->sendPacket($command);
+    if ($err)
+	{
+		$ok = 0;
+		$$ppacket = $err;
+	}
+	else
+	{
+		$err = $this->getPacketInstance($ppacket,1);
+		if ($err)
+		{
+			$ok = 0;
+			$$ppacket = $err;
+		}
+		elsif ($ppacket =~ /^($PROTOCOL_ERROR)/)
+		{
+			$ok = 0;
+		}
+	}
+	return $ok;
+}
+
+
+
 sub _list
 {
     my ($this, $dir) = @_;
     display($dbg_commands,0,"$this->{NAME} _list($dir)");
 
-    my $command = "$PROTOCOL_LIST\t$dir";
-    my $err = $this->sendPacket($command);
-    return $err if $err;
-
 	my $packet;
-	$err = $this->getPacketInstance(\$packet,1);
-    return $err if $err;
-	return $packet if $packet =~ /^($PROTOCOL_ERROR)/;
+    return $packet if !$this->sendCommandWithReply(\$packet,
+		"$PROTOCOL_LIST\t$dir");
 
 	my $rslt = textToDirInfo($packet);
 	if (isValidInfo($rslt))
@@ -159,14 +186,9 @@ sub _mkdir
     my ($this,$dir,$subdir) = @_;
     display($dbg_commands,0,"$this->{NAME} _mkdir($dir,$subdir)");
 
-    my $command = "$PROTOCOL_MKDIR\t$dir\t$subdir";
-    my $err = $this->sendPacket($command);
-    return $err if $err;
-
 	my $packet;
-	$err = $this->getPacketInstance(\$packet,1);
-    return $err if $err;
-	return $packet if $packet =~ /^($PROTOCOL_ERROR)/;
+    return $packet if !$this->sendCommandWithReply(\$packet,
+		"$PROTOCOL_MKDIR\t$dir\t$subdir");
 
 	my $rslt = textToDirInfo($packet);
 	if (isValidInfo($rslt))
@@ -186,14 +208,9 @@ sub _rename
     my ($this,$dir,$name1,$name2) = @_;
     display($dbg_commands,0,"$this->{NAME} _rename($dir,$name1,$name2)");
 
-    my $command = "$PROTOCOL_RENAME\t$dir\t$name1\t$name2";
-    my $err = $this->sendPacket($command);
-    return $err if $err;
-
 	my $packet;
-	$err = $this->getPacketInstance(\$packet,1);
-    return $err if $err;
-	return $packet if $packet =~ /^($PROTOCOL_ERROR)/;
+    return $packet if !$this->sendCommandWithReply(\$packet,
+		"$PROTOCOL_RENAME\t$dir\t$name1\t$name2");
 
 	my $rslt = Pub::FS::FileInfo->fromText($packet);
 	if (isValidInfo($rslt))
@@ -292,7 +309,7 @@ sub _delete
 	while (1)
 	{
 		my $packet;
-		$err = $this->getPacket(\$packet, 1);
+		$err = $this->getPacket(\$packet,1);
 		$err ||= $this->checkPacket(\$packet);
 		if ($err)
 		{
@@ -314,7 +331,6 @@ sub _delete
 #---------------------------------------------
 # _put()
 #---------------------------------------------
-# The FILE and BASE64 commands are handled by the base class.
 
 sub _put
 {
@@ -355,7 +371,7 @@ sub _put
 	while (1)
 	{
 		my $packet;
-		$err = $this->getPacket(\$packet, 1);
+		$err = $this->getPacket(\$packet,1);
 		$err ||= $this->checkPacket(\$packet);
 		if ($err)
 		{
@@ -372,6 +388,60 @@ sub _put
 	$this->decInProtocol();
 	return $retval;
 }
+
+
+#------------------------------------------------------
+# _file() && _base64()
+#------------------------------------------------------
+# If IS_BRIDGED the FILE and BASE64 commands are passed
+# through the bridge, otherwise they are handled by
+# the base class.
+
+
+sub _file
+{
+	my ($this,
+		$size,
+		$ts,
+		$full_name) = @_;
+
+	my $rslt;
+	if ($this->{IS_BRIDGED})
+	{
+		$this->sendCommandWithReply(\$rslt,
+			"$PROTOCOL_FILE\t$size\t$ts\t$full_name");
+	}
+	else
+	{
+		$rslt = $this->SUPER::_file($this,$size,$ts,$full_name);
+	}
+
+	return $rslt;
+}
+
+
+sub _base64
+	# it is not clear what this $progres parameter means
+{
+	my ($this,
+		$offset,
+		$bytes,
+		$content) = @_;
+
+	my $rslt;
+	if ($this->{IS_BRIDGED})
+	{
+		$this->sendCommandWithReply(\$rslt,
+			"$PROTOCOL_BASE64\t$offset\t$bytes\t$content");
+	}
+	else
+	{
+		$rslt = $this->SUPER::_base64($this,$offset,$bytes,$content);
+	}
+
+	return $rslt;
+}
+
 
 
 
