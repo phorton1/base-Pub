@@ -6,6 +6,9 @@
 #
 # For a discussion if threads in wxPerl, see:
 # https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
+#
+# PRH - can now compare directory timestamps?
+# PRH - compare file sizes as well as dates with new display type 'different' for files with same dates, but different sizes
 
 package Pub::FC::Pane;
 use strict;

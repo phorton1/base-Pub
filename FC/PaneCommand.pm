@@ -83,8 +83,8 @@ sub doMakeDir
 		my $rslt = $this->doCommand(
 			'doMakeDir',
 			$PROTOCOL_MKDIR,
-			$this->{dir},
-			$new_name);
+			makePath($this->{dir},$new_name),
+			now(1,1));	# gmtime & with_date
 
 		return if $rslt && $rslt eq '-2';
 		$this->setContents($rslt);

@@ -158,12 +158,23 @@ sub _list
 sub _mkdir
 	# $dir must be fully qualified
 {
-    my ($this, $dir, $subdir) = @_;
-    display($dbg_commands,0,"$this->{NAME} _mkdir($dir)");
-    my $path = makePath($dir,$subdir);
+    my ($this, $path, $ts, $may_exist) = @_;
+    $may_exist ||= 0;
+	display($dbg_commands,0,"$this->{NAME} _mkdir($path,$ts,$may_exist)");
+	if ($may_exist)
+	{
+		return $PROTOCOL_OK
+			if -d $path;
+		return error("Path $path is not a directory in _mkdir",0,1)
+			if -e $path;
+	}
 	return error("Could not _mkdir $path: $!",0,1)
 		if !mkdir($path);
-	return $this->_list($dir);
+	return error("Could not setTimestap on $path in _mkdir: $!")
+		if !setTimestamp($path,$ts);
+	return $PROTOCOL_OK
+		if $may_exist;
+	return $this->_list(pathOf($path));
 }
 
 
@@ -454,101 +465,114 @@ sub _putOne
 	# just getting file across to begin with ..
 
 	display($dbg_commands,0,"$this->{NAME} _putOne($is_dir,$dir,$entry,$target_dir)");
-	return if $is_dir;
 
 	# ThreadedCommands for FILE and BASE64 will need some work ..
 	# Assuming everything works peachy locally ...
 
 	my $rslt = '';
-	my $info = Pub::FS::FileInfo->new(0,$dir,$entry);
+	my $info = Pub::FS::FileInfo->new($is_dir,$dir,$entry);
 	$rslt = $info if !isValidInfo($info);
 
 	if (!$rslt)
 	{
 		my $ts = $info->{ts};
-		my $size = $info->{size};
-		return $PROTOCOL_ABORTED if $this->{progress} &&
-			!$this->{progress}->setEntry($entry,$size);
-
-		my $full_name = makePath($dir,$entry);
-		my $other_full_name = makePath($target_dir,$entry);
-		if (!open(my $fh, "<", $full_name))
+		if ($is_dir)
 		{
-			$rslt = error("$this->{NAME} _putOne($full_name) could not open file for reading");
+			return $PROTOCOL_ABORTED if $this->{progress} &&
+				!$this->{progress}->setEntry($dir);
+			my $path = makePath($target_dir,$entry);
+			$rslt = $this->{other_session}->doCommand($PROTOCOL_MKDIR,
+				$path,
+				$ts,
+				1);		# MAY_EXIST parameter specific to this method
+			$rslt = '' if $rslt eq $PROTOCOL_OK;
 		}
 		else
 		{
-			binmode $fh;
+			my $size = $info->{size};
+			my $full_name = makePath($dir,$entry);
+			my $other_full_name = makePath($target_dir,$entry);
+			return $PROTOCOL_ABORTED if $this->{progress} &&
+				!$this->{progress}->setEntry($entry,$size);
 
-			$rslt = $this->{other_session}->doCommand($PROTOCOL_FILE,
-				$size,
-				$ts,
-				$other_full_name);
-
-			my $offset = 0;
-			my $err_msg = '';
-			while ($rslt eq $PROTOCOL_CONTINUE)
+			if (!open(my $fh, "<", $full_name))
 			{
-				my $data = '';
-				my $bytes = $size - $offset;
-				$bytes = $DECODED_BUF_SIZE if $bytes > $DECODED_BUF_SIZE;
-
-				if ($bytes <= 0)
-				{
-					$err_msg = "$this->{NAME} _putOne($full_name) unexpected CONTINUE at offset($offset) size($size)";
-					last;
-				}
-
-				my $got = sysread($fh, $data, $bytes);
-				if ($got != $bytes)
-				{
-					$err_msg = "$this->{NAME} _putOne bad read($got) expected($bytes)";
-					last;
-				}
-				else
-				{
-					my $calc_cs = calcChecksum($data);
-					display($dbg_commands+1,1,"$this->{NAME} _putOne ".sprintf("calc_cs(0x%08x)",$calc_cs));
-					my $cs_bytes =
-						chr(($calc_cs >> 24) & 0xff).
-						chr(($calc_cs >> 16) & 0xff).
-						chr(($calc_cs >> 8) & 0xff).
-						chr($calc_cs & 0xff);
-					display_bytes(0,0,"put CS",$cs_bytes);
-					my $encoded = encode64($data.$cs_bytes);
-
-					$rslt = $this->{other_session}->doCommand($PROTOCOL_BASE64,
-						$offset,
-						$bytes,
-						$encoded);
-
-					$offset += $bytes;
-
-					return $PROTOCOL_ABORTED if $this->{progress} &&
-						!$this->{progress}->setBytes($offset);
-
-				}	# got == bytes
-			}	# $rslt eq $PROTOCOL_CONTINUE;
-
-			close $fh;
-
-			# in the case of an error reading the file
-			# once we have sent a FILE and received CONTINUE,
-			# we call the other with a BASE64 0 0 ERROR message,
-			# but do not check the results of the call
-
-			if ($err_msg)
-			{
-				error($err_msg);
-				$rslt = $err_msg;
-				$this->{other_session}->doCommand($PROTOCOL_BASE64,0,0,
-					$PROTOCOL_ERROR.$err_msg);
+				$rslt = error("$this->{NAME} _putOne($full_name) could not open file for reading");
 			}
+			else
+			{
+				binmode $fh;
 
-			display($dbg_commands,0,"$this->{NAME} _putOne() ended with $rslt");
-			$rslt = '' if $rslt eq $PROTOCOL_OK;
+				$rslt = $this->{other_session}->doCommand($PROTOCOL_FILE,
+					$size,
+					$ts,
+					$other_full_name);
 
-		}	# file opened
+				my $offset = 0;
+				my $err_msg = '';
+				while ($rslt eq $PROTOCOL_CONTINUE)
+				{
+					my $data = '';
+					my $bytes = $size - $offset;
+					$bytes = $DECODED_BUF_SIZE if $bytes > $DECODED_BUF_SIZE;
+
+					if ($bytes <= 0)
+					{
+						$err_msg = "$this->{NAME} _putOne($full_name) unexpected CONTINUE at offset($offset) size($size)";
+						last;
+					}
+
+					my $got = sysread($fh, $data, $bytes);
+					if ($got != $bytes)
+					{
+						$err_msg = "$this->{NAME} _putOne bad read($got) expected($bytes)";
+						last;
+					}
+					else
+					{
+						my $calc_cs = calcChecksum($data);
+						display($dbg_commands+1,1,"$this->{NAME} _putOne ".sprintf("calc_cs(0x%08x)",$calc_cs));
+						my $cs_bytes =
+							chr(($calc_cs >> 24) & 0xff).
+							chr(($calc_cs >> 16) & 0xff).
+							chr(($calc_cs >> 8) & 0xff).
+							chr($calc_cs & 0xff);
+						display_bytes(0,0,"put CS",$cs_bytes);
+						my $encoded = encode64($data.$cs_bytes);
+
+						$rslt = $this->{other_session}->doCommand($PROTOCOL_BASE64,
+							$offset,
+							$bytes,
+							$encoded);
+
+						$offset += $bytes;
+
+						return $PROTOCOL_ABORTED if $this->{progress} &&
+							!$this->{progress}->setBytes($offset);
+
+					}	# got == bytes
+				}	# $rslt eq $PROTOCOL_CONTINUE;
+
+				close $fh;
+
+				# in the case of an error reading the file
+				# once we have sent a FILE and received CONTINUE,
+				# we call the other with a BASE64 0 0 ERROR message,
+				# but do not check the results of the call
+
+				if ($err_msg)
+				{
+					error($err_msg);
+					$rslt = $err_msg;
+					$this->{other_session}->doCommand($PROTOCOL_BASE64,0,0,
+						$PROTOCOL_ERROR.$err_msg);
+				}
+
+				display($dbg_commands,0,"$this->{NAME} _putOne() ended with $rslt");
+				$rslt = '' if $rslt eq $PROTOCOL_OK;
+
+			}	# file opened
+		}	# !info->{is_dir}
 	}	# isValidInfo
 
 	# returns blank to continue or an error
@@ -593,6 +617,29 @@ sub _put
 #-------------------------------------------------------
 # recurseFxn
 #-------------------------------------------------------
+
+sub doFlatDir
+	# the flatDir is done before recursion on _put,
+	# and after the recursion on _delete
+{
+	my ($this,$command,$callback,$dir,$entry,$target_dir) = @_;
+
+	sleep($TEST_DELAY) if $TEST_DELAY;
+
+	return $PROTOCOL_ABORTED if $this->{progress} &&
+		$this->{progress}->aborted();
+
+	display($dbg_commands,1,"$this->{NAME} $command local dir: $dir");
+
+	my $err = &$callback($this,1,$dir,$entry,$target_dir);
+	return $err if $err;
+
+	return $PROTOCOL_ABORTED
+		if $this->{progress} && !$this->{progress}->setDone(1);
+
+	return '';
+}
+
 
 sub recurseFxn
 {
@@ -666,14 +713,23 @@ sub recurseFxn
 				scalar(keys %$files));
 	}
 
+
+
 	#-------------------------------------------
-	# depth first recurse thru subdirs
+	# recurse thru subdirs
 	#-------------------------------------------
+	# do the flatDirs before the recursion for _put
 
 	for my $entry  (sort {uc($a) cmp uc($b)} keys %$subdirs)
 	{
+		my $err;
+		if ($command eq '_put')
+		{
+			$err = $this->doFlatDir($command,$callback,$dir,$entry,$target_dir);
+			return $err if $err;
+		}
 		my $info = $subdirs->{$entry};
-		my $err = $this->recurseFxn(
+		$err = $this->recurseFxn(
 			$command,
 			$callback,
 			makePath($dir,$entry),			# growing dir
@@ -703,27 +759,15 @@ sub recurseFxn
 			if $this->{progress} && !$this->{progress}->setDone(0);
 	}
 
-	#----------------------------------------------
-	# finally, do the dir itself at level>0
-	#----------------------------------------------
-	# recursions return 1 upon success
+	# do the flatDir after the files for _delete
 
-	if ($level)
+	if ($level && $command eq '_delete')
 	{
-		sleep($TEST_DELAY) if $TEST_DELAY;
-
-		return $PROTOCOL_ABORTED if $this->{progress} &&
-			$this->{progress}->aborted();
-
-		display($dbg_commands,1,"$this->{NAME} $command local dir: $dir");
-
-		my $err = &$callback($this,1,$dir,'',$target_dir);
+		my $err = $this->doFlatDir($command,$callback,$dir,'',$target_dir);
 		return $err if $err;
-
-		return $PROTOCOL_ABORTED
-			if $this->{progress} && !$this->{progress}->setDone(1);
-
 	}
+
+	# method returns '' upon success
 
 	return '';
 }
@@ -748,9 +792,9 @@ sub doCommand
 	{
 		$rslt = $this->_list($param1);
 	}
-	elsif ($command eq $PROTOCOL_MKDIR)				# $dir, $subdir
+	elsif ($command eq $PROTOCOL_MKDIR)				# $dir, $subdir, [$may_exist]
 	{
-		$rslt = $this->_mkdir($param1,$param2);
+		$rslt = $this->_mkdir($param1,$param2,$param3);
 	}
 	elsif ($command eq $PROTOCOL_RENAME)			# $dir, $old_name, $new_name
 	{

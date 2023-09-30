@@ -59,6 +59,9 @@ BEGIN
 		today
 		gmtToLocalTime
 
+
+        makePath
+		pathOf
 		filenameFromWin
 		setTimestamp
         getTextFile
@@ -488,9 +491,9 @@ sub now
     # returns the current local time in the
     # format hh::mm:ss
 {
-	my ($with_date) = @_;
+	my ($gm_time, $with_date) = @_;
 	$with_date ||= 0;
-    my @time_parts = localtime();
+    my @time_parts = $gm_time ? gmtime() : localtime();
 	my $time =
 		pad2($time_parts[2]).':'.
 		pad2($time_parts[1]).':'.
@@ -510,12 +513,17 @@ sub gmtToLocalTime
 
 	$ts = '2000-01-01 01:00:00'
 		if $ts lt '2000-01-01 01:00:00';
-		if ($ts !~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/)
+
+	if ($ts !~ /(\d\d\d\d).(\d\d).(\d\d).(\d\d):(\d\d):(\d\d)/)
 	{
 		error("bad timeStamp($ts)");
 		return 0;
 	}
-	my $gm_time = timegm($6,$5,$4,$3,($2-1),$1);
+	my ($year,$mo,$day,$hour,$min,$sec) =
+	   ($1,$2-1,$3,$4,$5,$6);
+	$mo = 1 if $mo < 0;
+	$day = 1 if !int($day);
+	my $gm_time = timegm($sec,$min,$hour,$day,$mo,$year);
 	my @time_parts = localtime($gm_time);
 	return
 		($time_parts[5]+1900) .'-'.
@@ -537,6 +545,25 @@ sub filenameFromWin
 	$filename =~ s/^.*://;
 	$filename =~ s/\\/\//g;
 	return $filename;
+}
+
+
+sub makePath
+    # static, handles '/'
+{
+    my ($dir,$entry) = @_;
+    $dir .= '/' if ($dir !~ /\/$/);
+    return $dir.$entry;
+}
+
+
+sub pathOf
+{
+	my ($full) = @_;
+	my $path = '/';
+	$path = $1 if $path =~ /^(.*)\//;
+	print "pathOf($full)=$path\n";
+	return $path;
 }
 
 

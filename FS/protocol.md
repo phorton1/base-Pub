@@ -22,7 +22,7 @@ depend on the packet type.
 - DISABLED 		- msg
 - ERROR			- msg
 - LIST			dir
-- MKDIR			dir name
+- MKDIR			path ts  [ may_exist ]
 - RENAME		dir name1 name2
 - ABORT
 - ABORTED
@@ -88,7 +88,7 @@ Otherwise, the following requests return DIR_LISTS
 of the given dir upon success:
 
 - LIST			dir
-- MKDIR			dir name
+- MKDIR			path ts
 - DELETE		dir (single_filename | entry_list]
 
 
@@ -194,7 +194,7 @@ ERROR within the BASE64 packet.
 ### Simple Commands
 
 - LIST			dir
-- MKDIR			dir name
+- MKDIR			path ts [may_exist]
 - RENAME		dir name1 name2
 - DELETE		dir single_filename
 
@@ -205,7 +205,10 @@ DIR_LIST or DIR_ENTRY being returned upon success.
 All of the above return a DIR_LIST upon success except
 RENAME which returns a DIR_ENTRY (as the fileClient is
 optimized to update the UI only for the changed filename
-in that case).
+in that case), and MKDIR may_exist, which is used in the
+FILE protocol to create empty directories, and returns
+OK or an error if the existing thing is not a directory,
+or the typical error if a directory could not be made.
 
 There are no PROGRESS messages returned by these
 commands and they cannot be ABORTED once issued.
@@ -340,3 +343,10 @@ is actualing doing the protocol with the SerialServer,
 and generally only forwarding PROGRESS and terminal messages
 back to the App.  And so, in that case, it will send
 PROGRESS ENTRY, BYTES, and DONE messages back to the App.
+
+### Addition of MKDIR path ts MAY_EXIST==1
+
+An optional param is added to the MKDIR command.
+This parameter is only set when MKDIR is called from
+a session-like PUT command. It is called (like FILE and
+BASE64) and returns OK or an error.

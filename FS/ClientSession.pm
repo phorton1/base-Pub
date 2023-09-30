@@ -183,21 +183,24 @@ sub _list
 
 sub _mkdir
 {
-    my ($this,$dir,$subdir) = @_;
-    display($dbg_commands,0,"$this->{NAME} _mkdir($dir,$subdir)");
+    my ($this,$path,$ts,$may_exist) = @_;
+    $may_exist ||= 0;
+	display($dbg_commands,0,"$this->{NAME} _mkdir($path,$ts,$may_exist)");
 
 	my $packet;
     return $packet if !$this->sendCommandWithReply(\$packet,
-		"$PROTOCOL_MKDIR\t$dir\t$subdir");
+		"$PROTOCOL_MKDIR\t$path\t$ts\t$may_exist");
+	return $packet if $may_exist;
+		# return OK or ERROR back as result of mkdir(may_exist)
 
 	my $rslt = textToDirInfo($packet);
 	if (isValidInfo($rslt))
 	{
-		display_hash($dbg_commands+1,1,"$this->{NAME} _mkdir($dir) returning ",$rslt->{entries})
+		display_hash($dbg_commands+1,1,"$this->{NAME} _mkdir($path) returning ",$rslt->{entries})
 	}
 	else
 	{
-		display($dbg_commands+1,1,"$this->{NAME} _mkdir($dir}) returning $rslt");
+		display($dbg_commands+1,1,"$this->{NAME} _mkdir($path}) returning $rslt");
 	}
     return $rslt;
 }
@@ -236,7 +239,7 @@ sub checkPacket
 
 	return $$ppacket if $$ppacket =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED|$PROTOCOL_OK)/;
 
-	if ($$ppacket =~ /^($PROTOCOL_FILE|$PROTOCOL_BASE64)/)
+	if ($$ppacket =~ /^($PROTOCOL_FILE|$PROTOCOL_BASE64|$PROTOCOL_MKDIR)/)
 	{
 		my ($command,$param1,$param2,$param3) = split(/\t/,$$ppacket);
 		display($dbg_commands,-2,show_params("$this->{NAME} checkPacket",$command,$param1,$param2,$param3));

@@ -41,7 +41,8 @@ sub doCommand
 	display($dbg_commands+1,0,show_params("ServerOtherSession::doCommand",$command,$param1,$param2,$param3));
 
 	if ($command eq $PROTOCOL_FILE ||
-		$command eq $PROTOCOL_BASE64)
+		$command eq $PROTOCOL_BASE64 ||
+		$command eq $PROTOCOL_MKDIR )
 	{
 		my $packet = "$command\t$param1\t$param2\t$param3";
 		$session->sendPacket($packet);

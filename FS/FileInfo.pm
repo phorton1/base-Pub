@@ -27,7 +27,6 @@ our $dbg_text:shared = 1;
 BEGIN {
     use Exporter qw( import );
 	our @EXPORT = qw (
-        makePath
 		isValidInfo
 		dirInfoToText
 		textToDirInfo
@@ -73,7 +72,7 @@ sub new
 		$dir = '';
 	}
 
-	display($dbg_info,0,"FileInfo->new($is_dir,$dir,$entry)");
+	display($dbg_info,0,"FileInfo->new($is_dir,$dir,$entry)",1);
 
     my $this = shared_clone({
         is_dir    => $is_dir,
@@ -110,16 +109,6 @@ sub new
     $this->{ts} 	= $ts;
     return $this;
 }
-
-
-sub makePath
-    # static, handles '/'
-{
-    my ($dir,$entry) = @_;
-    $dir .= '/' if ($dir !~ /\/$/);
-    return $dir.$entry;
-}
-
 
 
 

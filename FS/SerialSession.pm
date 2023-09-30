@@ -111,7 +111,7 @@ sub waitSerialReply
 			"BASE64 full packet length(".length($packet).")" :
 			$packet;
 		warning(0,0,"got packet=$show_packet") if $packet;
-		if ($packet =~ /^($PROTOCOL_ABORT|$PROTOCOL_BASE64)/)
+		if ($packet =~ /^($PROTOCOL_ABORT|$PROTOCOL_BASE64|$PROTOCOL_MKDIR)/)
 		{
 			$packet =~ s/\s$//g;
 			$packet .= "\r";
