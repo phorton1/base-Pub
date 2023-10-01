@@ -59,6 +59,7 @@ sub new
     my ($class,$params) = @_;
 	$params ||= {};
 	$params->{NAME} ||= 'SerialSession';
+	$params->{IS_BRIDGE} = 1;
     my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
@@ -157,10 +158,14 @@ sub sendFileMessage
 	$packet =~ s/\s+$//g;
 	$packet .= "\r";
 	my $len = length($packet);
-	while ($serial_file_request)
+	if ($serial_file_request)
 	{
-		warning($dbg_request+2,-1,"waiting for !serial_file_request");
-		sleep(0.01);
+		warning($dbg_request,-2,"sendFileMessage blocking while another operation sending request");
+		while ($serial_file_request)
+		{
+			sleep(0.01);
+		}
+		warning($dbg_request,-2,"sendFileMessage done waiting");
 	}
 	display($dbg_request,-4,"forwarding file_message len($len)");
 	$serial_file_request = "file_message\t$req_num\t$len\t$packet\n";
@@ -174,11 +179,12 @@ sub waitSerialReply
 	my ($this,$req_num,$command) = @_;
 	warning($dbg_request,-2,"waitSerialReply($req_num,$command)");
 
+    my $timer = time();
 	my $is_put =    $command eq $PROTOCOL_PUT;
 	my $is_delete = $command eq $PROTOCOL_DELETE;
 	my $is_file   = $command eq $PROTOCOL_FILE;
 
-	while (1)
+ 	while (1)
 	{
 		my $client_packet = '';
 		return if $this->getPacket(\$client_packet,0);
@@ -205,6 +211,7 @@ sub waitSerialReply
 			$show_reply =~ s/\r/\r\n/g;
 			display($dbg_request+1,-3,"waitSerialReply($req_num,$command) got serial_reply=$show_reply") if $show_reply;
 			return if $this->sendPacket($serial_reply,1);
+			$timer = time();
 		}
 
 		sendFileMessage($req_num,$client_packet)
@@ -215,7 +222,7 @@ sub waitSerialReply
 		last if $serial_reply =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
 			# all commands terminate on ERROR or ABORTED
 		last if $is_put && $client_packet =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORT)/;
-			# teensy PUT protocol bails on any errors or aborts
+			# teensy PUT protocol bails on any errors or aborts, so we do too
 		last if ($is_put || $is_file) && $serial_reply =~ /^$PROTOCOL_OK/;
 			# finish of teensy PUT protocol
 
@@ -226,7 +233,13 @@ sub waitSerialReply
 		next if $is_file && $serial_reply =~ /^$PROTOCOL_CONTINUE/;
 			# FILE command subsession CONTNUES
 		last if $serial_reply && $is_delete;
-			# and PROGRESS is the only continuation for DELETE
+			# PROGRESS is the only continuation for DELETE
+
+		if (time() - $timer > $REMOTE_TIMEOUT)
+		{
+			$this->sessionError("waitSerialReply($req_num,$command) timeout");
+			last;
+		}
 
 	}	# while (1)
 
@@ -258,7 +271,7 @@ sub doSerialRequest
 		warning($dbg_request,-2,"doSerialRequest blocking while another operation sending request");
 		while ($serial_file_request)
 		{
-			sleep(1);
+			sleep(0.01);
 		}
 		warning($dbg_request,-2,"doSerialRequest done waiting");
 	}

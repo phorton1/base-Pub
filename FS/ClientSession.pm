@@ -45,6 +45,7 @@ sub new
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
+	$params->{IS_CLIENT} = 1;
 	$params->{IS_BRIDGED} ||= 0;
 		# set by the pane if it gets a PORT on construction
 

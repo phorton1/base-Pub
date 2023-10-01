@@ -88,6 +88,7 @@ sub new
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
 	$params->{NAME} ||= 'ServerSession';
+	$params->{IS_SERVER} = 1;
     my $this = $class->SUPER::new($params);
 	$this->{other_session} = Pub::FS::ServerOtherSession->new($this);
 	$this->{aborted} = 0;

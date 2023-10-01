@@ -561,8 +561,8 @@ sub pathOf
 {
 	my ($full) = @_;
 	my $path = '/';
-	$path = $1 if $path =~ /^(.*)\//;
-	print "pathOf($full)=$path\n";
+	$path = $1 if $full =~ /^(.*)\//;
+	# print "pathOf($full)=$path\n";
 	return $path;
 }
 

@@ -259,41 +259,23 @@ sub _delete
 #------------------------------------------------------
 # We optimize progress reporting for FILE and BASE64
 # to the local client if at all possible. All Session
-#
-# Session
-#	SocketSession
-#		ClientSession
-#       SerialSession
-#       ServerSession
-#
-# A ServerSession is never the bestProgress and
-#    has a bogus other_session pointer.
-# A SerialSession never calls these methods directly.
-#
-# That leaves the base Session and the ClientSession,
-# both of which will have {progress} pointing to the
-# pane via threadedCommand.
-#
+# A ServerSession is never the bestProgress.
+# A SerialSession (IS_BRIDGE) never calls these methods directly.
+# A local Session, defined as !IS_CLIENT is the typical
+#    best session
+# Otherwise, if both are CLIENTs. the receiver is the
+#    best session.
 # The non-best calls still check aborted();
 
 sub bestSession
 {
 	my ($this,$is_receiver) = @_;
-	my $other = $this->{other_session};
-	my $type = ref($this);
-	my $other_type = ref($other);
 
-	my $rslt =
-		$type eq "Pub::FS::ServerSession" ? '' :
-		!$this->{IS_BRIDGED} ? $this :
-		$other->{IS_BRIDGED} && $this->{IS_THE_COMMAND} ? $this :
+	return
+		$this->{IS_SERVER} ? '' :
+		!$this->{IS_CLIENT} ? $this :
+		$this->{other_session}->{IS_CLIENT} && $is_receiver ? $this :
 		'';
-
-	display($dbg_commands+2,0,"bestSession($is_receiver) ".
-		"this $type($this->{IS_BRIDGED},$this->{IS_THE_COMMAND}) ".
-		"other $other_type($other->{IS_BRIDGED},$other->{IS_THE_COMMAND}) ".
-		"returning ".($rslt ? 'this' : ''));
-	return $rslt;
 }
 
 sub bestReportEntry

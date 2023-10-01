@@ -105,8 +105,6 @@ sub doCommandThreaded
 	my $session = $this->{session};
 	warning($dbg_thread,0,show_params("Pane$this->{pane_num} doCommandThreaded",$command,$param1,$param2,$param3)." caller=$session->{caller}");
 
-	$session->{IS_THE_COMMAND} = 1;
-	$session->{other_session}->{IS_THE_COMMAND} = 0;
 	$session->{progress} = $this;
 	$session->{other_session}->{progress} = $this;
 		# both progress members replaced with a pointer to $this
