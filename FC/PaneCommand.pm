@@ -211,6 +211,17 @@ sub endRename
 	$hash->{$this->{new_edit_name}} = $info;
 	$this->{last_sortcol} = -1 if ($this->{last_sortcol} <= 1);
 
+	# if  the other pane has the same connection
+	# to the same dir, tell it to reset it's contents
+
+	my $other = $this->otherPane();
+	if ($other->{port} == $this->{port} &&
+		$other->{dir} eq $this->{dir})
+	{
+		$other->setContents();
+		$other->populate(1);
+	}
+
 	# sort does not work from within the event,
 	# as wx has not finalized it's edit
 	# so we chain another event to repopulate

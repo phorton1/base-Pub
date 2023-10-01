@@ -114,6 +114,7 @@ sub new
 {
     my ($class,$parent,$splitter,$params) = @_;
     my $this = $class->SUPER::new($splitter);
+	$params->{port} ||= 0;
 
 	display($dbg_life,0,"new Pane($params->{pane_num}) port=$params->{port}");
 
@@ -797,6 +798,10 @@ sub setContents
     $this->{last_desc}   = 0;
     $this->{changed} = 1;
 
+	# if the other pane has the same connection as us
+	# call it's repopuluate method
+
+
 }   # setContents
 
 
@@ -820,9 +825,20 @@ sub populate
 
     $this->{dir_ctrl}->SetLabel($dir);
 
+	# if !from_other, and this pane has changed,
+	# and the other pane has the same connection
+	# to the same dir, tell it to reset it's contents
+
+	my $other = $this->otherPane();
+	$other->setContents() if
+		!$from_other &&
+		$this->{changed} &&
+		$other->{port} == $this->{port} &&
+		$other->{dir} eq $this->{dir};
+
     # compare the two lists before displaying
 
-    my $other = $this->compareLists();
+    $other = $this->compareLists();
 
 	# if the data has changed, fully repopulate the control
     # if the data has not changed, we don't pass in an entry
