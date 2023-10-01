@@ -31,7 +31,7 @@ use base qw(Wx::Dialog);
 my $ID_WINDOW = 18000;
 my $ID_CANCEL = 4567;
 
-my $dbg_fpd = 0;
+my $dbg_fpd = 1;
 
 
 sub new

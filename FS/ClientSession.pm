@@ -45,6 +45,9 @@ sub new
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
+	$params->{IS_BRIDGED} ||= 0;
+		# set by the pane if it gets a PORT on construction
+
 	my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
@@ -255,7 +258,7 @@ sub checkPacket
 	{
 		my $command = $1;
 		$$ppacket =~ s/\s+$//g;
-		display($dbg_progress,-2,"checkPacket() PROGRESS($command) $$ppacket");
+		display($dbg_commands,-2,"checkPacket() PROGRESS($command) $$ppacket");
 		if ($this->{progress})
 		{
 			my @params = split(/\t/,$$ppacket);
@@ -339,20 +342,20 @@ sub _put
 {
 	my ($this,
 		$dir,
-		$entries,		# ref() or single_file_name
-		$target_dir) = @_;
+		$target_dir,
+		$entries) = @_;
 
-	display($dbg_commands,0,"$this->{NAME} _put($dir,$entries,$target_dir)");
+	display($dbg_commands,0,"$this->{NAME} _put($dir,$target_dir,$entries)");
 
-    my $command = "$PROTOCOL_PUT\t$dir";
+    my $command = "$PROTOCOL_PUT\t$dir\t$target_dir";
 
 	if (!ref($entries))
 	{
-		$command .= "\t$entries\t$target_dir";	# single filename version
+		$command .= "\t$entries";	# single filename version
 	}
 	else	# full version
 	{
-		$command .= "\t\t$target_dir\r";
+		$command .= "\r";
 		for my $entry (sort keys %$entries)
 		{
 			my $info = $entries->{$entry};

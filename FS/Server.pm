@@ -521,7 +521,7 @@ sub processPacket
 	# socket connection to the client.
 {
 	my ($this,$session,$packet) = @_;
-	$packet =~ s/\s$//g;
+	$packet =~ s/\s+$//g;
 	my @lines = split(/\r/,$packet);
 	my $line = shift @lines;
 
@@ -539,16 +539,18 @@ sub processPacket
 	}
 	display($dbg_server,0,show_params("processPacket",$command,$param1,$param2,$param3)." lines=".scalar(@lines));
 
-	my $entries = $param2;
+	my $new_param2 = $param2;
+	my $new_param3 = $param3;
+	my $pentries = $command eq "PUT" ? \$param3 : \$param2;
 	if (@lines)
 	{
-		$entries = {};
+		$$pentries = {};
 		for my $line (@lines)
 		{
 			my $info = Pub::FS::FileInfo->fromText($line,1);
 			if (isValidInfo($info))
 			{
-				$entries->{$info->{entry}} = $info;
+				$$pentries->{$info->{entry}} = $info;
 			}
 			else
 			{
@@ -561,7 +563,7 @@ sub processPacket
 	# received by this base Server.
 
 	$session->{progress} = $session;
-	my $rslt = $session->doCommand($command,$param1,$entries,$param3);
+	my $rslt = $session->doCommand($command,$param1,$new_param2,$new_param3);
 	$rslt ||= '';
 
 	# Stops the thread/session if it can't send the packet

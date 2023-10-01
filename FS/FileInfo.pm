@@ -16,7 +16,7 @@ use threads;
 use threads::shared;
 use Pub::Utils;
 
-our $dbg_info = 0;
+our $dbg_info = 1;
 	# 0 = show new() events
 	# -1 = show fromText hashes
 our $dbg_text:shared = 1;

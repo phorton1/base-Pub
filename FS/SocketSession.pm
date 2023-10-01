@@ -24,7 +24,6 @@ use base qw(Pub::FS::Session);
 
 
 our $dbg_packets:shared =  0;
-our $dbg_progress:shared = 0;
 
 
 BEGIN {
@@ -32,7 +31,6 @@ BEGIN {
 	our @EXPORT = ( qw (
 
 		$dbg_packets
-		$dbg_progress
 
 		$DEFAULT_PORT
 		$DEFAULT_HOST
@@ -118,7 +116,7 @@ sub sendPacket
 	return error("$this->{NAME} no socket in sendPacket",1,1)
 		if !$sock;
 
-	$packet =~ s/\s$//g;
+	$packet =~ s/\s+$//g;
     if (!$sock->send($packet."\r\n"))
     {
         $this->{SOCK} = undef;
@@ -206,7 +204,7 @@ sub getPacket
 		return error("$this->{NAME} no response from peer",1,1);
 	}
 
-	$$ppacket =~ s/\s$//g;
+	$$ppacket =~ s/\s+$//g;
 	if (!$$ppacket)
 	{
 		$this->{SOCK} = undef;

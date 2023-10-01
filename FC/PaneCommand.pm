@@ -236,11 +236,9 @@ sub doCommandSelected
     my $ctrl = $this->{list_ctrl};
     my $num = $ctrl->GetItemCount();
 	my $other = $this->otherPane();
+	my $is_put = $id == $COMMAND_XFER ? 1 : 0;
 
-	my $display_command = $id == $COMMAND_XFER ?
-		'xfer' :
-		'delete';
-
+	my $display_command = $is_put ? 'xfer' : 'delete';
     display($dbg_ops,1,"doCommandSelected($display_command) ".$ctrl->GetSelectedItemCount()."/$num selected items");
 
     # build an info for the root entry (since the
@@ -306,17 +304,13 @@ sub doCommandSelected
 		"Are you sure you want to $display_command $file_and_dirs ??",
 		CapFirst($display_command)." Confirmation");
 
-	my $command = $id == $COMMAND_XFER ?
-		$PROTOCOL_PUT :
-		$PROTOCOL_DELETE;
-	my $target_dir =
-
 	$this->{progress} = # !$num_dirs && $num_files==1 ? '' :
 		Pub::FC::ProgressDialog->new(
 			undef,
 			uc($display_command));
 
-	my $param2 = !$num_dirs && $num_files == 1 ?
+	my $command = $is_put ? $PROTOCOL_PUT : $PROTOCOL_DELETE;
+	my $cmd_entries = !$num_dirs && $num_files == 1 ?
 		$first_entry :
 		$dir_info->{entries};
 
@@ -324,8 +318,8 @@ sub doCommandSelected
 		'doCommandSelected',
 		$command,
 		$this->{dir},
-		$param2,
-		$other->{dir} );
+		$is_put ? $other->{dir} : $cmd_entries,
+		$is_put ? $cmd_entries : '' );
 
 	# doCommandThreaded is used for all non-local Sessions and PUTS
 	# It invariantly sets this->{thread} and returns -2 indicating that
