@@ -2,7 +2,9 @@
 # Pub::FS::SerialBridge
 #--------------------------------------------------
 # The SerialBridge is a bridge between the fileClient
-# and a device that implements a SerialServer.
+# and a device that implements a SerialServer orchestrated
+# by buddy.
+#
 # The only current SerialServer is the teensyExpression,
 # There is currently no Perl SerialServer.
 
@@ -49,9 +51,10 @@ sub createSession
 	# to create different kinds of sessions
 {
 	my ($this,$sock) = @_;
-	return Pub::FS::SerialSession->new({
+	my $session = Pub::FS::SerialSession->new({
 		SOCK => $sock,
 		IS_SERVER => 1 });
+	return $session;
 }
 
 

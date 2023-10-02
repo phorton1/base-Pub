@@ -5,14 +5,12 @@
 # A ThreadedSession wraps a WX::Perl Thread around a ClientSession.
 # It is both WX aware, and intimitaly knowledgeable about FC::Pane.
 #
-# It actually wraps the thread around ClientSession::doCommand().
+# It actually wraps the thread around ClientSession::doCommand()
+# into the method onCommandThreaded().
 #
-# ThreadedSession::doCommand() usds the $caller parameter,
-# which is ignored by the standard Session used by local Panes.
-#
-# When the ThreadedSession is constsructed, keeps a pointer to the Pane.
-# to point to the onThreadedEvent method. This allows the thread to
-# communnicate back to the (Pane) UI using WX events.
+# onCommandThreaded() and assoicated progress-like methods) cannot
+# access the UI directly. They update the UI by to posting events to
+# the onThreadedEvent method.
 
 
 package Pub::FC::Pane;	# continued
@@ -26,10 +24,18 @@ use Pub::FS::FileInfo;
 use Pub::FS::Session;		# for $PROTOCOL_XXX
 use Pub::FC::Pane;			# for $THREAD_EVENT
 
-my $dbg_thread = 0;
+my $dbg_thread = -0;
 	# 0 = basics
-	# -1 = onThreadEvent details
+	# -1 = onThreadEvent calls
+	# -2 = onThreadEvent details
 my $dbg_idle = 0;
+
+
+my $USE_FORKING = 0;
+	# Forking and threading now both work 'oK' with CONSOLE output,
+	# no thread warnings, etc, after I commented line out of
+	# Win32::Console.pm
+my $fork_num = 0;
 
 
 #------------------------------------------------------
@@ -51,14 +57,12 @@ sub doCommand
 
 	display($dbg_thread,0,show_params("Pane$this->{pane_num} doCommand $caller",$command,$param1,$param2,$param3));
 
+	# Even in local regular commands, $session->{progress} is set
+
 	my $session = $this->{session};
-	$session->{caller} = $caller || '';
 	$session->{progress} = $this->{progress};
 
-	my $other_pane = $this->otherPane();
-	$session->{other_session} = $other_pane ? $other_pane->{session} : '';
-
-	# Cases of direct calls to $this->{session}->doCommand()
+	# Cases of direct calls to local Session::doCommand()
 	# return a blank or a valid file info
 
 	if (!$this->{port} && $command ne $PROTOCOL_PUT)
@@ -68,31 +72,90 @@ sub doCommand
 		return $rslt;
 	}
 
-	# @_ = ();
-		# said to be necessary to avoid "Scalars leaked"
-		# but doesn't make any difference
+	# PUT requires {other_session}, noting that {other_pane} is not
+	# set by the Window until aftor the Pane ctor() completes, so we
+	# check other_pane before assuming we can get to the other session.
+	# Threaded commands require the {caller} in order to finish the
+	# operation via onThreadEvent(), and everybody points to $this
+	# as the progress member.
 
-	my $thread = threads->create(\&doCommandThreaded,
-		$this,
-		$command,
-		$param1,
-		$param2,
-		$param3);
+	my $other = $this->{other_pane};
+	my $other_session = $other ? $other->{session} : '';
 
-	$this->{thread} = 1; # $thread;
-		# to prevent commands while in threaded command
+	$session->{caller} = $caller || '';
+	$session->{other_session} = $other_session;
+	$session->{progress} = $this;
+	$other_session->{progress} = $this if $other_session;
 
-	###### THE ISSUE #######
+	# We prevent the UI from doing anything by setting {thread}
 
-	# $thread->detach();
+	$this->{thread} = 1;
 
-	########################
+	# Forking and threads seem to work similarly.
+	# Each eats a little memory and the CONSOLE works.
+
+	if ($USE_FORKING)
+	{
+		my $SAVE_CONSOLE = $USE_CONSOLE;
+
+		$fork_num++;
+        my $child_pid = fork();
+		if (!defined($child_pid))
+		{
+			error("FS_FORK($fork_num) FAILED!");
+			return $caller eq 'setContents' ? -1 : '';
+		}
+
+		if (!$child_pid)	# child fork
+		{
+			display($dbg_thread,0,"THREADED_FORK_START($fork_num) pid=$$");
+
+			$this->doCommandThreaded(
+				$command,
+				$param1,
+				$param2,
+				$param3);
+
+			display($dbg_thread,0,"THREADED_FORK_END($fork_num) pid=$$");
+
+			exit();
+		}
+	}
+	else
+	{
+		# @_ = ();
+			# said to be necessary to avoid "Scalars leaked"
+			# but doesn't make any difference
+
+		my $thread = threads->create(\&doCommandThreaded,
+			$this,
+			$command,
+			$param1,
+			$param2,
+			$param3);
+
+		#-----------------------------------------
+		# detach() used to be a huge problem
+		#-----------------------------------------
+		# once I commented the line out of Win32::Console.pm
+		# the problem seems to have gone away
+
+		$thread->detach();
+	}
+
+	# A return of -2 indicates that a threaded command is in progress.
 
 	display($dbg_thread,0,"Pane$this->{pane_num} doCommand($command) returning -2");
-	return -2;		# PRH -2 indicates threaded command in progress
+	return -2;
 
 }
 
+
+
+#------------------------------------------------------
+# doCommandThreaded() cannot access the UI directly!
+#------------------------------------------------------
+# So it sends a THREAD_EVENT when the command finishes.
 
 sub doCommandThreaded
 {
@@ -105,28 +168,26 @@ sub doCommandThreaded
 	my $session = $this->{session};
 	warning($dbg_thread,0,show_params("Pane$this->{pane_num} doCommandThreaded",$command,$param1,$param2,$param3)." caller=$session->{caller}");
 
-	$session->{progress} = $this;
-	$session->{other_session}->{progress} = $this;
-		# both progress members replaced with a pointer to $this
-
 	my $rslt = $this->{session}->doCommand(
 		$command,
 		$param1,
 		$param2,
 		$param3 );
 
+	# back from the command, make sure to not leave any dangling pointers to progress
+
 	warning($dbg_thread,0,"Pane$this->{pane_num} doCommandThreaded($command) got rslt=$rslt");
-	$session->{progress} = undef;;
 
-	# promote any non ref resultsto a shared hash
-	# with a caller and pass it to onThreadEvent
+	# promote any non ref results to a shared hash, as final
+	# resules typically require the $command and $caller
 
-	$rslt = shared_clone({
-		rslt => $rslt || ''
-	}) if !$rslt || !ref($rslt);
-
-	$rslt->{caller} = $session->{caller};
+	$rslt = shared_clone({ rslt => $rslt || ''})
+		if !$rslt || !ref($rslt);
 	$rslt->{command} = $command;
+	$rslt->{caller} = $session->{caller};
+
+	# post the event and we're done
+
 	my $evt = new Wx::PlThreadEvent( -1, $THREAD_EVENT, $rslt );
 	Wx::PostEvent( $this, $evt );
 
@@ -134,6 +195,9 @@ sub doCommandThreaded
 }
 
 
+#-------------------------------------------------------------
+# progress-like method that dispatch to onThreadEvent()
+#-------------------------------------------------------------
 
 sub aborted
 {
@@ -180,7 +244,7 @@ sub setBytes
 
 
 #---------------------------------------------------------------
-# These methods access the Pane WX::UI
+# onThradEvent() accesses the Pane WX::UI
 #---------------------------------------------------------------
 
 sub onThreadEvent
@@ -193,21 +257,29 @@ sub onThreadEvent
 	}
 
 	my $rslt = $event->GetData();
-	display($dbg_thread+1,1,"onThreadEvent rslt=$rslt");
+	display($dbg_thread+1,1,"Pane$this->{pane_num} onThreadEvent() called");
 
 	if (ref($rslt))
 	{
 		my $caller = $rslt->{caller};
 		my $command = $rslt->{command};
-		display($dbg_thread,1,"Pane$this->{pane_num} onThreadEvent caller($caller) command(($command) rslt=$rslt");
+		display($dbg_thread,1,"Pane$this->{pane_num} onThreadEvent finiishing caller($caller) command(($command) rslt=$rslt",
+			0,$display_color_light_magenta);
 
-		# if not a FileInfo demote created hashes back to outer $rslt
+		# we clear the {thread} early so that Window::populate() will work
+		# in the below calls. We are running in the main thread, so everything
+		# should be synchronous
+
+		$this->{aborted} = 0;
+		delete $this->{thread};
+
+		# if not a FileInfo, demote created hashes back to outer $rslt
 
 		my $is_info = isValidInfo($rslt);
 		if (!$is_info)
 		{
 			$rslt = $rslt->{rslt} || '';
-			display($dbg_thread+1,2,"inner rslt=$rslt");
+			display($dbg_thread+2,2,"Pane$this->{pane_num} inner rslt=$rslt");
 		}
 
 		# report ABORTS and ERRORS
@@ -247,9 +319,8 @@ sub onThreadEvent
 
 		elsif ($command eq $PROTOCOL_PUT)
 		{
-			my $other = $this->otherPane();
-			$other->setContents();
-			$other->populate();
+			$this->{other_pane}->setContents();
+			$this->{parent}->populate();
 		}
 
 		# or this one, except if there's no result and
@@ -258,19 +329,18 @@ sub onThreadEvent
 		elsif ($rslt || $caller ne 'setContents')
 		{
 			$this->setContents($rslt);
-			$this->populate();
+			$this->{parent}->populate();
 		}
 
-		# done with the thread
+		# really done
 
-		$this->{aborted} = 0;
-		delete $this->{thread};
-		return;
+		display($dbg_thread,1,"Pane$this->{pane_num} onThreadEvent done caller($caller) command(($command) rslt=$rslt",
+			0,$display_color_light_magenta);
 	}
 
-	# the only pure text $rslt are PROGRESS message
+	# the only pure text $rslts are PROGRESS message
 
-	if ($rslt =~ /^$PROTOCOL_PROGRESS/)
+	elsif ($rslt =~ /^$PROTOCOL_PROGRESS/)
 	{
 		if ($this->{progress})
 		{
@@ -280,7 +350,7 @@ sub onThreadEvent
 
 			$params[0] = '' if !defined($params[0]);
 			$params[1] = '' if !defined($params[1]);
-			display($dbg_thread,1,"onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
+			display($dbg_thread,1,"Pane$this->{pane_num} onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
 
 			$this->{progress}->addDirsAndFiles($params[0],$params[1])
 				if $command eq 'ADD';
@@ -298,8 +368,16 @@ sub onThreadEvent
 	{
 		error("unknown rslt=$rslt in onThreadEvent()");
 	}
-}
 
+	display($dbg_thread+1,1,"Pane$this->{pane_num} onThreadEvent() returning");
+
+}	# onThreadEvent()
+
+
+
+#---------------------------------------------------------------
+# onIdle
+#---------------------------------------------------------------
 
 sub onIdle
 {

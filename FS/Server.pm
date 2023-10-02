@@ -22,7 +22,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::ServerSession;
 
 
-our $dbg_server:shared =  0;
+our $dbg_server:shared =  -1;
 	# 0 for main server startup
 	# -1 for forking/threading details
 	# -2 null reads
@@ -64,8 +64,13 @@ sub notifyAll
 	});
 }
 
+# FINALLY GOT IT!!!
+# PRH - FS::Server needs a simplifying cleanup and more testing now that Win32::Console.pm has been modified.
+#
+# With the Win32::Console.pm mod, when USE FORKING, merely call exit() WITH NO PARAMS from the fork!
 
-# FINAL SUMMARY OF FORKING VERSUS THREADING AND VARIOUS OPTIONS in buddy
+
+# OLD, OBSOLETE SUMMARY OF FORKING VERSUS THREADING AND VARIOUS OPTIONS in buddy
 #
 # Forking had a lot of problems in Buddy with, I think, the
 # closing of STDIN and STOUT that I could not seem to work around
@@ -93,7 +98,7 @@ my $KILL_WAIT       = 0x0002;		# waitpid on the PID file in the main thread
 my $KILL_KILL 		= 0x0004;		# kill the PID file in the main thread
 	# the last two are mutuallly exclusive
 
-my $HOW_KILL_FORK = $KILL_REDIRECT;
+my $HOW_KILL_FORK = $KILL_KILL ;	  # $KILL_REDIRECT;
 
 # following only used if !$USE_FORKING
 
@@ -292,8 +297,8 @@ sub serverThread
                 }
                 display($dbg_server+1,1,"fs_fork($connect_num) parent continuing");
 
-            }
-            else
+            }		# USE_FORKING
+            else	# !USE_FORKING
             {
                 display($dbg_server+1,1,"starting sessionThread");
 
@@ -377,8 +382,6 @@ sub serverThread
                 }
             }
         }
-
-
     }
 
     $server_socket->close();
@@ -424,9 +427,10 @@ sub sessionThread
 
 	# sendPacket reports and returns an error on failure
 
-	if ($ok && $session->sendPacket($PROTOCOL_WASSUP))
+	$packet = "$PROTOCOL_WASSUP\t$session->{SERVER_ID}";
+	if ($ok && $session->sendPacket($packet))
 	{
-        error("COULD NOT SEND $PROTOCOL_HELLO");
+        error("COULD NOT SEND $PROTOCOL_WASSUP");
 		$ok = 0
 	}
 
@@ -531,17 +535,17 @@ sub processPacket
 		$param2,
 		$param3) = split(/\t/,$line);
 
-	if ($dbg_server <= 0)
-	{
-		my $show_packet = $packet;
-		$show_packet =~ s/\r/\r\n/g;
-		display($dbg_server,0,"processPacket packet=$show_packet");
-	}
+	# if ($dbg_server <= 0)
+	# {
+	# 	my $show_packet = $packet;
+	# 	$show_packet =~ s/\r/\r\n/g;
+	# 	display($dbg_server,0,"processPacket packet=$show_packet");
+	# }
 	display($dbg_server,0,show_params("processPacket",$command,$param1,$param2,$param3)." lines=".scalar(@lines));
 
 	my $new_param2 = $param2;
 	my $new_param3 = $param3;
-	my $pentries = $command eq "PUT" ? \$param3 : \$param2;
+	my $pentries = $command eq "PUT" ? \$new_param3 : \$new_param2;
 	if (@lines)
 	{
 		$$pentries = {};

@@ -11,6 +11,8 @@
 # base class, it either returns valid FileInfo objects
 # or a text error message (including $PROTOCOL_ABORTED).
 
+# PRH - bug - this is not making empty dirs like i hoped..
+
 
 package Pub::FS::ClientSession;
 use strict;
@@ -50,6 +52,7 @@ sub new
 		# set by the pane if it gets a PORT on construction
 
 	my $this = $class->SUPER::new($params);
+	$this->{SERVER_ID} = '';
 	return if !$this;
 	bless $this,$class;
 
@@ -110,8 +113,9 @@ sub connect
 		{
 			my $packet;
 			$err = $this->getPacket(\$packet,1);
-	        $err = "$this->{WHO} unexpected response from server: $packet"
-				if !$err && $packet !~ /^$PROTOCOL_WASSUP/;
+	        $err = "$this->{NAME} unexpected response from server: $packet"
+				if !$err && $packet !~ /^$PROTOCOL_WASSUP\t(.*)$/;
+			$this->{SERVER_ID} = $1 if !$err;
 		}
 		if ($err)
 		{
@@ -192,10 +196,9 @@ sub _mkdir
 	display($dbg_commands,0,"$this->{NAME} _mkdir($path,$ts,$may_exist)");
 
 	my $packet;
-    return $packet if !$this->sendCommandWithReply(\$packet,
+	return $packet if !$this->sendCommandWithReply(\$packet,
 		"$PROTOCOL_MKDIR\t$path\t$ts\t$may_exist");
 	return $packet if $may_exist;
-		# return OK or ERROR back as result of mkdir(may_exist)
 
 	my $rslt = textToDirInfo($packet);
 	if (isValidInfo($rslt))
@@ -234,49 +237,108 @@ sub _rename
 
 
 #--------------------------------------------------------
-# checkPacket() && _delete()
+# waitTerminalPacket for session-like commands
 #--------------------------------------------------------
+# This is the guts of the clientSession PROTOCOL
 
-sub checkPacket
+sub waitTerminalPacket
 {
-	my ($this,$ppacket) = @_;
+	my ($this,$is_command) = @_;
 
-	return $$ppacket if $$ppacket =~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORTED|$PROTOCOL_OK)/;
+	my $is_put = $is_command eq $PROTOCOL_PUT ? 1 : 0;
+	my $is_file = $is_command eq $PROTOCOL_FILE ? 1 : 0;
+	my $is_delete = $is_command eq $PROTOCOL_DELETE ? 1 : 0;
 
-	if ($$ppacket =~ /^($PROTOCOL_FILE|$PROTOCOL_BASE64|$PROTOCOL_MKDIR)/)
+	display($dbg_commands,0,"$this->{NAME} waitTerminalPacket($is_command)",
+		0,$display_color_light_cyan);
+
+	my $rslt;
+	while (1)
 	{
-		my ($command,$param1,$param2,$param3) = split(/\t/,$$ppacket);
-		display($dbg_commands,-2,show_params("$this->{NAME} checkPacket",$command,$param1,$param2,$param3));
+		my $packet;
+		$rslt = $this->getPacket(\$packet,1);
+		last if $rslt;
+		$rslt = $packet;
 
-		my $other_session = $this->{other_session};
-		my $rslt = $other_session->doCommand($command,$param1,$param2,$param3);
+		# overuse $packet as a temporary dbg variable for display
 
-		my $err = $this->sendPacket($rslt,1);
-		return $err if $err;
-		$$ppacket = '';
-	}
-	elsif ($$ppacket =~ s/^$PROTOCOL_PROGRESS\t(.*?)\t//)
-	{
-		my $command = $1;
-		$$ppacket =~ s/\s+$//g;
-		display($dbg_commands,-2,"checkPacket() PROGRESS($command) $$ppacket");
-		if ($this->{progress})
+		$packet = "BASE64 total_length=".length($packet)
+			if $packet =~ /^$PROTOCOL_BASE64/;
+		$packet =~ s/\s$//g;
+		$packet =~ s/\r/\r\n/g;
+		display($dbg_commands,1,"$this->{NAME} waitTerminalPacket($is_command) got packet $packet");
+
+		# PROGRESS packets always call methods and continue
+
+		if ($rslt =~ s/^$PROTOCOL_PROGRESS\t(.*?)\t//)
 		{
-			my @params = split(/\t/,$$ppacket);
-			return $PROTOCOL_ABORTED if $command eq 'ADD' &&
-				!$this->{progress}->addDirsAndFiles($params[0],$params[1]);
-			return $PROTOCOL_ABORTED if $command eq 'DONE' &&
-				!$this->{progress}->setDone($params[0]);
-			return $PROTOCOL_ABORTED if $command eq 'ENTRY' &&
-				!$this->{progress}->setEntry($params[0],$params[1]);
-			return $PROTOCOL_ABORTED if $command eq 'BYTES' &&
-				!$this->{progress}->setBytes($params[0]);
+			my $command = $1;
+			$rslt =~ s/\s+$//g;
+			display($dbg_commands,-2,"checkPacket() PROGRESS($command) $rslt");
+			if ($this->{progress})
+			{
+				my @params = split(/\t/,$rslt);
+				return $PROTOCOL_ABORTED if $command eq 'ADD' &&
+					!$this->{progress}->addDirsAndFiles($params[0],$params[1]);
+				return $PROTOCOL_ABORTED if $command eq 'DONE' &&
+					!$this->{progress}->setDone($params[0]);
+				return $PROTOCOL_ABORTED if $command eq 'ENTRY' &&
+					!$this->{progress}->setEntry($params[0],$params[1]);
+				return $PROTOCOL_ABORTED if $command eq 'BYTES' &&
+					!$this->{progress}->setBytes($params[0]);
+			}
+			next;
 		}
-		$$ppacket = '';
+
+		# terminal conditions by command type
+
+		last if $is_delete;
+			# PROGRESS is the only continuation for DELETE
+		last if $is_put && $rslt =~ /^($PROTOCOL_OK|$PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
+			# end of PUT protocol
+		last if $is_file && $rslt =~ /^($PROTOCOL_OK|$PROTOCOL_CONTINUE|$PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
+			# end of PUT protocol
+
+		# process sub-commands from the socket thru
+		# the other session's doCommand() method
+
+		if ($rslt =~ /^($PROTOCOL_FILE|$PROTOCOL_BASE64|$PROTOCOL_MKDIR)/)
+		{
+			my ($command,$param1,$param2,$param3) = split(/\t/,$rslt);
+			my $other_session = $this->{other_session};
+			my $other_rslt = $other_session->doCommand($command,$param1,$param2,$param3);
+
+			my $err = $this->sendPacket($other_rslt,1);
+			return $err if $err;
+		}
+
+		# send any other packets to the other session
+		# and terminate the loop except on PUT or FILE CONTINUE
+
+		else
+		{
+			my $err = $this->sendPacket($rslt,1);
+			return $err if $err;
+
+			next if $is_put;
+			next if $is_file && $rslt =~ /^$PROTOCOL_CONTINUE/;
+			last;
+		}
 	}
-	return '';
+
+	my $show_rslt = $rslt;
+	$show_rslt =~ s/\s$//g;
+	$show_rslt =~ s/\r/\r\n/g;
+	display($dbg_commands,0,"$this->{NAME} waitTerminalPacket($is_command) returning $show_rslt",
+		0,$display_color_light_cyan);
+	return $rslt;
 }
 
+
+
+#---------------------------------------------
+# _delete()
+#---------------------------------------------
 
 sub _delete
 {
@@ -309,29 +371,13 @@ sub _delete
 
 	$this->incInProtocol();
 
-	# delete is an asynchronous socket command
-	# that allows for progress messages
+	my $rslt = $this->waitTerminalPacket($PROTOCOL_DELETE);
 
-	my $retval = '';
-	while (1)
-	{
-		my $packet;
-		$err = $this->getPacket(\$packet,1);
-		$err ||= $this->checkPacket(\$packet);
-		if ($err)
-		{
-			$retval = $err;
-			last;
-		}
-		if ($packet)
-		{
-			$retval = textToDirInfo($packet);
-			last;
-		}
-	}
+	$rslt = textToDirInfo($rslt)
+		if $rslt !~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORT)/;
 
 	$this->decInProtocol();
-	return $retval;
+	return $rslt;
 }
 
 
@@ -371,39 +417,16 @@ sub _put
 
 	$this->incInProtocol();
 
-	# delete is an asynchronous socket command
-	# that allows for progress messages
-
-	my $retval = '';
-	while (1)
-	{
-		my $packet;
-		$err = $this->getPacket(\$packet,1);
-		$err ||= $this->checkPacket(\$packet);
-		if ($err)
-		{
-			$retval = $err;
-			last;
-		}
-		if ($packet)
-		{
-			$retval = textToDirInfo($packet);
-			last;
-		}
-	}
+	my $rslt = $this->waitTerminalPacket($PROTOCOL_PUT);
 
 	$this->decInProtocol();
-	return $retval;
+	return $rslt;
 }
 
 
 #------------------------------------------------------
 # _file() && _base64()
 #------------------------------------------------------
-# If IS_BRIDGED the FILE and BASE64 commands are passed
-# through the bridge, otherwise they are handled by
-# the base class.
-
 
 sub _file
 {
@@ -412,17 +435,18 @@ sub _file
 		$ts,
 		$full_name) = @_;
 
-	my $rslt;
-	if ($this->{IS_BRIDGED})
-	{
-		$this->sendCommandWithReply(\$rslt,
-			"$PROTOCOL_FILE\t$size\t$ts\t$full_name");
-	}
-	else
-	{
-		$rslt = $this->SUPER::_file($this,$size,$ts,$full_name);
-	}
+    display($dbg_commands,0,"$this->{NAME} _file($size,$ts,$full_name)");
 
+    my $command = "$PROTOCOL_FILE\t$size\t$ts\t$full_name";
+
+	my $err = $this->sendPacket($command);
+	return $err if $err;
+
+	$this->incInProtocol();
+
+	my $rslt = $this->waitTerminalPacket($PROTOCOL_FILE);
+
+	$this->decInProtocol();
 	return $rslt;
 }
 
@@ -435,18 +459,13 @@ sub _base64
 		$bytes,
 		$content) = @_;
 
-	my $rslt;
-	if ($this->{IS_BRIDGED})
-	{
-		$this->sendCommandWithReply(\$rslt,
-			"$PROTOCOL_BASE64\t$offset\t$bytes\t$content");
-	}
-	else
-	{
-		$rslt = $this->SUPER::_base64($this,$offset,$bytes,$content);
-	}
+    display($dbg_commands,0,"$this->{NAME} _base64($offset,$bytes,".length($content)." encoded bytes)");
 
-	return $rslt;
+	my $packet;
+    $this->sendCommandWithReply(\$packet,
+		"$PROTOCOL_BASE64\t$offset\t$bytes\t$content");
+
+	return $packet;
 }
 
 

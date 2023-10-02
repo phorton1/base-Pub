@@ -36,7 +36,8 @@ sub onCommand
     if ($id == $COMMAND_REFRESH)
     {
         $this->setContents();
-        $this->populate();
+		# $this->populate();
+		$this->{parent}->populate();
     }
     elsif ($id == $COMMAND_DISCONNECT)
     {
@@ -67,7 +68,7 @@ sub doMakeDir
 {
     my ($this) = @_;
     my $ctrl = $this->{list_ctrl};
-    display($dbg_ops,1,"doMakeDir()");
+    display($dbg_ops,1,"Pane$this->{pane_num} doMakeDir()");
 
     # Bring up a self-checking dialog box for accepting the new name
 
@@ -88,7 +89,7 @@ sub doMakeDir
 
 		return if $rslt && $rslt eq '-2';
 		$this->setContents($rslt);
-		$this->populate();
+		$this->{parent}->populate();
 	}
     return 1;
 }
@@ -110,7 +111,7 @@ sub doRename
 
     # start editing the item in place ...
 
-    display($dbg_ops,1,"doRename($edit_item) starting edit ...");
+    display($dbg_ops,1,"Pane$this->{pane_num} doRename($edit_item) starting edit ...");
     $ctrl->EditLabel($edit_item);
 }
 
@@ -119,10 +120,10 @@ sub onBeginEditLabel
 {
     my ($ctrl,$event) = @_;
     my $row = $event->GetIndex();
-
-    display($dbg_ops,1,"onBeginEditLabel($row)");
-
 	my $this = $ctrl->{parent};
+
+    display($dbg_ops,1,"Pane$this->{pane_num} onBeginEditLabel($row)");
+
 	my $entry = $ctrl->GetItem($row,0)->GetText();
 	$this->{edit_row} = $row;
 	$this->{save_entry} = $entry;
@@ -174,7 +175,7 @@ sub endRename
 	my ($this,$info,$event) = @_;
 	my $ctrl = $this->{list_ctrl};
 	$info ||= '';
-	display($dbg_ops,0,"endRename($info)");
+	display($dbg_ops,0,"Pane$this->{pane_num} endRename($info)");
 
 	# if the rename failed, the error was already reported
 	# Here we add a pending event to start editing again ...
@@ -214,13 +215,12 @@ sub endRename
 	# if  the other pane has the same connection
 	# to the same dir, tell it to reset it's contents
 
-	my $other = $this->otherPane();
-	if ($other->{port} == $this->{port} &&
-		$other->{dir} eq $this->{dir})
-	{
-		$other->setContents();
-		$other->populate(1);
-	}
+	my $other = $this->{other_pane};
+	$other->setContents('',1) if
+		$other &&
+		$this->{session}->sameMachineId($other->{session}) &&
+		$this->{dir} eq $other->{dir};
+
 
 	# sort does not work from within the event,
 	# as wx has not finalized it's edit
@@ -240,17 +240,16 @@ sub endRename
 sub doCommandSelected
 {
     my ($this,$id) = @_;
-    return if (!$this->checkConnected());
+    return if !$this->uiEnabled();
 
     my $num_files = 0;
     my $num_dirs = 0;
     my $ctrl = $this->{list_ctrl};
     my $num = $ctrl->GetItemCount();
-	my $other = $this->otherPane();
 	my $is_put = $id == $COMMAND_XFER ? 1 : 0;
 
 	my $display_command = $is_put ? 'xfer' : 'delete';
-    display($dbg_ops,1,"doCommandSelected($display_command) ".$ctrl->GetSelectedItemCount()."/$num selected items");
+    display($dbg_ops,1,"Pane$this->{pane_num} doCommandSelected($display_command) ".$ctrl->GetSelectedItemCount()."/$num selected items");
 
     # build an info for the root entry (since the
 	# one on the list has ...UP... or ...ROOT...),
@@ -280,7 +279,7 @@ sub doCommandSelected
 			{
 				$first_entry = $entry;
 			}
-            display($dbg_ops+1,2,"selected=$info->{entry}");
+            display($dbg_ops,2,"selected=$info->{entry}");
 
 			$info->{is_dir} ? $num_dirs++ : $num_files++;
 			$entries->{$entry} = $info;
@@ -325,6 +324,7 @@ sub doCommandSelected
 		$first_entry :
 		$dir_info->{entries};
 
+	my $other = $this->{other_pane};
 	my $rslt = $this->doCommand(
 		'doCommandSelected',
 		$command,
@@ -351,7 +351,7 @@ sub doCommandSelected
 	$this->{progress} = undef;
 
 	# For any DELETE we want to repopulate this pane with
-	#     $rslt which still might be a local DIR_LIST.
+	#   $rslt which still might be a local DIR_LIST.
 	# However, for PUT we only want to repopulate the
 	#   OTHER pane if there IS a result, which should
 	#   generally be the case for a local Session, but
@@ -360,12 +360,12 @@ sub doCommandSelected
 	if ($id == $COMMAND_DELETE)
 	{
 		$this->setContents($rslt);
-		$this->populate();
+		$this->{parent}->populate();
 	}
 	elsif ($rslt)
 	{
 		$other->setContents($rslt);
-		$other->populate();
+		$this->{parent}->populate();
 	}
 
 }   # doCommandSelected()

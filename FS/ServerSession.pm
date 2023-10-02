@@ -79,6 +79,9 @@ BEGIN {
 }
 
 
+my $dbg_session_num:shared = 0;
+
+
 #------------------------------------------------
 # lifecycle
 #------------------------------------------------
@@ -86,10 +89,13 @@ BEGIN {
 sub new
 {
 	my ($class, $params, $no_error) = @_;
+	my $session_num = $dbg_session_num++;
+
 	$params ||= {};
-	$params->{NAME} ||= 'ServerSession';
+	$params->{NAME} ||= "ServerSession($session_num)";
 	$params->{IS_SERVER} = 1;
     my $this = $class->SUPER::new($params);
+	$this->{SERVER_ID} = "SERVER/".getMachineId();
 	$this->{other_session} = Pub::FS::ServerOtherSession->new($this);
 	$this->{aborted} = 0;
 	return if !$this;
@@ -115,9 +121,9 @@ sub doCommand
         $param2,
         $param3) = @_;		# unused on server
 
-	display($dbg_commands+1,0,show_params("$this->{NAME} doCommand",$command,$param1,$param2,$param3));
+	display($dbg_commands,0,show_params("$this->{NAME} doCommand",$command,$param1,$param2,$param3));
 	my $rslt = $this->SUPER::doCommand($command,$param1,$param2,$param3);
-	display($dbg_commands+1,0,"$this->{NAME} doCommand($command) returning $rslt");
+	display($dbg_commands,0,"$this->{NAME} doCommand($command) returning $rslt");
 
 	my $packet = $rslt;
 	if (isValidInfo($rslt))

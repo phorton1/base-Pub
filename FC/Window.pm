@@ -40,7 +40,7 @@ my $INITIAL_SPLITTER = 460;
 my $instance = 0;
 
 my $title_font = Wx::Font->new(9,wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_BOLD);
-
+my $color_red  = Wx::Colour->new(0xc0 ,0x00, 0x00);  # red
 
 #---------------------------
 # new
@@ -67,10 +67,10 @@ sub new
     $this->{name} = $data;    # should already be done
 	$this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,5],[-1,-1]);
 
-	$this->{enabled_ctrl1} = Wx::StaticText->new($this,-1,'',[60,5]);
-	$this->{enabled_ctrl1}->SetFont($title_font);
-	$this->{enabled_ctrl2} = Wx::StaticText->new($this,-1,'',[$INITIAL_SPLITTER + 10,5]);
-	$this->{enabled_ctrl2}->SetFont($title_font);
+	my $ctrl1 = Wx::StaticText->new($this,-1,'',[100,5]);
+	$ctrl1->SetFont($title_font);
+	my $ctrl2 = Wx::StaticText->new($this,-1,'',[$INITIAL_SPLITTER + 10,5]);
+	$ctrl2->SetFont($title_font);
 
 	# Create splitter and panes
 
@@ -78,6 +78,16 @@ sub new
 		pane_num => 1,
 		dir => '/junk/data',
 		port => 0 };				# equivilant to 'is_local'
+
+	if (0)
+	{
+		$params1 = {
+			pane_num => 1,
+			dir => $ARGV[0] ? '/' : "/junk",
+			host => 'localhost',
+			port => $ARGV[0] || $DEFAULT_PORT,		# !is_local
+			is_bridged => $ARGV[0] ? 1 : 0 };		# will need this later
+	}
 
 	my $params2 = {
 		pane_num => 2,
@@ -87,7 +97,7 @@ sub new
 		is_bridged => $ARGV[0] ? 1 : 0 };		# will need this later
 
 
-	if (1)
+	if (0)
 	{
 		$params2 = {
 			pane_num => 2,
@@ -95,20 +105,20 @@ sub new
 			port => 0 };			# equivilant to 'is_local'
 	}
 
-    $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
-    $this->{pane1}    = Pub::FC::Pane->new($this,$this->{splitter},$params1);
-    $this->{pane2}    = Pub::FC::Pane->new($this,$this->{splitter},$params2);
 
-    $this->{splitter}->SplitVertically(
-        $this->{pane1},
-        $this->{pane2},$INITIAL_SPLITTER);
+	$params1->{enabled_ctrl} = $ctrl1;
+	$params2->{enabled_ctrl} = $ctrl2;
+
+    $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
+    my $pane1 = $this->{pane1} = Pub::FC::Pane->new($this,$this->{splitter},$params1);
+    my $pane2 = $this->{pane2} = Pub::FC::Pane->new($this,$this->{splitter},$params2);
+    $this->{splitter}->SplitVertically($pane1,$pane2,$INITIAL_SPLITTER);
+
+	$pane1->{other_pane} = $pane2;
+	$pane2->{other_pane} = $pane1;
 
     $this->doLayout();
-
-    # Populate
-
-    $this->{pane1}->populate();
-    # $this->{pane2}->populate();
+	$this->populate();
 
     # Finished
 
@@ -117,6 +127,17 @@ sub new
 	return $this;
 }
 
+
+sub populate
+{
+	my ($this) = @_;
+	if (!$this->{pane1}->{thread} &&
+		!$this->{pane2}->{thread})
+	{
+		$this->{pane1}->populate(1);
+		$this->{pane2}->populate(1);
+	}
+}
 
 
 sub onClose

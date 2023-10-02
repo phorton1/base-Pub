@@ -26,7 +26,7 @@ my $TEST_DELAY = 0;
  	# delay local operatios to test progress stuff
  	# set this to 1 or 2 seconds to slow things down for testing
 
-our $dbg_commands:shared = 0;
+our $dbg_commands:shared = -1;
 	# 0 = show atomic commands
 	# -1 = show command header and return results
 	# -2 = show recursive operation details
@@ -97,8 +97,26 @@ sub new
 	$params->{NAME} ||= 'Session';
 	$params->{IS_BRIDGED} ||= 0;
 	my $this = { %$params };
+	$this->{SERVER_ID} = getMachineId();
 	bless $this,$class;
 	return $this;
+}
+
+sub MACHINE_ID
+{
+	my ($this) = @_;
+	my $id = $this->{SERVER_ID};
+	$id =~ s/.*\///;
+	return $id;
+}
+
+sub sameMachineId
+{
+	my ($this,$other) = @_;
+	my $id1 = $this->MACHINE_ID();
+	my $id2 = $other ? $other->MACHINE_ID() : '';
+	return 1 if $id1 && $id1 eq $id2;
+	return 0;
 }
 
 # utility for displaying length of BASE64 packets in debugging
@@ -221,6 +239,11 @@ sub _deleteOne
 		return error("$this->{NAME} Could not delete local file $path: $!",0,1)
 			if !unlink($path);
 	}
+
+	return $PROTOCOL_ABORTED if
+		$this->{progress} &&
+		!$this->{progress}->setDone($is_dir,!$is_dir);
+
 	return '';
 }
 
@@ -252,70 +275,6 @@ sub _delete
 	$rslt ||= $this->_list($dir);
 	return $rslt;
 }
-
-
-#------------------------------------------------------
-#  bestProgressXXX()
-#------------------------------------------------------
-# We optimize progress reporting for FILE and BASE64
-# to the local client if at all possible. All Session
-# A ServerSession is never the bestProgress.
-# A SerialSession (IS_BRIDGE) never calls these methods directly.
-# A local Session, defined as !IS_CLIENT is the typical
-#    best session
-# Otherwise, if both are CLIENTs. the receiver is the
-#    best session.
-# The non-best calls still check aborted();
-
-sub bestSession
-{
-	my ($this,$is_receiver) = @_;
-
-	return
-		$this->{IS_SERVER} ? '' :
-		!$this->{IS_CLIENT} ? $this :
-		$this->{other_session}->{IS_CLIENT} && $is_receiver ? $this :
-		'';
-}
-
-sub bestReportEntry
-{
-	my ($this,$is_receiver,$entry,$size) = @_;
-	$size ||= 0;
-	my $best = $this->bestSession($is_receiver);
-	my $ok = $best ?
-		$best->{progress}->setEntry($entry,$size) :
-		!$this->{progress}->aborted();
-	my $rslt = $ok ? '' : $PROTOCOL_ABORT;
-	display($dbg_commands+2,1,"bestReportEntry($entry,$size) returning '$rslt'");
-	return $rslt;
-}
-
-sub bestReportDone
-{
-	my ($this,$is_receiver,$dirs,$files) = @_;
-	my $best = $this->bestSession($is_receiver);
-	my $ok = $best ?
-		$best->{progress}->setDone($dirs,$files) :
-		!$this->{progress}->aborted();
-	my $rslt = $ok ? '' : $PROTOCOL_ABORT;
-	display($dbg_commands+2,1,"bestReportDone($dirs,$files) returning '$rslt'");
-	return $rslt;
-}
-
-sub bestReportBytes
-{
-	my ($this,$is_receiver,$bytes) = @_;
-	my $best = $this->bestSession($is_receiver);
-	my $ok = $best ?
-		$best->{progress}->setBytes($bytes) :
-		!$this->{progress}->aborted();
-	my $rslt = $ok ? '' : $PROTOCOL_ABORT;
-	display($dbg_commands+2,1,"bestReporBytes($bytes) returning '$rslt'");
-	return $rslt;
-}
-
-
 
 
 #------------------------------------------------------
@@ -414,8 +373,8 @@ sub _file
 		$use_name = $temp_name;
 	}
 
-	my $err = $this->bestReportEntry(1,$full_name,$size);
-	return $err if $err;
+	return $PROTOCOL_ABORT if $this->{progress} &&
+		$this->{progress}->aborted();
 
 	return error("$this->{NAME} _file Could not open '$use_name' for output")
 		if !open(my $fh, ">", $use_name);
@@ -428,13 +387,9 @@ sub _file
 	$this->{file_temp_name} = $temp_name;
 	$this->{file_offset} = 0;
 
-	my $rslt = $PROTOCOL_CONTINUE;
-	if (!$size)
-	{
-		$rslt = $this->finishFile();
-		$err = $this->bestReportDone(0,1);
-		$rslt = $err if $err;
-	}
+	my $rslt = $size ?
+		$PROTOCOL_CONTINUE :
+		$this->finishFile();
 	return $rslt;
 }
 
@@ -474,6 +429,10 @@ sub _base64
 	elsif ($offset + $bytes > $this->{file_size})
 	{
 		$rslt = error("$this->{NAME} _base64 Bad parameters offset($offset) + bytes($bytes) > size($this->{size}");
+	}
+	elsif ($this->{progress} && $this->{progress}->aborted())
+	{
+		$rslt = $PROTOCOL_ABORT;
 	}
 	else
 	{
@@ -520,21 +479,8 @@ sub _base64
 		}
 	}
 
-
-	my $err = '';
-	if ($rslt eq $PROTOCOL_OK)
-	{
-		$err = $this->bestReportDone(1,0,1);
-		$rslt = $err if $err;
-	}
-	elsif ($rslt eq $PROTOCOL_CONTINUE)
-	{
-		$err = $this->bestReportBytes(1,$offset+$bytes);
-		$rslt = $err if $err;
-	}
-
-	if ($rslt != $PROTOCOL_OK &&
-		$rslt != $PROTOCOL_CONTINUE)
+	if ($rslt ne $PROTOCOL_OK &&
+		$rslt ne $PROTOCOL_CONTINUE)
 	{
 		$this->closeFile();
 	}
@@ -568,12 +514,14 @@ sub _putOne
 	if (!$rslt)
 	{
 		my $ts = $info->{ts};
+		my $size = $info->{size} || 0;
+		my $path = makePath($dir,$entry);
+		return $PROTOCOL_ABORTED if
+			$this->{progress} &&
+			!$this->{progress}->setEntry($path,$size);
+
 		if ($is_dir)
 		{
-			my $err = $this->bestReportEntry(0,$dir);
-			return $err if $err;
-
-			my $path = makePath($target_dir,$entry);
 			$rslt = $this->{other_session}->doCommand($PROTOCOL_MKDIR,
 				$path,
 				$ts,
@@ -583,15 +531,11 @@ sub _putOne
 		else
 		{
 			my $size = $info->{size};
-			my $full_name = makePath($dir,$entry);
-			my $other_full_name = makePath($target_dir,$entry);
+			my $other_path = makePath($target_dir,$entry);
 
-			my $err = $this->bestReportEntry(0,$entry,$size);
-			return $err if $err;
-
-			if (!open(my $fh, "<", $full_name))
+			if (!open(my $fh, "<", $path))
 			{
-				$rslt = error("$this->{NAME} _putOne($full_name) could not open file for reading");
+				$rslt = error("$this->{NAME} _putOne($path) could not open file for reading");
 			}
 			else
 			{
@@ -600,7 +544,7 @@ sub _putOne
 				$rslt = $this->{other_session}->doCommand($PROTOCOL_FILE,
 					$size,
 					$ts,
-					$other_full_name);
+					$other_path);
 
 				my $offset = 0;
 				my $err_msg = '';
@@ -612,7 +556,7 @@ sub _putOne
 
 					if ($bytes <= 0)
 					{
-						$err_msg = "$this->{NAME} _putOne($full_name) unexpected CONTINUE at offset($offset) size($size)";
+						$err_msg = "$this->{NAME} _putOne($path) unexpected CONTINUE at offset($offset) size($size)";
 						last;
 					}
 
@@ -640,7 +584,13 @@ sub _putOne
 
 						$offset += $bytes;
 
-						$err_msg = $this->bestReportBytes(0,$offset);
+						if (($rslt eq $PROTOCOL_OK ||
+							 $rslt eq $PROTOCOL_CONTINUE) &&
+							 $this->{progress} &&
+							 !$this->{progress}->setBytes($offset))
+						{
+							$err_msg = $PROTOCOL_ABORTED;
+						}
 
 					}	# got == bytes
 				}	# $rslt eq $PROTOCOL_CONTINUE;
@@ -669,11 +619,13 @@ sub _putOne
 
 	# returns blank to continue or an error
 
-	my $err = $this->bestReportDone(0,$is_dir,!$is_dir);
-	$rslt = $err if $err;
+	$rslt ||= $PROTOCOL_ABORT if
+		$this->{progress} &&
+		!$this->{progress}->setDone($is_dir,!$is_dir);
 
 	return $rslt;
 }
+
 
 
 sub _put
@@ -902,6 +854,7 @@ sub doCommand
 	}
 	elsif ($command eq $PROTOCOL_FILE)				# $size, $ts, $fully_qualified_local_filename
 	{
+		print "params($param1,$param2,$param3)\n";
 		$rslt = $this->_file($param1, $param2, $param3);
 	}
 	elsif ($command eq $PROTOCOL_BASE64)			# $offset, $bytes, ENCODED_CONTENT

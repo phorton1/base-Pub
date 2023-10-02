@@ -98,7 +98,11 @@ my $frame;
 sub OnInit
 {
 	$frame = Pub::FC::AppFrame->new();
-	unless ($frame) {print "unable to create frame"; return undef}
+	if (!$frame)
+	{
+		error("unable to create frame");
+		return undef;
+	}
 	$frame->Show( 1 );
 	display(0,0,"fileClient.pm started");
 	return 1;

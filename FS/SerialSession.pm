@@ -12,6 +12,16 @@
 #
 # Anything that is purely local will be handled by the base Session
 # and will never make its way to this SerialSession.
+#
+# The identity (SERVER_ID) of the SerialServer is assumed
+# to be persistent once it is established. The first client
+# to successfully connect to the Serial Server will set the
+# SERVER_ID and prevent subsequen login attempts.
+#
+# At this time, the fileClient from buddy dies if there is
+# no Serial Server available during startup as there is
+# no established SERVER_ID.
+
 
 package Pub::FS::SerialSession;
 use strict;
@@ -43,7 +53,8 @@ BEGIN {
 	);
 };
 
-
+my $CONNECT_TIMEOUT  = 2;
+	# timeout for login attempt
 my $REMOTE_TIMEOUT = 15;
 	# timeout, in seconds, to wait for a file_reply
 
@@ -53,27 +64,80 @@ our %serial_file_reply:shared;
 my $com_port_connected:shared = 0;
 my $request_number:shared = 1;
 
+my $SERVER_ID:shared = '';
+
+my $dbg_session_num:shared = 0;
+
 
 sub new
 {
     my ($class,$params) = @_;
+
+	my $session_num = $dbg_session_num++;
 	$params ||= {};
-	$params->{NAME} ||= 'SerialSession';
+	$params->{NAME} ||= "SerialSession($session_num)";
 	$params->{IS_BRIDGE} = 1;
     my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;
+	$this->connect() if !$SERVER_ID;
+	$this->{SERVER_ID} = $SERVER_ID;
 	return $this;
 }
 
 sub setComPortConnected
+	# called by buddy when the COM port goes
+	# on or offline.
 {
 	my ($connected) = @_;
 	display($dbg_request+1,-1,"SerialSession::com_port_connected=$connected");
 	$com_port_connected = $connected;
 }
 
+
+
+sub connect
+	# The first session possible connects to the teensy
+	# Serial Server to get it's SERVER_ID
+{
+	my ($this) = @_;
+	if (!$com_port_connected)
+	{
+		error("$this->{NAME} remote not connected in connect()");
+		return;
+	}
+
+	my $req_num = $request_number++;
+	my $request = buildSerialRequest('file_command',$req_num,$PROTOCOL_HELLO);
+	$serial_file_reply{$req_num} = '';
+	$serial_file_request = $request;
+
+    my $timer = time();
+	while (!$serial_file_reply{$req_num})
+	{
+		if (time() - $timer > $CONNECT_TIMEOUT)
+		{
+			$this->sessionError("$this->{NAME} connect timeout");
+			return 0;
+		}
+	}
+
+	my $reply = $serial_file_reply{$req_num};
+	if ($reply !~ /^$PROTOCOL_WASSUP\t(.*)$/)
+	{
+		$this->sessionError("$this->{NAME} unexpected response from server: $reply");
+		return 0;
+	}
+
+	$SERVER_ID = $1;
+	return 1;
+
+}
+
+
 sub serialError
+	# report an error locall and send it as a packet
+	# to the attached ClientSession.
 {
 	my ($this,$msg) = @_;
 	error($msg,1);
@@ -83,81 +147,42 @@ sub serialError
 }
 
 
+
+
 #========================================================================================
 # Command Processor
 #========================================================================================
 # doSerialRequest() is called from SerialBridge.pm when the Server
 #     receives a packet from the socket that initiates a command session.
-#     	  LIST, MKDIR, RENAME, DELETE, PUT, FILE, BASE64, or MKDIR-may_exist
+#     	  LIST, MKDIR, RENAME, DELETE, PUT, FILE, and BASE64
 #     doSerialRequest() has no return value.  It orchestrates
 #         the entire command session by directly calling sendPacket()
 #         as needed to communicate stuff back to th client as needed.
-#
-# doSerialRequest then checks if the COM port is open, and
-#     sends an ERROR packet and returns if if it not.
-# doSerialRequest then sends the serial_file_command
-#     and calls waitSerialReply(), the workhorse method.
-#
-# Any failures to send a packet() are fatal, report a local
-#     error and return immediately.
-#
-# waitSerialReply() loops waiting for a serial_reply with a
-#     TIMEOUT that causes it to send an ERROR packet to the
-#     client and exit if there's no reply in a reasonable
-#     amount of time.
-#
-# In the simple cases of LIST, MKDIR, and RENAME, only a single
-#     serial_reply is expected (and no further packets from the socket
-#     are expected), so waitSerialReply() any serial reply it gets
-#     is sent back to the client as a packet, and waitSerialReply
-#     returns.
-#
-# For DELETE, the SerialServer (teensy) may send PROGRESS serial_replies,
-#     and, as well, the client may asynchronously send ABORT packets.
-#
-#     So, while waiting for the 'terminal serial_reply' from the
-#     SerialServer that is executing the DELETE command, it
-#     knows that any PROGRESS messages are NOT terminal messages,
-#     and continues looping.
-#
-#     At the same time, it polls the client with getPacket(),
-#     and if it gets an ABORT packet from the client, it sends
-#     a same-req-num 'file_message' to the SerialServer (teensy)
-#     with the ABORT.  If the teensy gets the file_message in
-#     in time, it will return a serial_reply of ABORTED, or if
-#     not, it will return a DIR_LIST or an ERROR when the DELETE
-#     is done.
-#
-# The next simplest session-like commands are FILE, BASE64, and
-#     MKDIR-may_exist sent from the cient via packets as it itself
-#     doing a PUT command.  These are almost the same as DELETE,
-#     in that the teensy may return PROGRESS messages, and/or
-#     the client may send ABORT packets. The slight difference
-#     is that the teensy may return 'terminal' CONTINUE and OK
-#     serial_replies in addition to the usual ERROR or ABORTED
-#     serial_replies.
-#
-# The final case is when the client issues a session-like PUT
-#     command to the teensy.  In this case, the serial_replies
-#     of FILE, BASE64, and MKDIR-may_exist are sent to the client,
-#     causing it to recurse and execute the FILE, BASE64, and MKDIR
-#     commands, and we forward any OK, CONTINUE, ABORTED, or ERROR
-#     packets as serial_messags to the teensy until finally the
-#     teensy sends a terminal OK, ABORTED, or ERROR.
-#
-# NOTE: as of now PUT must issue a terminal OK, ABORTED, or ERROR
-#     message.
 
 
-my $TERMINAL_REPLY = "1";
-
-
-sub sendFileMessage
+sub buildSerialRequest
 {
-	my ($req_num,$packet) = @_;
+	my ($kind,$req_num,$packet) = @_;
 	$packet =~ s/\s+$//g;
 	$packet .= "\r";
 	my $len = length($packet);
+	return "$kind\t$req_num\t$len\t$packet\n";
+}
+
+sub sessionError
+{
+	my ($this,$msg) = @_;
+	error($msg,1);
+	$this->sendPacket($PROTOCOL_ERROR.$msg);
+}
+
+
+sub sendFileMessage
+	# sends out-of-band "file_messages" that go to the same
+	# teensy fileCommand(req_num) that is already running.
+{
+	my ($req_num,$packet) = @_;
+	my $request = buildSerialRequest('file_message',$req_num,$packet);
 	if ($serial_file_request)
 	{
 		warning($dbg_request,-2,"sendFileMessage blocking while another operation sending request");
@@ -167,13 +192,14 @@ sub sendFileMessage
 		}
 		warning($dbg_request,-2,"sendFileMessage done waiting");
 	}
-	display($dbg_request,-4,"forwarding file_message len($len)");
-	$serial_file_request = "file_message\t$req_num\t$len\t$packet\n";
+	display($dbg_request,-4,"forwarding file_message packet_len(".length($packet)." total_len(".length($request).")");
+	$serial_file_request = $request;
 }
 
 
 
 sub waitSerialReply
+	# This is the workhorse of the Serial PROTOCOL
 	# remember that getPacket and sendPacket return errors or ''
 {
 	my ($this,$req_num,$command) = @_;
@@ -196,7 +222,7 @@ sub waitSerialReply
 
 		if (!$com_port_connected)
 		{
-			$this->serialError("remote not connected in waitSerialReply($req_num,$command)");
+			$this->sessionError("remote not connected in waitSerialReply($req_num,$command)");
 			return;
 		}
 
@@ -249,8 +275,17 @@ sub waitSerialReply
 
 
 sub doSerialRequest
+	# Send a file_command to start a new teesny fileCommand(req_num),
+	# and call waitSerialReply() to do the guts of the work
 {
 	my ($this,$request) = @_;
+
+	if (!$com_port_connected)
+	{
+		$this->sessionError("$this->{NAME} remote not connected in doSerialRequest()");
+		return;
+	}
+
 	my $req_num = $request_number++;
 	if ($dbg_request <= 0)
 	{
@@ -280,12 +315,10 @@ sub doSerialRequest
 	$request =~ /^(.+)(\t|$)/;
 	my ($command) = split(/\t/,$request);
 
-	$request .= "\r";
-	my $len = length($request);  # the \r is considerd part of the packet
-	$request = "file_command\t$req_num\t$len\t$request\n";
+	my $serial_request = buildSerialRequest('file_command',$req_num,$request);
 
 	$serial_file_reply{$req_num} = '';
-	$serial_file_request = $request;
+	$serial_file_request = $serial_request;
 
 	$this->waitSerialReply($req_num,$command);
 
@@ -293,6 +326,7 @@ sub doSerialRequest
 	display($dbg_request,-1,"doSerialRequest($req_num) finished");
 
 }
+
 
 
 

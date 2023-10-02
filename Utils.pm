@@ -25,6 +25,9 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw (
 
+		$USE_CONSOLE
+		$USE_HANDLE
+
 		$debug_level
 
 		$temp_dir
@@ -59,7 +62,6 @@ BEGIN
 		today
 		gmtToLocalTime
 
-
         makePath
 		pathOf
 		filenameFromWin
@@ -68,10 +70,29 @@ BEGIN
 		printVarToFile
 		my_mkdir
 		diskFree
+		getMachineId
 
 		encode64
         decode64
         mergeHash
+
+		$display_color_black
+		$display_color_blue
+		$display_color_green
+		$display_color_cyan
+		$display_color_red
+		$display_color_magenta
+		$display_color_brown
+		$display_color_light_gray
+		$display_color_gray
+		$display_color_light_blue
+		$display_color_light_green
+		$display_color_light_cyan
+		$display_color_light_red
+		$display_color_light_magenta
+		$display_color_yellow
+		$display_color_white
+
     );
 }
 
@@ -95,27 +116,53 @@ my $fg_lightred = 12;
 my $fg_yellow = 14;
 my $fg_white = 15;
 
-our $DISPLAY_COLOR_NONE 	= 0;
-our $DISPLAY_COLOR_LOG  	= 1;
-our $DISPLAY_COLOR_WARNING 	= 2;
-our $DISPLAY_COLOR_ERROR 	= 3;
+
+our $display_color_black            = 0x00;
+our $display_color_blue             = 0x01;
+our $display_color_green            = 0x02;
+our $display_color_cyan             = 0x03;
+our $display_color_red              = 0x04;
+our $display_color_magenta          = 0x05;
+our $display_color_brown            = 0x06;
+our $display_color_light_gray       = 0x07;
+our $display_color_gray             = 0x08;
+our $display_color_light_blue       = 0x09;
+our $display_color_light_green      = 0x0A;
+our $display_color_light_cyan       = 0x0B;
+our $display_color_light_red        = 0x0C;
+our $display_color_light_magenta    = 0x0D;
+our $display_color_yellow           = 0x0E;
+our $display_color_white            = 0x0F;
+
+our $DISPLAY_COLOR_NONE 	= $display_color_light_gray;
+our $DISPLAY_COLOR_LOG  	= $display_color_white;
+our $DISPLAY_COLOR_WARNING 	= $display_color_yellow;
+our $DISPLAY_COLOR_ERROR 	= $display_color_light_red;
+
+
 
 my $STD_OUTPUT_HANDLE = -11;
-my $CONSOLE_STDOUT = Win32::Console->new($STD_OUTPUT_HANDLE);
-# my $STD_ERROR_HANDLE = -12;
+my $STD_ERROR_HANDLE = -12;
+
+my $USE_CONSOLE = '';
+my $USE_HANDLE = '';
+
+sub startConsole
+{
+	$USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
+}
+
+startConsole();
+
+
+# my $CONSOLE_STDOUT = Win32::Console->new($STD_OUTPUT_HANDLE);
+# my $USE_HANDLE = *STDOUT;
+# my $USE_CONSOLE; # = $CONSOLE_STDOUT;
+
 # my $CONSOLE_STDERR = Win32::Console->new($STD_ERROR_HANDLE);
+# my $USE_CONSOLE = $CONSOLE_STDERR;
+# my $USE_HANDLE = *STDERR;
 
-# Weird - somehow now STDOUT no longer works in child apps
-# but it does work if handed to a variable like this:
-
-my $USE_HANDLE = *STDOUT;
-my $USE_CONSOLE = $CONSOLE_STDOUT;
-
-# if (0)
-# {
-# 	$USE_CONSOLE = $CONSOLE_STDERR;
-# 	$USE_HANDLE = *STDERR;
-# }
 
 
 #---------------
@@ -186,6 +233,7 @@ sub createSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
+	return;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
 	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
@@ -198,6 +246,7 @@ sub openSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
+	return;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
 	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
@@ -207,6 +256,7 @@ sub openSTDOUTSemaphore
 
 sub waitSTDOUTSemaphore
 {
+	return 1;
 	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
 }
 
@@ -280,17 +330,6 @@ sub get_indent
 }
 
 
-sub _setColor
-{
-	my ($color_const) = @_;
-	my $attr =
-		$color_const == $DISPLAY_COLOR_ERROR ? $fg_lightred :
-		$color_const == $DISPLAY_COLOR_WARNING ? $fg_yellow :
-		$color_const == $DISPLAY_COLOR_LOG ? $fg_white :
-		$fg_lightgray;
-	$USE_CONSOLE->Attr($attr);
-}
-
 
 #----------------------
 # _output
@@ -298,7 +337,7 @@ sub _setColor
 
 sub _output
 {
-    my ($indent_level,$msg,$color_const,$call_level) = @_;
+    my ($indent_level,$msg,$color,$call_level) = @_;
     $call_level ||= 0;
 
     my ($indent,$file,$line,$tree) = get_indent($call_level+1);
@@ -329,9 +368,18 @@ sub _output
 	}
 
 	my $got_sem = waitSTDOUTSemaphore();
-	_setColor($color_const);
-	print $USE_HANDLE $full_message."\n";
-	_setColor($DISPLAY_COLOR_NONE);
+	$USE_CONSOLE->Attr($color) if $USE_CONSOLE;
+
+	# print STDOUT $full_message."\n";
+	$USE_CONSOLE ? $USE_HANDLE ?
+		print($USE_HANDLE $full_message."\n") :
+		$USE_CONSOLE->Write($full_message."\n") :
+		print($full_message."\n");
+
+	$USE_CONSOLE->Attr($DISPLAY_COLOR_NONE) if $USE_CONSOLE;
+
+	# $USE_CONSOLE->Display();
+
 	releaseSTDOUTSemaphore() if $got_sem;
 
 	return 1;
@@ -345,9 +393,9 @@ sub _output
 sub display
 	# high level display() routine called by clients.
 {
-    my ($level,$indent_level,$msg,$call_level) = @_;
+    my ($level,$indent_level,$msg,$call_level,$alt_color) = @_;
 	$call_level ||= 0;
-	_output($indent_level,$msg,$DISPLAY_COLOR_NONE,$call_level+1)
+	_output($indent_level,$msg,$alt_color?$alt_color:$DISPLAY_COLOR_NONE,$call_level+1)
 		if $level <= $debug_level;
 	return $msg;
 }
@@ -675,6 +723,15 @@ sub my_mkdir
 	}
 
 	return 1;
+}
+
+
+sub getMachineId
+{
+	# display_hash(0,0,"ENV",\%ENV);
+	my $id = $ENV{COMPUTERNAME};
+    display(0,0,"getMachineId=$id");
+	return $id;
 }
 
 
