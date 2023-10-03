@@ -31,7 +31,7 @@ my $dbg_thread = -0;
 my $dbg_idle = 0;
 
 
-my $USE_FORKING = 1;
+my $USE_FORKING = 0;
 	# Forking and threading now both work 'oK' with CONSOLE output,
 	# no thread warnings, etc, after I commented line out of
 	# Win32::Console.pm

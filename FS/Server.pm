@@ -46,7 +46,7 @@ BEGIN
 our $ACTUAL_SERVER_PORT:shared;
 
 
-my $USE_FORKING = 1;
+my $USE_FORKING = 0;
 
 my $server_thread;
 my $client_thread;

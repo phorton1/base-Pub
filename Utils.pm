@@ -208,6 +208,7 @@ sub setStandardCavaResourceDir
 #----------------------------------------------
 # STD_OUT Semaphore
 #----------------------------------------------
+# get really wonky in buddy ...
 
 my $WITH_SEMAPHORES = 0;
 my $STD_OUT_SEM;
@@ -217,6 +218,7 @@ sub createSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
+	return if !$WITH_SEMAPHORES;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
 	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
@@ -229,6 +231,7 @@ sub openSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
+	return if !$WITH_SEMAPHORES;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
 	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
@@ -238,12 +241,14 @@ sub openSTDOUTSemaphore
 
 sub waitSTDOUTSemaphore
 {
+	return if !$WITH_SEMAPHORES;
 	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
 }
 
 
 sub releaseSTDOUTSemaphore
 {
+	return if !$WITH_SEMAPHORES;
 	$STD_OUT_SEM->release() if $STD_OUT_SEM;
 }
 
