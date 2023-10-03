@@ -31,7 +31,7 @@ my $dbg_thread = -0;
 my $dbg_idle = 0;
 
 
-my $USE_FORKING = 0;
+my $USE_FORKING = 1;
 	# Forking and threading now both work 'oK' with CONSOLE output,
 	# no thread warnings, etc, after I commented line out of
 	# Win32::Console.pm
@@ -350,7 +350,7 @@ sub onThreadEvent
 
 			$params[0] = '' if !defined($params[0]);
 			$params[1] = '' if !defined($params[1]);
-			display($dbg_thread,1,"Pane$this->{pane_num} onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
+			display($dbg_thread,-4,"Pane$this->{pane_num} onThreadEvent(PROGRESS,$command,$params[0],$params[1])");
 
 			$this->{progress}->addDirsAndFiles($params[0],$params[1])
 				if $command eq 'ADD';

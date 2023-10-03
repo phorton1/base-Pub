@@ -6,9 +6,6 @@
 #
 # For a discussion if threads in wxPerl, see:
 # https://metacpan.org/dist/Wx/view/lib/Wx/Thread.pod
-#
-# PRH - can now compare directory timestamps?
-# PRH - compare file sizes as well as dates with new display type 'different' for files with same dates, but different sizes
 
 package Pub::FC::Pane;
 use strict;
@@ -86,6 +83,7 @@ my $normal_font = Wx::Font->new(8,wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONT
 my $bold_font = Wx::Font->new(8,wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_BOLD);
 
 my $color_same    = Wx::Colour->new(0x00 ,0x00, 0xff);  # blue
+my $color_diff    = Wx::Colour->new(0x00 ,0x60, 0xc0);  # cyan
 my $color_missing = Wx::Colour->new(0x00 ,0x00, 0x00);  # black
 my $color_older   = Wx::Colour->new(0xff, 0x00, 0xff);  # purple
 my $color_newer   = Wx::Colour->new(0xff ,0x00, 0x00);  # red
@@ -100,6 +98,7 @@ sub compareType
 {
 	my ($comp_value) = @_;
 	return '' if !$comp_value;
+    return 'diff'  if $comp_value == 4;
     return 'newer' if $comp_value == 3;
     return 'same'  if $comp_value == 2;
     return 'older' if $comp_value == 1;
@@ -648,7 +647,9 @@ sub compareLists
                 }
                 elsif ($info->{ts})
                 {
-                    $info->{compare} = 2;   # same
+					$info->{size} != $other_info->{size} ?
+						$info->{compare} = 4 :  # diff
+						$info->{compare} = 2;   # same
                 }
             }
             elsif ($info->{is_dir} && $other_info->{is_dir})
@@ -686,6 +687,7 @@ sub setListRow
     my $font = $is_dir ? $bold_font : $normal_font;
 	my $ext = !$is_dir && $entry =~ /^.*\.(.+)$/ ? $1 : '';
     my $color =
+	    $compare_type eq 'diff'  ? $color_diff :
         $compare_type eq 'newer' ? $color_newer :
         $compare_type eq 'same'  ? $color_same :
         $compare_type eq 'older' ? $color_older :
@@ -749,40 +751,16 @@ sub setContents
 			# PRH -2 indicates a threaded command underway
 	}
 
-	# PRH - called back, -1 indicates threaded LIST failed
+	# We always add ...UP... or ...ROOT...
 
-	# We write directly to the control and do not call setEnable(0)
-	# becaause I havn't thought my way through all of this
-	# this will fail with an exception if the threaded command
-	# ends before the the both pane ctors have finished.
-	# and Window gets a chance to set the {enabled_ctrl}
-	# method, plus it probably wouldn't show in that case
-	# anyways.
-
-	if (!$dir_info || $dir_info eq '-1')
-	{
-		$this->{list} = \@list;
-		$this->{hash} = \%hash;
-		$this->{list_ctrl}->DeleteAllItems();
-		$this->{changed} = 1;
-		my $ctrl = $this->{enabled_ctrl};
-		$ctrl->SetLabel("Could not get directory listing");
-		$ctrl->SetForegroundColour($color_red);
-		return;
-	}
-
-	$this->setEnabled(1);
-
-	$this->{got_list} = 1;
-
-	# add ...UP... or ...ROOT...
-
+	my $is_valid = $dir_info && $dir_info ne '-1';
+	my $dir_ts = $is_valid ? $dir_info->{ts} : '';
 	my $dir_entry_name = $dir eq "/" ? '...ROOT...' : '...UP...';
 	my $dir_info_entry =
 	{
 		is_dir      => 1,
 		dir         => '',
-		ts   		=> $dir_info->{ts},
+		ts   		=> $dir_ts,
 		size        => '',
 		entry		=> $dir_entry_name,
 		compare     => '',
@@ -792,12 +770,36 @@ sub setContents
 	push @list,$dir_info_entry;
 	$hash{$dir_entry_name} = $dir_info_entry;
 
-	for my $entry (sort {lc($a) cmp lc($b)} (keys %{$dir_info->{entries}}))
+	# Could not get directory listing if !dir_info
+	# Called back, -1 indicates threaded LIST failed
+	# We write directly to the control and do not call
+	# to allow user to use ...UP... to traverse.
+
+	if (!$is_valid)
 	{
-		my $info = $dir_info->{entries}->{$entry};
-		$info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
-		push @list,$info;
-		$hash{$entry} = $info;
+		$this->{list_ctrl}->DeleteAllItems();
+		my $ctrl = $this->{enabled_ctrl};
+		$ctrl->SetLabel("Could not get directory listing");
+		$ctrl->SetForegroundColour($color_red);
+	}
+
+	# else, got a directory listing
+
+	else
+	{
+		$this->{enabled} = 0;	# force redraw
+		$this->setEnabled(1);
+		$this->{got_list} = 1;
+
+		# push the dir_entries onto {hash} and {list}
+
+		for my $entry (sort {lc($a) cmp lc($b)} (keys %{$dir_info->{entries}}))
+		{
+			my $info = $dir_info->{entries}->{$entry};
+			$info->{ext} = !$info->{is_dir} && $info->{entry} =~ /^.*\.(.+)$/ ? $1 : '';
+			push @list,$info;
+			$hash{$entry} = $info;
+		}
 	}
 
     $this->{list} = \@list;
@@ -807,7 +809,7 @@ sub setContents
     $this->{changed} = 1;
 
 	# if the other pane has the same connection as us
-	# call it's repopuluate method
+	# update it with our dir_info.
 
 	my $other = $this->{other_pane};
 	$other->setContents($dir_info,1) if
@@ -819,19 +821,19 @@ sub setContents
 }   # setContents
 
 
+
 sub populate
     # display the directory listing,
     # comparing it to the other window
 {
     my ($this) = @_;
     my $dir = $this->{dir};
+    return if !$this->{connected};
 
     # debug and display title
 
     display($dbg_pop,0,"Pane$this->{pane_num} populate() dir=$dir");
 	display($dbg_pop,1,"Pane$this->{pane_num}  changed ...") if $this->{changed};
-
-    return if !$this->{connected};
 
     $this->{dir_ctrl}->SetLabel($dir);
 
@@ -842,7 +844,7 @@ sub populate
 	# if the data has changed, fully repopulate the control
     # if the data has not changed, we don't pass in an entry
 	# we use the number of items in our list cuz the control
-	#	  might not have any yet
+	# might not have any yet
 
 	$this->{list_ctrl}->DeleteAllItems() if $this->{changed};
 	if ($this->{list})
@@ -919,7 +921,6 @@ sub onDoubleClick
     else   # double click on file
     {
         $this->doCommandSelected($COMMAND_XFER);
-			# PRH COMMAND_XFER not implemented yet
     }
 }
 

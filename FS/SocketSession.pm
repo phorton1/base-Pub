@@ -3,12 +3,7 @@
 # Pub::FS::SocketSession
 #-------------------------------------------------------
 # A SocketSession has a SOCK on which it can operate.
-#
 # The object provides sendPacket() and getPacket().
-# There is special code to protect FC::Window INSTANCES
-# from re-entering sendPacket() and getPacket().
-
-
 
 package Pub::FS::SocketSession;
 use strict;
@@ -31,6 +26,7 @@ BEGIN {
 	our @EXPORT = ( qw (
 
 		$dbg_packets
+		dbgPacket
 
 		$DEFAULT_PORT
 		$DEFAULT_HOST
@@ -43,18 +39,8 @@ our $DEFAULT_PORT = 5872;
 our $DEFAULT_HOST = "localhost";
 our $DEFAULT_TIMEOUT = 15;
 
-
-# Each thread has a separate SOCK from the Server
-#    and getPacket cannot be re-entered by them.
-# There can be upto two WX threads per SOCK in each fileClientPane.
-#    One for the main process, which can be protocol, or not,
-#    and one for a threadedCommand underway.
-# The session ctor from the fileClientPane passes
-#    in the non-zero instance number
-
-my $instance_in_protocol:shared = shared_clone({});
-	# re-entrancy protection for fileClientWindows
-
+my $instance = 0;
+my %in_protocol:shared;
 
 #------------------------------------------------
 # new()
@@ -66,51 +52,51 @@ sub new
 	$params ||= {};
 	$params->{SOCK} ||= '';
 	$params->{TIMEOUT} ||= $DEFAULT_TIMEOUT;
-	$params->{INSTANCE} ||= 0;
 	$params->{NAME} ||= 'SocketSession';
 
-	my $this = { %$params };
-
-	$instance_in_protocol->{$this->{INSTANCE}} = 0
-		if $this->{INSTANCE};
+	my $this = $class->SUPER::new($params);
+	$this->{instance} = $instance++;
+	$in_protocol{$this->{instance}} = 0;
 
 	bless $this,$class;
 	return $this;
 }
 
 
+sub DESTROY
+{
+	my ($this) = @_;
+	delete $in_protocol{$this->{instance}};
+}
+
 #--------------------------------------------------
 # packets
 #--------------------------------------------------
 # sendPacket() and getPacket() return errors on failures.
-# Callers that are polling for non-protocol packets,
-# 		may receive ''
+
+sub dbgPacket
+{
+	my ($dbg_level,$packet) = @_;
+	my @lines = split(/\r/,$packet);
+	my @parts = split(/\t/,shift @lines);
+	$parts[3] = "content(".length($parts[3]).")"
+		if $parts[0] eq $PROTOCOL_BASE64;
+	my $rslt = join('  ',@parts);
+	$rslt .= $debug_level > $dbg_level ?
+		join("\r\n",@lines) :
+		"  lines(".scalar(@lines).")"
+		if @lines;
+	return $rslt;
+}
+
 
 sub sendPacket
 	# returns 0 on failure, 1 on success
 {
-    my ($this,$packet,$override_protocol) = @_;
-	if ($dbg_packets <= 0)
-	{
-		if (length($packet) > 100)
-		{
-			display($dbg_packets,-1,"$this->{NAME} --> ".length($packet)." bytes",1);
-		}
-		else
-		{
-			my $show_packet = $packet;
-			$show_packet =~ s/\r/\r\n/g;
-			display($dbg_packets,-1,"$this->{NAME} --> $show_packet",1);
-		}
-	}
+    my ($this,$packet) = @_;
 
-	my $instance = $this->{INSTANCE};
-	if ($instance && !$override_protocol)
-	{
-		my $in_protocol = $instance_in_protocol->{$instance};
-		return error("$this->{NAME} sendPacket() while in_protocol=$in_protocol for instance=$instance",1,1)
-			if $in_protocol;
-	}
+	display($dbg_packets,-1,"$this->{NAME} --> ".dbgPacket($dbg_packets,$packet),1)
+		if $dbg_packets <= 0;
 
     my $sock = $this->{SOCK};
 	return error("$this->{NAME} no socket in sendPacket",1,1)
@@ -128,28 +114,15 @@ sub sendPacket
 }
 
 
-
-sub getPacketInstance
-{
-	my ($this,$ppacket) = @_;
-	my $instance = $this->{INSTANCE};
-	$instance_in_protocol->{$instance}++ if $instance;
-    my $err = $this->getPacket($ppacket,1);	# always is_protocol
-	$instance_in_protocol->{$instance}-- if $instance;
-	return $err;
-}
-
 sub incInProtocol
 {
 	my ($this) = @_;
-	my $instance = $this->{INSTANCE};
-	$instance_in_protocol->{$instance}++ if $instance;
+	$in_protocol{$this->{instance}}++;
 }
 sub decInProtocol
 {
 	my ($this) = @_;
-	my $instance = $this->{INSTANCE};
-	$instance_in_protocol->{$instance}-- if $instance;
+	$in_protocol{$this->{instance}}--;
 }
 
 
@@ -168,17 +141,10 @@ sub getPacket
 	return error("$this->{NAME} no socket in getPacket",1,1)
 		if !$sock;
 
-	my $instance = $this->{INSTANCE};
-	if ($instance)
-	{
-		my $in_protocol = $instance_in_protocol->{$instance};
-		return '' if !$is_protocol && $in_protocol;
-		return error("$this->{NAME} getPacket(1) while in_protocol=$in_protocol for instance=$instance",1,1)
-			if $is_protocol && $in_protocol > 1;
-	}
+	return '' if !$is_protocol && $in_protocol{$this->{instance}};
 
 	# if !protocol, return immediately
-	# if protcol, watch for timeouts
+	# otherwise, watch for timeouts
 
 	my $can_read;
 	my $started = time();
@@ -211,19 +177,8 @@ sub getPacket
 		return error("$this->{NAME} empty response from peer",1,1);
 	}
 
-	if ($dbg_packets <= 0)
-	{
-		if (length($$ppacket) > 100)
-		{
-			display($dbg_packets,-1,"$this->{NAME} <-- ".length($$ppacket)." bytes",1);
-		}
-		else
-		{
-			my $show_packet = $$ppacket;
-			$show_packet =~ s/\r/\r\n/g;
-			display($dbg_packets,-1,"$this->{NAME} <-- $show_packet",1);
-		}
-	}	# debugging only
+	display($dbg_packets,-1,"$this->{NAME} <-- ".dbgPacket($dbg_packets,$$ppacket),1)
+		if $dbg_packets <= 0;
 
 	return '';
 

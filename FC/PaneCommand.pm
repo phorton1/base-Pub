@@ -164,7 +164,7 @@ sub onEndEditLabel
 		$entry);
 
 	return if $info && $info eq '-2';
-		# PRH -2 indicates threaded command underway
+		# -2 indicates threaded command underway
 
 	$this->endRename($info,$event);
 }

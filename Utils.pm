@@ -143,25 +143,9 @@ our $DISPLAY_COLOR_ERROR 	= $display_color_light_red;
 
 my $STD_OUTPUT_HANDLE = -11;
 my $STD_ERROR_HANDLE = -12;
-
-my $USE_CONSOLE = '';
-my $USE_HANDLE = '';
-
-sub startConsole
-{
-	$USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
-}
-
-startConsole();
-
-
-# my $CONSOLE_STDOUT = Win32::Console->new($STD_OUTPUT_HANDLE);
+my $USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
 # my $USE_HANDLE = *STDOUT;
-# my $USE_CONSOLE; # = $CONSOLE_STDOUT;
 
-# my $CONSOLE_STDERR = Win32::Console->new($STD_ERROR_HANDLE);
-# my $USE_CONSOLE = $CONSOLE_STDERR;
-# my $USE_HANDLE = *STDERR;
 
 
 
@@ -233,7 +217,6 @@ sub createSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
-	return;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
 	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
@@ -246,7 +229,6 @@ sub openSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
-	return;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
 	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
@@ -256,7 +238,6 @@ sub openSTDOUTSemaphore
 
 sub waitSTDOUTSemaphore
 {
-	return 1;
 	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
 }
 
@@ -350,8 +331,10 @@ sub _output
     $indent = 1-$indent_level if $indent_level < 0;
 	$indent_level = 0 if $indent_level < 0;
 
+	my $fill = pad("",($indent+$indent_level) * $CHARS_PER_INDENT);
 	my $full_message = $dt.$proc_info.$file_part;
-	$full_message .= pad("",($indent+$indent_level) * $CHARS_PER_INDENT).$msg;
+	my $header_len = length($full_message);
+	$full_message .= $fill.$msg;
 
 	if ($logfile)
 	{
@@ -370,15 +353,20 @@ sub _output
 	my $got_sem = waitSTDOUTSemaphore();
 	$USE_CONSOLE->Attr($color) if $USE_CONSOLE;
 
-	# print STDOUT $full_message."\n";
-	$USE_CONSOLE ? $USE_HANDLE ?
-		print($USE_HANDLE $full_message."\n") :
-		$USE_CONSOLE->Write($full_message."\n") :
-		print($full_message."\n");
+	my $started = 0;
+	my @lines = split(/\r/,$full_message);
+	for my $line (@lines)
+	{
+		$line =~ s/\n//g;
+		print pad("",$header_len).$fill."    " if $started;
+		print $line."\r\n";
+		$started = 1;
+	}
 
+	# print($full_message."\n");
+	# print($USE_HANDLE $full_message."\n") :
+	# $USE_CONSOLE->Write($full_message."\n") :
 	$USE_CONSOLE->Attr($DISPLAY_COLOR_NONE) if $USE_CONSOLE;
-
-	# $USE_CONSOLE->Display();
 
 	releaseSTDOUTSemaphore() if $got_sem;
 
@@ -414,7 +402,7 @@ sub error
 {
     my ($msg,$call_level,$suppress_show) = @_;
 	$call_level ||= 0;
-	_output(-1,"ERROR: $msg",$DISPLAY_COLOR_ERROR,$call_level+1);
+	_output(-1,"ERROR - $msg",$DISPLAY_COLOR_ERROR,$call_level+1);
 
     my $app_frame = getAppFrame();
 	$app_frame->showError("Error: ".$msg) if
@@ -730,7 +718,7 @@ sub getMachineId
 {
 	# display_hash(0,0,"ENV",\%ENV);
 	my $id = $ENV{COMPUTERNAME};
-    display(0,0,"getMachineId=$id");
+    # display(0,0,"getMachineId=$id");
 	return $id;
 }
 

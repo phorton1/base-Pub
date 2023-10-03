@@ -11,9 +11,6 @@
 # base class, it either returns valid FileInfo objects
 # or a text error message (including $PROTOCOL_ABORTED).
 
-# PRH - bug - this is not making empty dirs like i hoped..
-
-
 package Pub::FS::ClientSession;
 use strict;
 use warnings;
@@ -142,6 +139,7 @@ sub sendCommandWithReply
 	my ($this,$ppacket,$command) = @_;
 	$$ppacket = '';
 
+	$this->incInProtocol();
 	my $ok = 1;
     my $err = $this->sendPacket($command);
     if ($err)
@@ -151,17 +149,18 @@ sub sendCommandWithReply
 	}
 	else
 	{
-		$err = $this->getPacketInstance($ppacket,1);
+		$err = $this->getPacket($ppacket,1);
 		if ($err)
 		{
 			$ok = 0;
 			$$ppacket = $err;
 		}
-		elsif ($ppacket =~ /^($PROTOCOL_ERROR)/)
+		elsif ($$ppacket =~ /^$PROTOCOL_ERROR/)
 		{
 			$ok = 0;
 		}
 	}
+	$this->decInProtocol();
 	return $ok;
 }
 
@@ -266,7 +265,7 @@ sub waitTerminalPacket
 			if $packet =~ /^$PROTOCOL_BASE64/;
 		$packet =~ s/\s$//g;
 		$packet =~ s/\r/\r\n/g;
-		display($dbg_commands,1,"$this->{NAME} waitTerminalPacket($is_command) got packet $packet");
+		display($dbg_commands,1,"$this->{NAME} waitTerminalPacket($is_command) got ".dbgPacket($dbg_commands,$packet));
 
 		# PROGRESS packets always call methods and continue
 
@@ -308,7 +307,7 @@ sub waitTerminalPacket
 			my $other_session = $this->{other_session};
 			my $other_rslt = $other_session->doCommand($command,$param1,$param2,$param3);
 
-			my $err = $this->sendPacket($other_rslt,1);
+			my $err = $this->sendPacket($other_rslt);
 			return $err if $err;
 		}
 
@@ -317,7 +316,7 @@ sub waitTerminalPacket
 
 		else
 		{
-			my $err = $this->sendPacket($rslt,1);
+			my $err = $this->sendPacket($rslt);
 			return $err if $err;
 
 			next if $is_put;
@@ -326,10 +325,7 @@ sub waitTerminalPacket
 		}
 	}
 
-	my $show_rslt = $rslt;
-	$show_rslt =~ s/\s$//g;
-	$show_rslt =~ s/\r/\r\n/g;
-	display($dbg_commands,0,"$this->{NAME} waitTerminalPacket($is_command) returning $show_rslt",
+	display($dbg_commands,0,"$this->{NAME} waitTerminalPacket($is_command) returning ".dbgPacket($dbg_commands,$rslt),
 		0,$display_color_light_cyan);
 	return $rslt;
 }
@@ -366,16 +362,12 @@ sub _delete
 		}
 	}
 
-	my $err = $this->sendPacket($command);
-	return $err if $err;
-
 	$this->incInProtocol();
-
-	my $rslt = $this->waitTerminalPacket($PROTOCOL_DELETE);
+	my $rslt = $this->sendPacket($command);
+	$rslt ||= $this->waitTerminalPacket($PROTOCOL_DELETE);
 
 	$rslt = textToDirInfo($rslt)
 		if $rslt !~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORT)/;
-
 	$this->decInProtocol();
 	return $rslt;
 }
@@ -412,13 +404,9 @@ sub _put
 		}
 	}
 
-	my $err = $this->sendPacket($command);
-	return $err if $err;
-
 	$this->incInProtocol();
-
-	my $rslt = $this->waitTerminalPacket($PROTOCOL_PUT);
-
+	my $rslt = $this->sendPacket($command);
+	$rslt ||= $this->waitTerminalPacket($PROTOCOL_PUT);
 	$this->decInProtocol();
 	return $rslt;
 }
@@ -439,13 +427,9 @@ sub _file
 
     my $command = "$PROTOCOL_FILE\t$size\t$ts\t$full_name";
 
-	my $err = $this->sendPacket($command);
-	return $err if $err;
-
 	$this->incInProtocol();
-
-	my $rslt = $this->waitTerminalPacket($PROTOCOL_FILE);
-
+	my $rslt = $this->sendPacket($command);
+	$rslt ||= $this->waitTerminalPacket($PROTOCOL_FILE);
 	$this->decInProtocol();
 	return $rslt;
 }
@@ -464,10 +448,8 @@ sub _base64
 	my $packet;
     $this->sendCommandWithReply(\$packet,
 		"$PROTOCOL_BASE64\t$offset\t$bytes\t$content");
-
 	return $packet;
 }
-
 
 
 

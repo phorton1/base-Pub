@@ -26,7 +26,7 @@ my $TEST_DELAY = 0;
  	# delay local operatios to test progress stuff
  	# set this to 1 or 2 seconds to slow things down for testing
 
-our $dbg_commands:shared = -1;
+our $dbg_commands:shared = 0;
 	# 0 = show atomic commands
 	# -1 = show command header and return results
 	# -2 = show recursive operation details
@@ -182,6 +182,7 @@ sub _mkdir
 	display($dbg_commands,0,"$this->{NAME} _mkdir($path,$ts,$may_exist)");
 	if ($may_exist)
 	{
+		display($dbg_commands+1,1,"_mkdir(may_exist,$path) -d=".(-d $path ? 1 : 0));
 		return $PROTOCOL_OK
 			if -d $path;
 		return error("Path $path is not a directory in _mkdir",0,1)
@@ -216,6 +217,10 @@ sub _rename
 }
 
 
+#-----------------------------------------------------
+# delete()
+#-----------------------------------------------------
+
 sub _deleteOne
 {
 	my ($this,
@@ -247,6 +252,7 @@ sub _deleteOne
 	return '';
 }
 
+
 sub _delete
 {
 	my ($this,
@@ -254,8 +260,6 @@ sub _delete
 		$entries) = @_;
 
 	display($dbg_commands,0,"$this->{NAME} _delete($dir,$entries)");
-
-	# unused target_dir for DELETE
 
 	my $rslt;
 	if (!ref($entries))
@@ -268,7 +272,7 @@ sub _delete
 			'_delete',
 			\&_deleteOne,
 			$dir,
-			'',
+			'',			# unused target_dir for DELETE
 			$entries);
 	}
 
@@ -516,6 +520,8 @@ sub _putOne
 		my $ts = $info->{ts};
 		my $size = $info->{size} || 0;
 		my $path = makePath($dir,$entry);
+		my $other_path = makePath($target_dir,$entry);
+
 		return $PROTOCOL_ABORTED if
 			$this->{progress} &&
 			!$this->{progress}->setEntry($path,$size);
@@ -523,7 +529,7 @@ sub _putOne
 		if ($is_dir)
 		{
 			$rslt = $this->{other_session}->doCommand($PROTOCOL_MKDIR,
-				$path,
+				$other_path,
 				$ts,
 				1);		# MAY_EXIST parameter specific to this method
 			$rslt = '' if $rslt eq $PROTOCOL_OK;
@@ -531,7 +537,6 @@ sub _putOne
 		else
 		{
 			my $size = $info->{size};
-			my $other_path = makePath($target_dir,$entry);
 
 			if (!open(my $fh, "<", $path))
 			{
@@ -540,6 +545,11 @@ sub _putOne
 			else
 			{
 				binmode $fh;
+				if (!$size)	# close ASAP
+				{
+					close $fh;
+					$fh = 0;
+				}
 
 				$rslt = $this->{other_session}->doCommand($PROTOCOL_FILE,
 					$size,
@@ -568,6 +578,14 @@ sub _putOne
 					}
 					else
 					{
+						# close the file ASAP, in case other session is
+						# writing the same file and tries to close it
+
+						if ($offset + $bytes >= $size)
+						{
+							close $fh;
+							$fh = 0;
+						}
 						my $calc_cs = calcChecksum($data);
 						display($dbg_commands+1,1,"$this->{NAME} _putOne ".sprintf("calc_cs(0x%08x)",$calc_cs));
 						my $cs_bytes =
@@ -595,7 +613,7 @@ sub _putOne
 					}	# got == bytes
 				}	# $rslt eq $PROTOCOL_CONTINUE;
 
-				close $fh;
+				close $fh if $fh;
 
 				# in the case of an error reading the file
 				# once we have sent a FILE and received CONTINUE,
@@ -665,6 +683,7 @@ sub _put
 #-------------------------------------------------------
 # recurseFxn
 #-------------------------------------------------------
+# Used by recursive DELETE and PUT
 
 sub doFlatDir
 	# the flatDir is done before recursion on _put,
@@ -854,7 +873,6 @@ sub doCommand
 	}
 	elsif ($command eq $PROTOCOL_FILE)				# $size, $ts, $fully_qualified_local_filename
 	{
-		print "params($param1,$param2,$param3)\n";
 		$rslt = $this->_file($param1, $param2, $param3);
 	}
 	elsif ($command eq $PROTOCOL_BASE64)			# $offset, $bytes, ENCODED_CONTENT
@@ -870,7 +888,7 @@ sub doCommand
 
 	$rslt = $PROTOCOL_ERROR.$rslt if
 		!isValidInfo($rslt) &&
-		$rslt !~ /^($PROTOCOL_ABORT|$PROTOCOL_ABORTED|$PROTOCOL_CONTINUE|$PROTOCOL_OK)/;
+		$rslt !~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORT|$PROTOCOL_ABORTED|$PROTOCOL_CONTINUE|$PROTOCOL_OK)/;
 
 	display($dbg_commands,0,"$this->{NAME} doCommand($command) returning $rslt");
 	return $rslt;

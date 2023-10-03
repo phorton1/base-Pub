@@ -236,7 +236,7 @@ sub waitSerialReply
 				$serial_reply;
 			$show_reply =~ s/\r/\r\n/g;
 			display($dbg_request+1,-3,"waitSerialReply($req_num,$command) got serial_reply=$show_reply") if $show_reply;
-			return if $this->sendPacket($serial_reply,1);
+			return if $this->sendPacket($serial_reply);
 			$timer = time();
 		}
 

@@ -6,14 +6,16 @@
 # calling createSession. By default, the base class uses
 # a SocketSession to provide information about, and effect
 # changes in the local file system.
+#
+# Note that I modified Win32::Console.pm to NOT close itself
+# on thread/fork descruction.
 
 package Pub::FS::Server;
 use strict;
 use warnings;
 use threads;
 use threads::shared;
-use POSIX;
-use Time::HiRes qw( sleep usleep );
+use Time::HiRes qw( sleep );
 use IO::Select;
 use IO::Socket::INET;
 use Time::HiRes qw(sleep);
@@ -41,9 +43,14 @@ BEGIN
 	);
 }
 
-
 our $ACTUAL_SERVER_PORT:shared;
 
+
+my $USE_FORKING = 1;
+
+my $server_thread;
+my $client_thread;
+my $connect_num = 0;
 my $num_notify_all:shared = 0;
 my $notify_all:shared = shared_clone({});
 	# a list of packets to asynchronously send to all connected threads.
@@ -52,78 +59,6 @@ my $notify_all:shared = shared_clone({});
 my $active_connections = shared_clone({});
 
 
-
-sub notifyAll
-{
-	my ($msg) = @_;
-	display($dbg_notifications,-2,"notifyAll($msg)");
-	my $num = $num_notify_all++;
-	$notify_all->{$num} = shared_clone({
-		msg => $msg,
-		notified => shared_clone({}),
-	});
-}
-
-# FINALLY GOT IT!!!
-# PRH - FS::Server needs a simplifying cleanup and more testing now that Win32::Console.pm has been modified.
-#
-# With the Win32::Console.pm mod, when USE FORKING, merely call exit() WITH NO PARAMS from the fork!
-
-
-# OLD, OBSOLETE SUMMARY OF FORKING VERSUS THREADING AND VARIOUS OPTIONS in buddy
-#
-# Forking had a lot of problems in Buddy with, I think, the
-# closing of STDIN and STOUT that I could not seem to work around
-#
-# Threading seems to work perfectly, and I don't need the circular buffer.
-#
-# Using the circular buffer, I noticed that even if I
-# open more than 10 threads, which would wrap the @client_threads array,
-# thus effectively undef'ing them, there didn't seem to be any problems.
-# So I tried to use a local $thread handle, and it it barfed.
-#
-# However, using a single global $thread_handles seems to
-# work perfectly and avoids the additional complexity.
-
-
-my $USE_FORKING = 0;
-
-
-my $KILL_PID_EXT = 'FS_SERVER_pid';
-	# PID files are not currently process (buddy invocation) specific
-
-my $KILL_NONE 		= 0x0000;		# don't use feature
-my $KILL_REDIRECT	= 0x0001;		# redirect STDIN and STDOUT locally
-my $KILL_WAIT       = 0x0002;		# waitpid on the PID file in the main thread
-my $KILL_KILL 		= 0x0004;		# kill the PID file in the main thread
-	# the last two are mutuallly exclusive
-
-my $HOW_KILL_FORK = $KILL_KILL ;	  # $KILL_REDIRECT;
-
-# following only used if !$USE_FORKING
-
-my $SAVE_CLIENT_THREADS = 0;
-	# Setting this to 0 uses single global $thread_handle
-	# Setting it to 1 uses circular buffer
-
-# following only used if !$SAVE_CLIENT_THREADS
-
-my $thread_handle;
-
-# following only used if $SAVE_CLIENT_THREADS
-
-my $server_thread = undef;
-my @client_threads = (0,0,0,0,0,0,0,0,0,0);
-my $client_thread_num = 0;
-     # ring buffer to keep threads alive at
-     # least until the session gets started
-
-
-#------------------------
-# local variables
-#------------------------
-
-my $connect_num = 0;
 
 
 #-------------------------------------------------
@@ -172,7 +107,6 @@ sub dec_running
 }
 
 
-
 sub stop
 {
     my ($this) = @_;
@@ -203,6 +137,18 @@ sub start
     $server_thread = threads->create(\&serverThread,$this);
     $server_thread->detach();
     return $this;
+}
+
+
+sub notifyAll
+{
+	my ($msg) = @_;
+	display($dbg_notifications,-2,"notifyAll($msg)");
+	my $num = $num_notify_all++;
+	$notify_all->{$num} = shared_clone({
+		msg => $msg,
+		notified => shared_clone({}),
+	});
 }
 
 
@@ -268,54 +214,22 @@ sub serverThread
                     error("FS_FORK($connect_num) FAILED!");
                     next;
                 }
-
                 if (!$rslt)
                 {
                     display($dbg_server,0,"FS_FORK_START($connect_num) pid=$$");
-                    $this->sessionThread($connect_num,$client_socket,$peer_ip,$peer_port);
+					$this->sessionThread($connect_num,$client_socket,$peer_ip,$peer_port);
 					display($dbg_server,0,"FS_FORK_END($connect_num) pid=$$");
-
-					# Nothing I tried seemed to work for $USE_FORKING
-
-					local *STDOUT = $HOW_KILL_FORK & $KILL_REDIRECT ?
-						open STDOUT, '>', "/dev/null" :
-						'>&STDOUT';
-
-					if ($HOW_KILL_FORK & ($KILL_WAIT | $KILL_KILL))
-					{
-						open OUT, ">$temp_dir/$$.$KILL_PID_EXT";
-						print OUT $$;
-						close OUT;
-					}
-
-					if ($HOW_KILL_FORK & $KILL_KILL)
-					{
-						while (1) {sleep 10;}
-					}
-					# kill 15,$$;
-					exit(0)
+					exit()
                 }
                 display($dbg_server+1,1,"fs_fork($connect_num) parent continuing");
 
-            }		# USE_FORKING
+            }
             else	# !USE_FORKING
             {
                 display($dbg_server+1,1,"starting sessionThread");
-
-				if ($SAVE_CLIENT_THREADS)
-				{
-					$client_threads[$client_thread_num] = threads->create(
-						\&sessionThread,$this,$connect_num,$client_socket,$peer_ip,$peer_port);
-					$client_threads[$client_thread_num]->detach();
-					$client_thread_num++;
-					$client_thread_num = 0 if $client_thread_num > @client_threads-1;
-				}
-				else
-				{
-					$thread_handle = threads->create(	# barfs: my $thread = threads->create(
-						\&sessionThread,$this,$connect_num,$client_socket,$peer_ip,$peer_port);
-					$thread_handle->detach(); 			# barfs: $thread->detach();
-				}
+				$client_thread = threads->create(	# barfs: my $thread = threads->create(
+					\&sessionThread,$this,$connect_num,$client_socket,$peer_ip,$peer_port);
+				$client_thread->detach(); 			# barfs: $thread->detach();
                 display($dbg_server+1,1,"back from starting sessionThread");
             }
         }
@@ -325,7 +239,6 @@ sub serverThread
         }
 
 		# Server Idle Processing
-
 		# clear any finished pending notifyAll messages
 
 		for my $num (sort keys %$notify_all)
@@ -346,41 +259,6 @@ sub serverThread
 				display($dbg_notifications,-1,"Clearing notifyAll: $notify->{msg}");
 				delete $notify_all->{$num};
 			}
-		}
-
-		# handle any pending FORK PID files
-
-        if ($USE_FORKING && ($HOW_KILL_FORK & ($KILL_WAIT | $KILL_KILL)))
-        {
-            if (opendir DIR,$temp_dir)
-            {
-                my @entries = readdir(DIR);
-                closedir DIR;
-                for my $entry (@entries)
-                {
-					if ($entry =~ /^((-)*\d+)\.$KILL_PID_EXT/)
-                    {
-						my $pid = $1;
-						if ($HOW_KILL_FORK & $KILL_KILL)
-						{
-							display($dbg_server,0,"KILLING CHILD PID $pid");
-							unlink "$temp_dir/$entry";
-							# This attempt to kill child process also,
-							# unfortunately, kills the buddy app ..
-							kill(15, $pid);		# SIGTERM
-						}
-						else	# $KILL_WAIT
-						{
-							display($dbg_server,0,"FS_FORK_WAITPID(pid=$pid)");
-							my $got = waitpid($pid,0);  # 0 == WNOHANG
-							if ($got && $got ==$pid)
-							{
-								unlink "$temp_dir/$entry";
-							}
-						}
-                    }
-                }
-            }
         }
     }
 
@@ -428,7 +306,7 @@ sub sessionThread
 	# sendPacket reports and returns an error on failure
 
 	$packet = "$PROTOCOL_WASSUP\t$session->{SERVER_ID}";
-	if ($ok && $session->sendPacket($packet))
+	if ($ok && $session->sendPacket($packet,1))
 	{
         error("COULD NOT SEND $PROTOCOL_WASSUP");
 		$ok = 0
@@ -490,7 +368,6 @@ sub sessionThread
 
 	}	# while $ok && !stopping
 
-
     display($dbg_server,0,"SESSION THREAD($connect_num) terminating ".
 		"SOCK(".($session->{SOCK}?1:0).") SEND_EXIT($this->{SEND_EXIT}) GOT_EXIT($got_exit)");
 
@@ -502,8 +379,6 @@ sub sessionThread
 		$session->sendPacket($PROTOCOL_EXIT);
 		sleep(0.2);
 	}
-
-	# print "past the exit\n";
 
 	delete $active_connections->{$connect_num};
 
@@ -529,18 +404,11 @@ sub processPacket
 	my @lines = split(/\r/,$packet);
 	my $line = shift @lines;
 
-
 	my ($command,
 		$param1,
 		$param2,
 		$param3) = split(/\t/,$line);
 
-	# if ($dbg_server <= 0)
-	# {
-	# 	my $show_packet = $packet;
-	# 	$show_packet =~ s/\r/\r\n/g;
-	# 	display($dbg_server,0,"processPacket packet=$show_packet");
-	# }
 	display($dbg_server,0,show_params("processPacket",$command,$param1,$param2,$param3)." lines=".scalar(@lines));
 
 	my $new_param2 = $param2;
