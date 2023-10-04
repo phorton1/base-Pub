@@ -1,198 +1,195 @@
-# Implementation
-
-**Issues**
-
-- Basic Security
-- Encryption, , and the Internet
-- zipping
-- The "could not get directory" issue
-- Synchronizing across multiple connections, processes, and machines
-- fileClient Preferences & Connections UI
-
-## Cross Platform
-
-At the moment there are many assumptions that Pub::Utils
-is running on Windows.
+# Details and Abstractions
 
 ## SERVER_ID
 
-- local FC::Pane ==> LENOVO_3-PRH
-
-- local fileServer on my machine ==> SERVER/LENOVO_3-PRH
+- local FC::Pane ==> LENOVO_3
+- local fileServer on my machine ==> SERVER/LENOVO_3
+- teensyExpression SerialServer ==> TE_SERIAL_NUM (not directlly accessible)
+- buddy's BridgeServer ro teensyExpression ==> BRIDGE/TE_SERIAL_NUM
 
 - myIOTDevice ==> user defined DEVICE_NAME-MAC_ADDRESS
-- teensyExpression SerialServer ==> TE_SERIAL_NUM
+- BridgeServer to myIOTDevice ==> BRIDGE/DEVICE_NAME-MAC_ADDRESS
+- BridgeServer via Telnet to myIOTDevice ==> TELNET/DEVICE_NAME-MAC_ADDRESS
 
-- buddy's BridgeServer ==> LENOVO_3/COM3/TE_SERIAL_NUM
-- BridgeServer to myIOTDevice ==> LENOVO_3/COM8/DEVICE_NAME-MAC_ADDRESS
-- BridgeServer via Telnet to myIOTDevice ==> LENOVO_3/TELNET/DEVICE_NAME-MAC_ADDRESS
-
-The last term uniquely identifies an actual file sytem and
-is known as the MACHINE_ID
+The last term uniquely identifies an actual file sytem and is known
+as the MACHINE_ID
 
 
-## Basic Security
+## Concepts
 
-FS::Servers need Users and/or Password management,
-and the protocol needs to change to sent them in
-the HELLO.  WASSUP should probably return a
-FULLY_QUALIFIED_SERVER_ID (MACHINE_ID) for local
-servers, with / separators for inherited id's.
+A **Connection** is between two **Sessions**.
 
-- A local fileServer should present itself as
-  the windows machine name: i.e. LENOVO_3
-- A teensySerialServer should now present itself
-as a teensyExpression-SERIAL_NUMBER or TE-SERIAL_NUMBER
-with no ZIP capabilities.
+- a *Connection* defines everything necessary to present a *Window*
+  in the fileClient.
+- has **connection_id**, which is also used as the label for the tab
+  for the Window in fileClient.
+- has two **session_ids** that specify the two *Panes* that will be
+  presented in the Window.
 
+A *Session*
 
-## Encryption and Security
+- defines everything necessary to present one of the two *Panes* within
+  a Window.
+- has a *session_id*
+- has a **starting folder** that will show in pane when the pane starts up.
+- specifies a **port** to connect to.
+- if no port is specified, the **local file system** is used.
+- specifies a **host** to use when *port* is specified.
+  if no host is specified **localhost** is used.
 
-Gets complicated quick.  First a quick look at Perl:
+Sessions that connect to a *port* are sometimes called *remote sessions*.
 
-- FS::Servers should advertise themselves via SSDP
-- For encryption Servers need to have, and know
-  how to use SSL CRT and KEYs.
-  - lord knows this will probably bring in thread/FORK issues.
-- For internet access Servers would need to tunnel
-  a port to my server in miami.
+The **local** file sytem is special.
 
-The old My::IOT::Server (rpi mostly uses a data_directory (home)
-for prefs and can provide encrypted traffic using data_directory/ssl/
-myIOT.CRT and myIOT.KEY.
-
-In addition the old My::IOT::PortForwarder.pm uses the same ssl
-directory to get myaiot_user_ssh.CRT and myaiot_user_ssh.KEY to
-create a forwarded encrypted port on the server, which explicitly
-sets a the users and passwords that can connect to SSH as myIOTuser,
-There were issues with allowing passwords on Windows, and/or initial
-setup using ssh-shell noticing a request to allow the new key.
+- **local** can be used as a session_id
+- there is a system wide **default_local_folder** for the local file system
+  in case one is not specified by a Session.
 
 
-### ESP32's
+### Starting Folders
 
-I believe ESP32's are too small to effectively support a full
-SSL implementation.  Teensy certainly are.
-- ESP32s myFileServers with connected STATIONS (or ETHERNET
-  connections?!?) should advertse themselves via SSDP
-  (or within the parent HTTPServer's SSDP for myIOT devices).
-- myFileServers are always SerialServers?
-- ESP32 myFileServers may also be TELNET/SSH servers
+In addition to the *default_local_folder* for the local file system,
+there will be a system-wide **default_start_folder** for any Sessions
+that define a *port*. to connect to, to be used if none is specified
+for a given Session.
 
-*Teensies *might* be able to do something similar with a
-connected Wifi adaptor ?!? or over Ethernet ?!? but I
-dread thinking about it*
+The default_local_folder and default_start_folder must be *fully
+qualified* ... that is, they **must** start with a forward slash ('/').
 
-Perhaps ESP32 myFileServers ARE myIOTDevices?
-Remember big problems with trying to create secure webSockets on ESP32.
+Other starting folders may be fully qualified (starting with '/')
+or they may be partially qualified, relative to the default folders.
 
 
-For security ESP32's need to be able to support SSH
-	in addition to TELNET.
-For fileServers, ESP32's need to present at least
-    a fileServer port, but with security, a SSL
-	compliant port.
+## Command Line
+
+fileClient may be run with no command line parameters, allowing the user to
+choose defined Connections to open windows, along with any UI necessary to
+create and edit Connections, Sessions, Servers, and default Preferences.
+
+The use of any command line parameters overrides the function of any
+global preferences that have to do with how the program starts up.
+In other words, passing anything on the command line will prevent the
+*restore_windows_at_startup* preference from having any effect.
+
+The command line allows the user to open a single Window, by specifying
+a Connection or two Sessions.
+
+	fileClient -c connection_id
+	fileClient -s session_id -s session_id.
+
+If only one Session, or part of one, is specified on the command
+line, a second **local** Session will be assumed.
+
+When used with Sessions, the command line can include a temporary
+*connection_id* to be shown as the name of the tab, by using the **-cid**
+parameter. If *-cid* is not is present, fileClient will make up a name
+for the tab.
+
+	fileClient -cid MyWindow -s session_id -s session_id.
+
+The order of the parameters is important. The first Session specified
+will show up in the left Pane, and the second one in the right Pane.
+
+Likewise, the command line can be used to *build* temporary Sessions in
+whatever level of detail is required by passing **-sid**, **-f "folder"**,
+**-p port**, and **-h host** parameters as desired.
+
+It is importan to understand that any re-specification of the same parameter
+on the command line already used for the first session starts the definition
+of the second session. This was implicit in specifying -s session_id twice,
+but is more subtle when parts of sessions are specified on the command line.
+
+For example, the following command line specifies the first Session using
+a **-h host** parameter with an implicit *port*. The **-p port** parameter
+starts the second specification with a connection to *localhost*, and the
+**-f folder** applies to it.
+
+	fileClient -h 192.168.0.123:5872 -p 5872 -f "/junk"
+
+On the other hand, details *within* a session specification are grouped together
+within higher level concepts as long as they are not repeatedly specified.
+
+	fileClient -f "/junk" -s session_id1 -session_id2 -p 8383
+
+The above example tells the program to load session_id1 and session_id2, using
+"/junk" as the starting folder for Pane1 and the port 8383 to override the one
+specified in the Session given by session_id2. Assumptions have to be made, so
+the system will make up a temporary *connection_id* for the tab name, and if a
+*host* is not specified in Session2, then it will assume the use of **localhost**
+since it now has a port number.
 
 
-Note the relation of the WEB_SOCKET_PORT=HTTP_PORT+1 in current
-myIOT. myIOT C++ would need SHTTP for it's webserver, SSH instead
-of TELNET, and implement secure WebSockets. Yech.
+### Command Line Paramters Fully Defined
 
-None of that would be remotely possible in FluidNC devices.
+The full list of command line parameters is given here
 
-As for Perl, the old My::IOT::Server uses a data_directory (home)
-for prefs and can provide encrypted traffic using data_directory/ssl/
-myIOT.CRT and myIOT.KEY.
-
-In addition the old My::IOT::PortForwarder.pm uses the same ssl
-directory to get myaiot_user_ssh.CRT and myaiot_user_ssh.KEY to
-create a forwarded encrypted port on the server, which explicitly
-sets a the users and passwords that can connect to SSH as myIOTuser,
-
-FS::Server would need the same ability to use SSL, and lord knows
-that will probably bring in thread/FORK issues.
-
-LOL, the ESP32 *could* concievably launch an actual IP::Port
-to connect directly to it.
+- -c connection_id
+- -cid temporary_connection_id
+- -s session_id
+- -sid temporary_session_id
+- -f starting folder, quoted if it contains spaces
+- -h host name or ip address (with optional port included)
+- -p port number
+- -M (uppercase) MACHINE_ID, with wild cards, to search for
 
 
-## Zipping
+**-M** require a little further explanation. A Pane *remembers* the SERVER_ID
+which contains the MACHINE_ID that correlates to specific machine and it's
+local file system, once it connects. Like -s, *-M* constitute an entire Session/Pane
+specifier. The system will search through all existing Sessions, which can be
+put in a preferential order by the user, and will select the first session that
+matches the given MACHINE_ID, using leading or trailing asterisks *'* as wildcards.
 
-On Perl implementations it should be possible to transfer base64
-encoded zip files,
-
-## Could not get directory Issue
-
-The simple "the other window deleted or renamed part of my dir"
-issue could be solved within a single process using the current
-direct calling method of updating "same" panes by port number.
-
-We need a solution, perhaps trying successive children directories,
-or the default directory, when this legitimately happens.
-
-
-
-
-## Synchronization
-
-I added some simple code to the Pane that if the OtherPane has the
-same {port} number, and is pointing to the same {dir} changes to the
-Pane will cause the OtherPane to update its contents by calling its
-setContents() and populate() methods.
-
-Similar code could be written to notice when a subdirectory
-of the OtherPane goes away or is renamed, and to position the
-OtherPane at the last common ancestor.
-
-It would be fairly easy to do that accross multiple windows in the
-same program instance that have the same conditions, but it may
-want to be done through a "pending update" method so that it is
-put off until the given Window is shown.
+	fileClient -s local -M TE*
+		// Will open the left Pane to the local file system (using the
+		// default_local_folder), and search for a Session to open in the
+		// right Pane.  The -M will match any Sessions that have previously
+		// connected to a MACHINE_ID that starts with TE.  This would match any
+		// teensyExpressions because they have a MACHINE_ID of TE, followed
+		// by a serial number.
 
 
+### Command line from Buddy
 
-### Synchronization across processes and connections
+The command line from buddy will look something like this:
 
-A thornier issue is doing that between multiple invocations of the
-fileClient on a given machine, and ultimately, across connections.
+	fileClient -s local -p 12345
 
-The amounts to creating a whole change notification system where
-clients and servers know the "machine identifier" like "LENOVO 3"
-or perhaps "LENOVO 3 - Com3 - TeensySerialServer" they are attached
-to, noice changes, and notify any connected clients, with the noted
-issue that there could even be multiple Servers running on the same
-machine referencing the same local file system.
+The above command will open the local file system in the left Pane, using the
+*default_local_folder* from the preferences, and a connection to localhost:12345,
+which will be buddy's serial BridgeServer (to the teensyExprssion) which will
+end up returning a server id like BRIDGE/TE000XXX. The right Pane will start
+at the *default_start_folder*.
 
-This goes to the path displayed for a Pane and/or the name of the Window,
-and plays into the complicated as-yet-undesigned general fileClient
-Connection/Preferences UI, as well as the "could not get directory" issue.
-
-Remember that there is no Server for the base local Session!
-
-SERVER <-- HELLO
-SERVER --> WASSUP \t MACHINE_ID \t CAPABILITIES
+I have yet to Determine what the default names of Panes will look like.
 
 
+## fileclient Preferences
 
-## Preferences & Connection UI
+- Preferences
+  - restore_windows_at_startup
+    - means whether to save and restore from an INI file
+	- note that the INI file is ONLY read/written if no command
+	  line parameters are given.
+  - default_local_folder
+  - default_start_folder
+  - Connections
+  - Sessions
+- Connection
+  - **connection_id** (tab_name)
+  - auto_start (if no command line parameters)
+  - session_id1 or **local**
+    - start_folder1
+  - session_id2 or **local**
+    - start_folder2
+- Session
+  - **session_id** (shown before SERVER_ID in UI)
+  - start_folder
+  - port, where blank means the *local fie system*
+  - host use if port specified, and blank means *localhost*
+  - *remembers* SERVER_ID if it connects
 
-I havn't quite got my head around this yet. I envision:
 
-Note that buddy currently contains the "auto" connect ideas.
-
-- fileClient (with no params?!?) as having a completely
-generalized method of specifying what connections are made and
-how they are grouped into Panes
-- fileClient allowing user-level parameters to create multiple
-shortcuts to open certain Window/Connections at startup
-(in addition to the current magic PORT passed in by buddy)
-
-In fact, the current magic PORT does not allow them to
-specify the starting directories, much less on a per
-'Connection' basis.
-
-Preferences require a DATA directory.
-Some ideas require INI files
 
 ### buddy
 
@@ -231,16 +228,47 @@ DEFAULT_TELNET_PORT, and really needs to be given to buddy
 by the SSDP device.
 
 
-### SSDP
 
-So we have this complicated case
 
-- Any FS::Server available by PORT should advertise itself via SSDP
-- The current myIOT device is a TELNET port, but we would need to
-  get its SSDP descriptors to do a better job of really getting its
-  TELNET port, and sub-devices it might have like, a FS::Server.
-- Porting teensyExpression2::fileSystem to ESP32 will be problematic,
-  as will be using it from the current myIOT Serial handler.
+## Synchronization
+
+I added some simple code to the Pane that if the OtherPane has the
+same {port} number, and is pointing to the same {dir} changes to the
+Pane will cause the OtherPane to update its contents by calling its
+setContents() and populate() methods.
+
+Similar code could be written to notice when a subdirectory
+of the OtherPane goes away or is renamed, and to position the
+OtherPane at the last common ancestor.
+
+It would be fairly easy to do that accross multiple windows in the
+same program instance that have the same conditions, but it may
+want to be done through a "pending update" method so that it is
+put off until the given Window is shown.
+
+
+### Synchronization across processes and connections
+
+A thornier issue is doing that between multiple invocations of the
+fileClient on a given machine, and ultimately, across connections.
+
+The amounts to creating a whole change notification system where
+clients and servers know the "machine identifier" like "LENOVO 3"
+or perhaps "LENOVO 3 - Com3 - TeensySerialServer" they are attached
+to, noice changes, and notify any connected clients, with the noted
+issue that there could even be multiple Servers running on the same
+machine referencing the same local file system.
+
+This goes to the path displayed for a Pane and/or the name of the Window,
+and plays into the complicated as-yet-undesigned general fileClient
+Connection/Preferences UI, as well as the "could not get directory" issue.
+
+Remember that there is no Server for the base local Session!
+
+SERVER <-- HELLO
+SERVER --> WASSUP \t MACHINE_ID \t CAPABILITIES
+
+
 
 ### Arduino-libraries-SerialFileServer
 
@@ -279,57 +307,6 @@ our own lines of text.
 
 Serial.isAvailable() currently strips out crs,
 which is also already done in myIOTDevice::handleCommand()
-
-
-
-### fileclient Preferences
-
-- Preferences
-  - default_start_folder
-  - default_connection_id
-  - default_start_in_last_folder (requires INI file)
-  - auto_start_default_connection
-  - Sessions
-  - Connections
-
-- Session
-  - **id** (name)
-	- reserved **id** **local**
-  - start_in_last_folder
-    - default_start_in_last_folder
-	- true
-	- false
-  - start_folder
-	- default_start_folder
-	- explict
-  - for **id** != local
-    - HOST
-	  - localhost
-	  - IP address with auto searching
-	    - means SERVERs are SSDP devices
-	- PORT
-	  - DEFAULT_FS_PORT
-	  - specific_number
-	  - *from_command_line*
-
-- Connection
-  - **id** (name)
-  - session1_id
-  - session2_id
-
-### Command Line Parameters
-
--connection connection_id
--session session_id [-session session_id]
-
--local -
--port {}
-
-### Servers with SSDP and MACHINE_IDs
-
-
-
-
 
 
 

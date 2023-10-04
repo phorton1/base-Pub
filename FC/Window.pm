@@ -85,16 +85,14 @@ sub new
 			pane_num => 1,
 			dir => $ARGV[0] ? '/' : "/junk",
 			host => 'localhost',
-			port => $ARGV[0] || $DEFAULT_PORT,		# !is_local
-			is_bridged => $ARGV[0] ? 1 : 0 };		# will need this later
+			port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
 	}
 
 	my $params2 = {
 		pane_num => 2,
 		dir => $ARGV[0] ? '/' : "/junk",
 		host => 'localhost',
-		port => $ARGV[0] || $DEFAULT_PORT,		# !is_local
-		is_bridged => $ARGV[0] ? 1 : 0 };		# will need this later
+		port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
 
 
 	if (0)

@@ -76,7 +76,6 @@ sub new
 	my $session_num = $dbg_session_num++;
 	$params ||= {};
 	$params->{NAME} ||= "SerialSession($session_num)";
-	$params->{IS_BRIDGE} = 1;
     my $this = $class->SUPER::new($params);
 	return if !$this;
 	bless $this,$class;

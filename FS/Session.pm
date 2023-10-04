@@ -95,7 +95,6 @@ sub new
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
 	$params->{NAME} ||= 'Session';
-	$params->{IS_BRIDGED} ||= 0;
 	my $this = { %$params };
 	$this->{SERVER_ID} = getMachineId();
 	bless $this,$class;

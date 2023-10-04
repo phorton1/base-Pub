@@ -45,8 +45,6 @@ sub new
 	$params->{PORT} ||= $DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
 	$params->{IS_CLIENT} = 1;
-	$params->{IS_BRIDGED} ||= 0;
-		# set by the pane if it gets a PORT on construction
 
 	my $this = $class->SUPER::new($params);
 	$this->{SERVER_ID} = '';

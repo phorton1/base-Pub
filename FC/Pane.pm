@@ -166,17 +166,12 @@ sub new
 
 	if ($params->{port})
 	{
-		my $use_instance = $params->{pane_num} * 100 +
-			$parent->{instance};
-
 		# ctor tries to connect and returns !SOCK
 
 		$this->{session} = Pub::FS::ClientSession->new({
 			pane => $this,
 			HOST => $params->{host},
-			PORT => $params->{port},
-			INSTANCE => $use_instance,
-			IS_BRIDGED => $params->{is_bridged} });
+			PORT => $params->{port}, });
 
 		$this->{connected} = $this->{session}->isConnected();
 		$this->setEnabled($this->{connected},"No initial connection",$color_red);

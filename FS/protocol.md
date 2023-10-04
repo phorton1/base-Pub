@@ -16,7 +16,7 @@ or the *verb*.  The *lowercase words* are *parameters* that
 depend on the packet type.
 
 - HELLO
-- WASSUP
+- WASSUP		SERVER_ID
 - EXIT
 - ENABLED 		- msg
 - DISABLED 		- msg
@@ -97,13 +97,16 @@ of the given dir upon success:
 
 A Session is initiated by a client after successfully
 connecting to a remote *socket* and sending HELLO.
-The Server replies with WASSUP to indicate it is ready
-to start receiving command packets:
+The Server replies with WASSUP and it's ID to
+indicate it is ready to start receiving command
+packets:
 
 - CLIENT --> HELLO
 - SERVER <-- HELLO
-- SERVER --> WASSUP
-- CLIENT <-- WASSUP
+- SERVER --> WASSUP SERVER_ID
+- CLIENT <-- WASSUP SERVER_ID
+
+The syntax of a SERVER_ID will be explained later.
 
 Either the client or the server consider the Session to be
 irretrievably 'lost' (dead) if a call to call to **getPacket()**
