@@ -73,6 +73,8 @@ sub DESTROY
 {
 	my ($this) = @_;
 	display($dbg_ff,0,"DESTROY Pub::WX::FloatingFrame($this->{instance})");
+	return;
+
 	$this->{book}->DESTROY()
 		if $this->{book};
 	delete $this->{book};

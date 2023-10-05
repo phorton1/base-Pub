@@ -71,6 +71,8 @@ sub DESTROY
 {
 	my ($this) = @_;
 	display($dbg_fb,0,"DESTROY Pub::WX::FrameBase("._def($this->{instance}).")");
+	return;
+
 	if ($this->{manager})
 	{
 		display($dbg_fb+1,1,"Pub::WX::FrameBase::DESTROY() deleting this->{manager}");

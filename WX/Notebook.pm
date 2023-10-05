@@ -139,6 +139,8 @@ sub DESTROY
 	my $app_frame = $this->{app_frame};
 	my $name = $this->{name};
 	display($dbg_nb,0,"DESTROY $this($name)");
+	return;
+
     if ($app_frame && $app_frame->{notebooks} && $app_frame->{notebooks}{$name})
 	{
 		display($dbg_nb,1,"removing notebook from parent frame($app_frame)");

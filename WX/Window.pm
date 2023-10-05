@@ -87,6 +87,8 @@ sub DESTROY
 	my ($this) = @_;
 	my $id = $this->GetId();
 	display($debug_aw,0,"DESTROY ".ref($this));
+	return;
+
 	delete $this->{frame};
 }
 
