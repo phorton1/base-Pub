@@ -23,8 +23,10 @@ use Pub::Utils;
 use Pub::FS::FileInfo;
 use Pub::FS::Session;		# for $PROTOCOL_XXX
 use Pub::FC::Pane;			# for $THREAD_EVENT
+use Pub::FC::Prefs;			# for $started_by_buddy
 
-my $dbg_thread = -0;
+
+my $dbg_thread = 0;
 	# 0 = basics
 	# -1 = onThreadEvent calls
 	# -2 = onThreadEvent details
@@ -398,8 +400,13 @@ sub onIdle
 				if ($packet eq $PROTOCOL_EXIT)
 				{
 					display($dbg_idle,-1,"Pane$this->{pane_num} onIdle() EXIT");
-					$this->{GOT_EXIT} = 1;
-					$do_exit = 1;
+					$session->{SOCK} = 0;
+						# invalidate the socket
+
+					# until a possible pref exists,
+					# only buddy automatically exits the pane on a lost socket
+
+					$this->{GOT_EXIT} = 1 if $started_by_buddy;
 				}
 				elsif ($packet =~ /^($PROTOCOL_ENABLE|$PROTOCOL_DISABLE)(.*)$/)
 				{
@@ -407,14 +414,19 @@ sub onIdle
 					$msg =~ s/\s+$//;
 					$this->setEnabled(
 						$what eq $PROTOCOL_ENABLE ? 1 : 0,
-						$msg);
+						$msg,
+						$color_blue);
 				}
 			}
 		}
-		elsif (!$this->{disconnected_by_pane})
+
+		if (!$session->{SOCK} && $this->{has_socket})
 		{
 			display($dbg_idle,-1,"Pane$this->{pane_num} lost SOCKET");
-			$do_exit = 1;
+			$this->{has_socket} = 0;
+			$this->{connected} = 0;
+			$this->setEnabled(0,"No Connection!!",$color_red);
+			$do_exit = $started_by_buddy
 		}
 
 		if ($do_exit)

@@ -113,12 +113,23 @@ sub new
     $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
     my $pane1 = $this->{pane1} = Pub::FC::Pane->new($this,$this->{splitter},$params1);
     my $pane2 = $this->{pane2} = Pub::FC::Pane->new($this,$this->{splitter},$params2);
+
+	if (!$pane1 || !$pane2)
+	{
+		error("Could not create pane1("._def($pane1)." or pane2("._def($pane2).")");
+		return;
+	}
+
     $this->{splitter}->SplitVertically($pane1,$pane2,$INITIAL_SPLITTER);
 
 	$pane1->{other_pane} = $pane2;
 	$pane2->{other_pane} = $pane1;
 
     $this->doLayout();
+
+	$pane1->setContents();
+	$pane2->setContents();
+
 	$this->populate();
 
     # Finished

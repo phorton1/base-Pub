@@ -15,6 +15,7 @@ use Pub::FS::Session;
 use Pub::FS::Server;
 use Pub::Utils;
 use base qw(Pub::FS::Server);
+use sigtrap 'handler', \&onSignal, qw(normal-signals);
 
 
 sub new
@@ -37,5 +38,15 @@ while (1)
 {
 	sleep(10);
 }
+
+
+sub onSignal
+{
+    my ($sig) = @_;
+	warning(0,0,"fileServer.pm terminating on SIG$sig");
+	$file_server->stop() if $file_server;
+	exit(0);
+}
+
 
 1;

@@ -133,8 +133,15 @@ The full list of command line parameters is given here
 - -d starting dir, quoted if it contains spaces
 - -h host name or ip address (with optional port included)
 - -p port number
-- -M (uppercase) MACHINE_ID, with wild cards, to search for
+- -buddy port_number
 
+**-buddy** is a special command line parameter that takes the
+port of an active buddy fileServer and starts the fileClient
+with appropriate connections and behavior for buddy.
+
+
+
+- -M (uppercase) MACHINE_ID, with wild cards, to search for
 
 **-M** require a little further explanation. A Pane *remembers* the SERVER_ID
 which contains the MACHINE_ID that correlates to specific machine and it's

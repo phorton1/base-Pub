@@ -1,88 +1,6 @@
 #---------------------------------------
 # Pub::FS::Prefs.pm
 #---------------------------------------
-# fileClient preferences
-# shared data structure
-#	{
-#		restore_windows_at_startup => 0,
-#	  	default_local_dir => /junk/data/
-#	  	default_remote_dir =? /data,
-#
-#	    Connections =>
-#       [
-#			{
-#				connection_id => 'LocalServerConnection'
-#				auto_start => 0
-#				session1 => 'local',
-#				dir1 => '',
-#				session2 => 'LocalServer',
-#				dir2 = '',
-#           },
-#			{
-#				connection_id => 'FavoriteConnection',
-#				auto_start => 0,
-#				session1 => 'local',
-#				dir1 => '',
-#				session2 => 'FavoriteSession',
-#				dir2 = '',
-#           },
-#			{
-#				connection_id => 'LocalServerToFavoriteConnection'
-#				auto_start => 0
-#				session1 => 'LocalServer',
-#				dir1 => '/some/local/path',
-#				session2 => 'FavoriteSession',
-#				dir2 = 'other_relative',
-#           },
-#       ],
-#	    Sessions =>
-#       [
-#			{
-#				session_id => 'FavoriteSession',
-#				dir => 'relative/favorite',
-#               port => 5872
-#               host -> '192.168.0.123',
-#				last_SERVER_ID => ''
-#           },
-#			{
-#				connection_id => 'LocalServer'
-#               dir = '',
-#               port => 5872
-#               host =? ''
-#				last_SERVER_ID => ''
-#           },
-#       ],
-#
-#       connectionsById => { ... }
-#       sessionsById => { ... }
-#	};
-#
-#
-#
-# Would result in specifying three Connections with the following Panes
-#
-#	LocalServerConnection
-#		Pane1
-#			local
-#           dir = /junk/data
-#       Pane2
-#           connected to localhost:5872
-#           dir = /data
-#	FavoriteConnection
-#		Pane1
-#			local
-#           dir = /junk/data
-#       Pane2
-#           connected to 192.168.0.123:5872
-#           dir = /data/relative/favorite
-#	LocalServerToFavoriteConnection
-#       Pane1
-#           connected to localhost:5872
-#           dir = /some/local/path
-#       Pane2
-#           connected to 192.168.0.123:5872
-#           dir = /data/relative/favorite/other_relative
-
 
 package Pub::FC::Prefs;
 use strict;
@@ -95,12 +13,15 @@ use Pub::Utils;
 my $dbg_prefs = 0;
 
 our $prefs_filename;
+our $started_by_buddy = 0;
 
 
 BEGIN
 {
  	use Exporter qw( import );
 	our @EXPORT = qw(
+
+		$started_by_buddy
 
 		$prefs_filename
 
@@ -127,15 +48,35 @@ my $PREFS_SEM;
 
 my $prefs_dt:shared;
 my $prefs:shared = shared_clone({
-	restore_windows_at_startup => 0,
-	default_local_folder => "/",
-	default_start_folder => "/",
-	connections => shared_clone([]),
-	sessions => shared_clone([]),
-	connectionById => shared_clone({}),
-	sessionById => shared_clone({}),
+	restore_windows_at_startup 	=> 0,
+	default_local_dir 	=> "/",
+	default_remote_dir 	=> "/",
+	connections		 	=> shared_clone([]),
+	sessions 			=> shared_clone([]),
+	connectionById 		=> shared_clone({}),
+	sessionById 		=> shared_clone({}),
 });
 
+
+my @header_fields = qw(
+	restore_windows_at_startup
+    default_local_dir
+    default_remote_dir );
+
+my @connection_fields = qw(
+	connection_id
+	auto_start
+	session1
+	dir1
+	session2
+	dir2 );
+
+my @session_fields = qw(
+	session_id
+	dir
+	port
+	host
+	last_SERVER_ID );
 
 
 
@@ -258,7 +199,14 @@ sub parseCommandLine
 		return argError("invalid command line: "._def($lval)." = '"._def($rval)."'")
 			if !$lval || !defined($rval);
 
-		if ($lval eq '-c')
+		if ($lval eq '-buddy')
+		{
+			$started_by_buddy = 1;
+			$retval->{panes}->[1]->{port} = $rval;
+			$retval->{panes}->[1]->{session_id} = 'buddy';
+			# last?
+		}
+		elsif ($lval eq '-c')
 		{
 			# create unshared copy of the connection
 
@@ -496,7 +444,11 @@ sub initPrefs()
 		warning($dbg_prefs,-1,"Empty or missing $prefs_filename");
 	}
 
+	$prefs->{default_local_dir} ||= '/';
+	$prefs->{default_remote_dir} ||= '/';
+
 	# print Dumper($prefs);
+	# writePrefs();
 
 	releasePrefs();
 }
@@ -509,26 +461,28 @@ sub writePrefs
 
 	waitPrefs();
 	my $text = '';
-	for my $key qw(
-		restore_windows_at_startup
-		default_local_dir
-		default_dir)
+	for my $key (@header_fields)
 	{
 		$text .= "$key = $prefs->{$key}\n";
 	}
 
-	for my $what qw(connections sessions)
+	$text .= "connections\n";
+	for my $connection (@{$prefs->{connections}})
 	{
-		$text .= "$what\n";
-		my $subwhat = $what;
-		$subwhat =~ s/s$//;
-		for my $thing (@{$prefs->{$what}})
+		$text .= "    connection\n";
+		for my $key (@connection_fields)
 		{
-			$text .= "    $subwhat\n";
-			for my $key (sort keys (%$thing))
-			{
-				$text .= "        $key = $thing->{$key}\n";
-			}
+			$text .= "        $key = $connection->{$key}\n";
+		}
+	}
+
+	$text .= "sessions\n";
+	for my $session (@{$prefs->{sessions}})
+	{
+		$text .= "    session\n";
+		for my $key (@session_fields)
+		{
+			$text .= "        $key = $session->{$key}\n";
 		}
 	}
 

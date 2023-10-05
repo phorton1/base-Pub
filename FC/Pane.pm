@@ -54,12 +54,22 @@ BEGIN {
 	our @EXPORT = qw (
 		$COMMAND_REPOPULATE
 		$THREAD_EVENT
+
+		$color_black
+        $color_red
+        $color_green
+        $color_blue
 	);
 }
 
 
 our $COMMAND_REPOPULATE = 8765;
 our $THREAD_EVENT:shared = Wx::NewEventType;
+
+our $color_black   = Wx::Colour->new(0x00 ,0x00, 0x00);  # black
+our $color_red     = Wx::Colour->new(0xc0 ,0x00, 0x00);  # red
+our $color_green   = Wx::Colour->new(0x00 ,0x90, 0x00);  # green
+our $color_blue    = Wx::Colour->new(0x00 ,0x00, 0xc0);  # blue
 
 
 #-----------------------------------
@@ -87,12 +97,6 @@ my $color_diff    = Wx::Colour->new(0x00 ,0x60, 0xc0);  # cyan
 my $color_missing = Wx::Colour->new(0x00 ,0x00, 0x00);  # black
 my $color_older   = Wx::Colour->new(0xff, 0x00, 0xff);  # purple
 my $color_newer   = Wx::Colour->new(0xff ,0x00, 0x00);  # red
-
-my $color_black   = Wx::Colour->new(0x00 ,0x00, 0x00);  # black
-my $color_red     = Wx::Colour->new(0xc0 ,0x00, 0x00);  # red
-my $color_green   = Wx::Colour->new(0x00 ,0x90, 0x00);  # green
-my $color_blue    = Wx::Colour->new(0x00 ,0x00, 0xc0);  # blue
-
 
 sub compareType
 {
@@ -157,9 +161,6 @@ sub new
         $ctrl->InsertColumn($i,$field,$align,$width);
     }
 
-    # $this->doLayout();
-
-
 	#---------------------------
 	# Create the {session}
 	#---------------------------
@@ -175,6 +176,8 @@ sub new
 			session_id => $params->{session_id} });
 
 		$this->{connected} = $this->{session}->isConnected();
+		$this->{has_socket} = $this->{connected};
+		$this->{enabled} = -1;	 # to force setEnabled to show the message
 		$this->setEnabled($this->{connected},"No initial connection",$color_red);
 	}
 	else
@@ -187,12 +190,6 @@ sub new
 	}
 
 	$this->{session}->{NAME} .= "(pane$this->{pane_num})";
-
-	#------------------
-	# setContents
-	#------------------
-
-    $this->setContents();
 
 	#------------------
     # Event Handlers
@@ -250,8 +247,8 @@ sub setEnabled
 	my $session_id = $this->{session}->{session_id} || '';
 	$session_id .= ": " if $session_id;
 
-	$msg = $session_id.$server_id if $enable;
-	$color ||= $color_blue;
+	$msg = $server_id if $enable;
+	$msg = $session_id.$msg;
 
 	display($dbg_life,0,sprintf("Pane$this->{pane_num} setEnabled($enable,$msg,0x%08x) enabled=$this->{enabled}",$color));
 	if ($this->{enabled} != $enable)
@@ -273,9 +270,9 @@ sub disconnect
 	return if !$this->{port};
     return if !$this->{connected};
     display($dbg_life,0,"Pane$this->{pane_num} Disconnecting...");
-	$this->{disconnected_by_pane} = 1;
     $this->{session}->disconnect();
 	$this->{connected} = 0;
+	$this->{has_socket} = 0;
 	$quiet ?
 		$this->setEnabled(0,"Disconnected by user",$color_red) :
 		$this->{enabled} = 0;
@@ -289,6 +286,7 @@ sub connect
     $this->disconnect(1) if $this->{connected};
     display($dbg_life,0,"Pane$this->{pane_num} Connecting...");
     $this->{connected} = $this->{session}->connect();
+	$this->{has_socket} = $this->{connected};
 	$this->{connected} ?
 		$this->setEnabled(0,"Could not connect to Server",$color_red) :
 		$this->{enabled} = 0;
@@ -621,6 +619,10 @@ sub compareLists
 
     my $hash = $this->{hash};
     my $other = $this->{other_pane};
+	return if !$other;
+		# can occur if both are servers and other pane cannot
+		# connect but this one already has
+
     my $other_hash = $other->{hash};
 
     display($dbg_comp,0,"Pane$this->{pane_num} compareLists(Other$other->{pane_num})");

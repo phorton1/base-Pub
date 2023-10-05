@@ -96,7 +96,7 @@ sub connect
 
     if (!$this->{SOCK})
     {
-        error("$this->{WHO} could not connect to PORT $port");
+        error("$this->{NAME} could not connect to PORT $port");
     }
     else
     {
