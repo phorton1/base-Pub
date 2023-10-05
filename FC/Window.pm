@@ -42,6 +42,46 @@ my $instance = 0;
 my $title_font = Wx::Font->new(9,wxFONTFAMILY_DEFAULT,wxFONTSTYLE_NORMAL,wxFONTWEIGHT_BOLD);
 my $color_red  = Wx::Colour->new(0xc0 ,0x00, 0x00);  # red
 
+
+sub getBestPaneName
+	# getAppFrame()has all the panes
+	# same for the concept of the active frame ...
+{
+	my ($this,$name) = @_;
+	$name ||= 'untitled';
+	display(0,0,"getBestPaneName($name)");
+
+	my %other_nums;
+	my $app_frame = getAppFrame();
+    for my $pane (@{$app_frame->{panes}})
+	{
+		my $other_name = $pane->{name};
+		display(0,1,"other_name=$other_name");
+
+		if ($other_name =~ /^$name(.*)$/)
+		{
+			my $with_parens = $1 || '';
+			my $other_num = $with_parens =~ /^\((\d+)\)$/ ? $1 : 0;
+			display(0,2,"other_num=$other_num");
+			$other_nums{$other_num} = 1;
+		}
+	}
+
+	my $num = 0;
+	while ($other_nums{$num}) {$num++};
+
+	$name .= "($num)" if $num;
+	return $name;
+}
+
+
+sub getConnection
+{
+	my ($this) = @_;
+	return $this->{connection};
+}
+
+
 #---------------------------
 # new
 #---------------------------
@@ -53,18 +93,19 @@ sub new
 
 	if (!$connection)
 	{
-		error("No data (name) specified");
+		error("No connection specified");
 		return;
 	}
 
-	$instance++;
-	my $name = "$connection->{connection_id}-$instance";
-
-	display($dbg_fcw+1,0,"new FC::Window($name) instance=$instance");
-
 	my $this = $class->SUPER::new($book,$id);
-	$this->MyWindow($frame,$book,$id,$name,$connection,$instance);
+	my $name = $this->getBestPaneName($connection->{connection_id});
 
+	$instance++;
+	display($dbg_fcw+1,0,"new FC::Window($name) instance=$instance");
+	$this->MyWindow($frame,$book,$id,$name,$connection,$instance);
+	$this->{name} = $name;
+
+	$this->{connection} = $connection;
     $this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,5],[-1,-1]);
 
 	my $ctrl1 = Wx::StaticText->new($this,-1,'',[100,5]);
@@ -74,38 +115,6 @@ sub new
 
 	my $params1 = $connection->{panes}->[0];
 	my $params2 = $connection->{panes}->[1];
-
-	# Create splitter and panes
-
-	# my $params1 = {
-	# 	pane_num => 1,
-	# 	dir => '/junk/data',
-	# 	port => 0 };				# equivilant to 'is_local'
-    #
-	# if (0)
-	# {
-	# 	$params1 = {
-	# 		pane_num => 1,
-	# 		dir => $ARGV[0] ? '/' : "/junk",
-	# 		host => 'localhost',
-	# 		port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
-	# }
-    #
-	# my $params2 = {
-	# 	pane_num => 2,
-	# 	dir => $ARGV[0] ? '/' : "/junk",
-	# 	host => 'localhost',
-	# 	port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
-    #
-    #
-	# if (0)
-	# {
-	# 	$params2 = {
-	# 		pane_num => 2,
-	# 		dir => '/junk/data',
-	# 		port => 0 };			# equivilant to 'is_local'
-	# }
-
 
 	$params1->{enabled_ctrl} = $ctrl1;
 	$params2->{enabled_ctrl} = $ctrl2;

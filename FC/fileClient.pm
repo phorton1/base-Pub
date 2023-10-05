@@ -107,7 +107,10 @@ sub createPane
 sub commandConnect
 {
 	my ($this,$event) = @_;
-	$this->createPane($ID_CLIENT_WINDOW,undef,"blah")
+	my $pane = getAppFrame()->getCurrentPane();
+	my $connection = $pane ? $pane->getConnection() :
+		Pub::FC::Prefs::createDefaultConnection(1);
+	$this->createPane($ID_CLIENT_WINDOW,undef,$connection,'')
 }
 
 

@@ -6,7 +6,6 @@
 - local fileServer on my machine ==> SERVER/LENOVO_3
 - teensyExpression SerialServer ==> TE_SERIAL_NUM (not directlly accessible)
 - buddy's BridgeServer ro teensyExpression ==> BRIDGE/TE_SERIAL_NUM
-
 - myIOTDevice ==> user defined DEVICE_NAME-MAC_ADDRESS
 - BridgeServer to myIOTDevice ==> BRIDGE/DEVICE_NAME-MAC_ADDRESS
 - BridgeServer via Telnet to myIOTDevice ==> TELNET/DEVICE_NAME-MAC_ADDRESS
@@ -28,7 +27,7 @@ A **Connection** is between two **Sessions**.
 - has two **dirs** that specify the starting directories for
   each of the panes.
 
-A *Session*
+A **Session**
 
 - defines everything necessary to present one of the two *Panes* within
   a Window.
@@ -51,7 +50,7 @@ The **local** file sytem is special.
 ### Starting Directories
 
 In addition to the *default_local_dir* for the local file system,
-there will be a system-wide **default_start_dir** for any Sessions
+there is a system-wide **default_start_dir** for any Sessions
 that define a *port*. to connect to, to be used if none is specified
 for a given Session.
 
@@ -93,14 +92,16 @@ The order of the parameters is important. The first Session specified
 will show up in the left Pane, and the second one in the right Pane.
 
 Likewise, the command line can be used to *build* temporary Sessions in
-whatever level of detail is required by passing **-sid** , **-d "dir"**,
+whatever level of detail is required by passing **-sid id** , **-d "dir"**,
 **-p port**, and **-h host** parameters, alone, or **after** any *-s*,
 as desired.
 
-It is importan to understand that any re-specification of the same parameter
+It is important to understand that any re-specification of the same parameter
 on the command line already used for the first session starts the definition
 of the second session. This was implicit in specifying -s session_id twice,
 but is more subtle when parts of sessions are specified on the command line.
+
+**-s and -sid** always start a new session on the command line.
 
 For example, the following command line specifies the first Session using
 a **-h host** parameter with an implicit *port*. The **-p port** parameter
@@ -128,8 +129,8 @@ The full list of command line parameters is given here
 
 - -c connection_id
 - -cid temporary_connection_id
-- -s session_id
-- -sid temporary_session_id
+- -s session_id (always starts a new session on command line)
+- -sid id (always starts a new session on command line)
 - -d starting dir, quoted if it contains spaces
 - -h host name or ip address (with optional port included)
 - -p port number
@@ -140,6 +141,7 @@ port of an active buddy fileServer and starts the fileClient
 with appropriate connections and behavior for buddy.
 
 
+#### Unimplemented potential -M feature
 
 - -M (uppercase) MACHINE_ID, with wild cards, to search for
 
@@ -159,25 +161,11 @@ matches the given MACHINE_ID, using leading or trailing asterisks *'* as wildcar
 		// by a serial number.
 
 
-### Command line from Buddy
-
-The command line from buddy will look something like this:
-
-	fileClient -s local -p 12345
-
-The above command will open the local file system in the left Pane, using the
-*default_local_dir* from the preferences, and a connection to localhost:12345,
-which will be buddy's serial BridgeServer (to the teensyExprssion) which will
-end up returning a server id like BRIDGE/TE000XXX. The right Pane will start
-at the *default_start_dir*.
-
-I have yet to Determine what the default names of Panes will look like.
-
-
 ## fileclient Preferences
 
 - Preferences
   - restore_windows_at_startup
+    - requires INI file, currently unimplemented
     - means whether to save and restore from an INI file
 	- note that the INI file is ONLY read/written if no command
 	  line parameters are given.
@@ -198,6 +186,71 @@ I have yet to Determine what the default names of Panes will look like.
   - port, where blank means the *local fie system*
   - host to use if port specified, and blank means *localhost*
   - *remembers* SERVER_ID if it connects
+
+
+## fileClient Preferences Dialog
+
+- restore_windows_at_startup
+- default_local_dir
+- default_start_dir
+
+
+
+## fileClient Connection Dialog
+
+Similar to Putty's connection dialog.
+
+Comes up first time pre-populated with a temporary
+Connection showing two local Sessions.
+
+After connecting, comes up populated with the Connection
+and Sessions from the currently active Window.
+
+
+Tab naming to become smart enough to only add " (N)" on duplicate windows.
+
+"(untiled)" should force a name save
+
+A list of available pre-defined connections is available
+that allow double click to be synonymous with "Load-Connect"
+
+Has buttons for Loading/Saving the Connection.
+Has buttons for Loading/Saving each Session individually.
+
+
+	Connection [ untitled ]                     [ Connect ]
+		AutoStart   [x]                         [ Save ]
+		Start Dir1  [                   ]
+		Start Dir2  [                   ]
+
+	Session1 [ local | untitled ]                [ Load ]
+		Start Dir1  [                            [ Save ]
+		Port        [                   ]
+		Host        [ localhost         ]
+
+	Session2 [ local | untitled ]                [ Load ]
+		Start Dir1  [                            [ Save ]
+		Port        [                   ]
+		Host        [ localhost         ]
+
+	[ Pre Defined Connections ]
+
+		XXXXXXXXX  YYYYYYYY ZZZZZZZZ             [^ move up]
+		XXXXXXXXX  YYYYYYYY ZZZZZZZZ             [ Load ]
+		XXXXXXXXX  YYYYYYYY ZZZZZZZZ             [ Connect ]
+		XXXXXXXXX  YYYYYYYY ZZZZZZZZ             [v move down]
+	...
+
+
+- Connection **Connect** button will open a Window with whatever is showing.
+- **Save** will require an id
+- **Save** will require confirmation to overwrite existing id
+- **Load Session** will bring up a dialog showing available defined Sessions
+- Connections can be *ordered* with **^/v up and down** buttons
+- **Load Connection** will populate the top part of the dialog with the given connection
+- Predefined **Connect** button will open a Window with the pre-defined connection
+- **Double clicking** on a Predefined connection will open it.
+
 
 
 

@@ -175,11 +175,9 @@ sub fixSession
 }
 
 
-sub parseCommandLine
-	# returns '' or a connection
+sub createDefaultConnection
 {
-	return '' if !@ARGV;
-	waitPrefs();
+	my ($resolved) = @_;
 
 	my $retval = {
 		connection_id => 'untitled',
@@ -188,6 +186,24 @@ sub parseCommandLine
 		panes => [
 			getSession(1,'local'),
 			getSession(2,'local') ]};
+
+	if ($resolved)
+	{
+		fixSession($retval->{panes}->[0],$retval->{dir1});
+		fixSession($retval->{panes}->[1],$retval->{dir2});
+	}
+	return $retval;
+}
+
+
+
+sub parseCommandLine
+	# returns '' or a connection
+{
+	return '' if !@ARGV;
+	waitPrefs();
+
+	my $retval = createDefaultConnection();
 
 	my $i = 0;
 	my %got_arg;
@@ -234,10 +250,12 @@ sub parseCommandLine
 			$retval->{panes}->[$pane_num] = getSession(1,$rval);
 			return if !$retval->{panes}->[$pane_num];
 			$got_arg{$lval} = 1;
+			$got_arg{'-sid'} = 1;
 		}
 		elsif ($lval eq '-sid')
 		{
 			return if !argOK($retval,'session_id',\$pane_num,\%got_arg,$lval,$rval);
+			$got_arg{'-s'} = 1;
 		}
 		elsif ($lval eq '-d')
 		{
