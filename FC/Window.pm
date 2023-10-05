@@ -49,59 +49,62 @@ my $color_red  = Wx::Colour->new(0xc0 ,0x00, 0x00);  # red
 sub new
 	# the 'data' member is the name of the connection information
 {
-	my ($class,$frame,$id,$book,$data) = @_;
+	my ($class,$frame,$id,$book,$connection) = @_;
 
-	if (!$data)
+	if (!$connection)
 	{
 		error("No data (name) specified");
 		return;
 	}
 
 	$instance++;
-	display($dbg_fcw+1,0,"new FC::Window($data) instance=$instance");
-	my $name = "Connection #$instance";
+	my $name = "$connection->{connection_id}-$instance";
+
+	display($dbg_fcw+1,0,"new FC::Window($name) instance=$instance");
 
 	my $this = $class->SUPER::new($book,$id);
-	$this->MyWindow($frame,$book,$id,$name,$data,$instance);
+	$this->MyWindow($frame,$book,$id,$name,$connection,$instance);
 
-    $this->{name} = $data;    # should already be done
-	$this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,5],[-1,-1]);
+    $this->{follow_dirs} = Wx::CheckBox->new($this,-1,'follow dirs',[10,5],[-1,-1]);
 
 	my $ctrl1 = Wx::StaticText->new($this,-1,'',[100,5]);
 	$ctrl1->SetFont($title_font);
 	my $ctrl2 = Wx::StaticText->new($this,-1,'',[$INITIAL_SPLITTER + 10,5]);
 	$ctrl2->SetFont($title_font);
 
+	my $params1 = $connection->{panes}->[0];
+	my $params2 = $connection->{panes}->[1];
+
 	# Create splitter and panes
 
-	my $params1 = {
-		pane_num => 1,
-		dir => '/junk/data',
-		port => 0 };				# equivilant to 'is_local'
-
-	if (0)
-	{
-		$params1 = {
-			pane_num => 1,
-			dir => $ARGV[0] ? '/' : "/junk",
-			host => 'localhost',
-			port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
-	}
-
-	my $params2 = {
-		pane_num => 2,
-		dir => $ARGV[0] ? '/' : "/junk",
-		host => 'localhost',
-		port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
-
-
-	if (0)
-	{
-		$params2 = {
-			pane_num => 2,
-			dir => '/junk/data',
-			port => 0 };			# equivilant to 'is_local'
-	}
+	# my $params1 = {
+	# 	pane_num => 1,
+	# 	dir => '/junk/data',
+	# 	port => 0 };				# equivilant to 'is_local'
+    #
+	# if (0)
+	# {
+	# 	$params1 = {
+	# 		pane_num => 1,
+	# 		dir => $ARGV[0] ? '/' : "/junk",
+	# 		host => 'localhost',
+	# 		port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
+	# }
+    #
+	# my $params2 = {
+	# 	pane_num => 2,
+	# 	dir => $ARGV[0] ? '/' : "/junk",
+	# 	host => 'localhost',
+	# 	port => $ARGV[0] || $DEFAULT_PORT };		# will need this later
+    #
+    #
+	# if (0)
+	# {
+	# 	$params2 = {
+	# 		pane_num => 2,
+	# 		dir => '/junk/data',
+	# 		port => 0 };			# equivilant to 'is_local'
+	# }
 
 
 	$params1->{enabled_ctrl} = $ctrl1;

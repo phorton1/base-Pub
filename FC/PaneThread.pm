@@ -96,8 +96,6 @@ sub doCommand
 
 	if ($USE_FORKING)
 	{
-		my $SAVE_CONSOLE = $USE_CONSOLE;
-
 		$fork_num++;
         my $child_pid = fork();
 		if (!defined($child_pid))

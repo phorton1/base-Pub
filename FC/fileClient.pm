@@ -14,12 +14,15 @@ use Pub::Utils;
 use Pub::WX::Frame;
 use Pub::FC::Resources;
 use Pub::FC::Window;
+use Pub::FC::Prefs;
 use base qw(Pub::WX::Frame);
+
 
 
 my $dbg_app = 0;
 
 $temp_dir = '/base/temp';
+$prefs_filename = "$temp_dir/fileClient.prefs";
 
 
 # $data_dir = '/base/temp';
@@ -40,11 +43,44 @@ sub onInit
     # derived classes MUST call base class!
 {
     my ($this) = @_;
-	display($dbg_app,-1,"FILE CLIENT STARTED WITH PID($$)");
 
-    $this->SUPER::onInit();
+    return if !$this->SUPER::onInit();
 	EVT_MENU($this, $COMMAND_CONNECT, \&commandConnect);
-	return if !$this->createPane($ID_CLIENT_WINDOW,undef,"blah");
+
+	warning($dbg_app,-1,"FILE CLIENT STARTED WITH PID($$)");
+
+	# yet another extreme weirdness.
+	# before and after messages have color and no timestamps
+	# messages IN initPrefs() have no color and have timestamps
+	# as-if Utils.pm has not been parsed.  Must be some kind of
+	# magic in WX with eval() or mucking around with Perl itself.
+
+	display(0,0,"before init_prefs()");
+	initPrefs();
+	display(0,0,"after init_prefs()");
+
+	# same with (and especially) the call to parseCommandLine
+	# setAppFrame($this);
+
+	if (@ARGV)
+	{
+		my $connection = parseCommandLine();
+		return if !$connection;
+		$this->createPane($ID_CLIENT_WINDOW,undef,$connection)
+	}
+	else
+	{
+		my $connections = getConnections();
+		if ($connections)
+		{
+			for my $connection (@$connections)
+			{
+				$this->createPane($ID_CLIENT_WINDOW,undef,$connection)
+					if $connection->{auto_start};
+			}
+		}
+	}
+
     return $this;
 }
 
@@ -60,7 +96,7 @@ sub createPane
 
 	if ($id == $ID_CLIENT_WINDOW)
 	{
-		return error("No name specified in fileClient::createPane()") if !$data;
+		return error("No data specified in fileClient::createPane()") if !$data;
 	    $book = $this->getOpenDefaultNotebook($id) if !$book;
         return Pub::FC::Window->new($this,$id,$book,$data);
     }

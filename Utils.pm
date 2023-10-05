@@ -18,15 +18,14 @@ use Win32::Console;
 use Win32::DriveInfo;
 use Win32::Mutex;
 
+
 our $debug_level = 0;
+
 
 BEGIN
 {
  	use Exporter qw( import );
 	our @EXPORT = qw (
-
-		$USE_CONSOLE
-		$USE_HANDLE
 
 		$debug_level
 
@@ -140,11 +139,11 @@ our $DISPLAY_COLOR_WARNING 	= $display_color_yellow;
 our $DISPLAY_COLOR_ERROR 	= $display_color_light_red;
 
 
-
 my $STD_OUTPUT_HANDLE = -11;
 my $STD_ERROR_HANDLE = -12;
 my $USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
 # my $USE_HANDLE = *STDOUT;
+
 
 
 

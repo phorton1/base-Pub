@@ -25,13 +25,15 @@ A **Connection** is between two **Sessions**.
   for the Window in fileClient.
 - has two **session_ids** that specify the two *Panes* that will be
   presented in the Window.
+- has two **dirs** that specify the starting directories for
+  each of the panes.
 
 A *Session*
 
 - defines everything necessary to present one of the two *Panes* within
   a Window.
 - has a *session_id*
-- has a **starting folder** that will show in pane when the pane starts up.
+- has a **dir** used in the event that there is none specified by a Connection.
 - specifies a **port** to connect to.
 - if no port is specified, the **local file system** is used.
 - specifies a **host** to use when *port* is specified.
@@ -42,22 +44,22 @@ Sessions that connect to a *port* are sometimes called *remote sessions*.
 The **local** file sytem is special.
 
 - **local** can be used as a session_id
-- there is a system wide **default_local_folder** for the local file system
-  in case one is not specified by a Session.
+- there is a system wide **default_local_dir** for the local file system
+  in case one is not specified by a Connection or Session.
 
 
-### Starting Folders
+### Starting Directories
 
-In addition to the *default_local_folder* for the local file system,
-there will be a system-wide **default_start_folder** for any Sessions
+In addition to the *default_local_dir* for the local file system,
+there will be a system-wide **default_start_dir** for any Sessions
 that define a *port*. to connect to, to be used if none is specified
 for a given Session.
 
-The default_local_folder and default_start_folder must be *fully
+The default_local_dir and default_start_dir must be *fully
 qualified* ... that is, they **must** start with a forward slash ('/').
 
-Other starting folders may be fully qualified (starting with '/')
-or they may be partially qualified, relative to the default folders.
+Other starting dirs may be fully qualified (starting with '/')
+or they may be partially qualified, relative to the default dirs.
 
 
 ## Command Line
@@ -91,8 +93,9 @@ The order of the parameters is important. The first Session specified
 will show up in the left Pane, and the second one in the right Pane.
 
 Likewise, the command line can be used to *build* temporary Sessions in
-whatever level of detail is required by passing **-sid**, **-f "folder"**,
-**-p port**, and **-h host** parameters as desired.
+whatever level of detail is required by passing **-sid** , **-d "dir"**,
+**-p port**, and **-h host** parameters, alone, or **after** any *-s*,
+as desired.
 
 It is importan to understand that any re-specification of the same parameter
 on the command line already used for the first session starts the definition
@@ -102,17 +105,17 @@ but is more subtle when parts of sessions are specified on the command line.
 For example, the following command line specifies the first Session using
 a **-h host** parameter with an implicit *port*. The **-p port** parameter
 starts the second specification with a connection to *localhost*, and the
-**-f folder** applies to it.
+**-d dir** applies to it.
 
-	fileClient -h 192.168.0.123:5872 -p 5872 -f "/junk"
+	fileClient -h 192.168.0.123:5872 -p 5872 -d "/junk"
 
 On the other hand, details *within* a session specification are grouped together
 within higher level concepts as long as they are not repeatedly specified.
 
-	fileClient -f "/junk" -s session_id1 -session_id2 -p 8383
+	fileClient -s session_id1 -d "/junk" -session_id2 -p 8383
 
 The above example tells the program to load session_id1 and session_id2, using
-"/junk" as the starting folder for Pane1 and the port 8383 to override the one
+"/junk" as the starting dir for Pane1 and the port 8383 to override the one
 specified in the Session given by session_id2. Assumptions have to be made, so
 the system will make up a temporary *connection_id* for the tab name, and if a
 *host* is not specified in Session2, then it will assume the use of **localhost**
@@ -127,7 +130,7 @@ The full list of command line parameters is given here
 - -cid temporary_connection_id
 - -s session_id
 - -sid temporary_session_id
-- -f starting folder, quoted if it contains spaces
+- -d starting dir, quoted if it contains spaces
 - -h host name or ip address (with optional port included)
 - -p port number
 - -M (uppercase) MACHINE_ID, with wild cards, to search for
@@ -142,7 +145,7 @@ matches the given MACHINE_ID, using leading or trailing asterisks *'* as wildcar
 
 	fileClient -s local -M TE*
 		// Will open the left Pane to the local file system (using the
-		// default_local_folder), and search for a Session to open in the
+		// default_local_dir), and search for a Session to open in the
 		// right Pane.  The -M will match any Sessions that have previously
 		// connected to a MACHINE_ID that starts with TE.  This would match any
 		// teensyExpressions because they have a MACHINE_ID of TE, followed
@@ -156,10 +159,10 @@ The command line from buddy will look something like this:
 	fileClient -s local -p 12345
 
 The above command will open the local file system in the left Pane, using the
-*default_local_folder* from the preferences, and a connection to localhost:12345,
+*default_local_dir* from the preferences, and a connection to localhost:12345,
 which will be buddy's serial BridgeServer (to the teensyExprssion) which will
 end up returning a server id like BRIDGE/TE000XXX. The right Pane will start
-at the *default_start_folder*.
+at the *default_start_dir*.
 
 I have yet to Determine what the default names of Panes will look like.
 
@@ -171,22 +174,22 @@ I have yet to Determine what the default names of Panes will look like.
     - means whether to save and restore from an INI file
 	- note that the INI file is ONLY read/written if no command
 	  line parameters are given.
-  - default_local_folder
-  - default_start_folder
+  - default_local_dir
+  - default_start_dir
   - Connections
   - Sessions
 - Connection
   - **connection_id** (tab_name)
-  - auto_start (if no command line parameters)
+  - auto_start if no command line parameters and not restore_windows_at_startup
   - session_id1 or **local**
-    - start_folder1
+    - start_dir1
   - session_id2 or **local**
-    - start_folder2
+    - start_dir2
 - Session
   - **session_id** (shown before SERVER_ID in UI)
-  - start_folder
+  - start_dir
   - port, where blank means the *local fie system*
-  - host use if port specified, and blank means *localhost*
+  - host to use if port specified, and blank means *localhost*
   - *remembers* SERVER_ID if it connects
 
 

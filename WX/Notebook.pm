@@ -41,7 +41,7 @@ use Pub::WX::Resources;
 use Pub::WX::FloatingFrame;
 use base 'Wx::AuiNotebook';
 
-sub CLONE_SKIP { 1 };
+#sub CLONE_SKIP { 1 };
 	# putting this in a package prevents it from being
 	# cloned when the perl interpreter is copied to a new
 	# thread, so that, also, the DESTROY methods are not

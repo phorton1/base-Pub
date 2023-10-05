@@ -171,14 +171,16 @@ sub new
 		$this->{session} = Pub::FS::ClientSession->new({
 			pane => $this,
 			HOST => $params->{host},
-			PORT => $params->{port}, });
+			PORT => $params->{port},
+			session_id => $params->{session_id} });
 
 		$this->{connected} = $this->{session}->isConnected();
 		$this->setEnabled($this->{connected},"No initial connection",$color_red);
 	}
 	else
 	{
-		$this->{session} = Pub::FS::Session->new();
+		$this->{session} = Pub::FS::Session->new({
+			session_id => $params->{session_id} });
 			# cannot fail
 		$this->{connected} = 1;
 		$this->setEnabled(1);
@@ -243,7 +245,12 @@ sub setEnabled
 	my ($this,$enable,$msg,$color) = @_;
 
 	$color = $color_black if $enable;
-	$msg = $this->{session}->{SERVER_ID} if $enable;
+
+	my $server_id = $this->{session}->{SERVER_ID} || '';
+	my $session_id = $this->{session}->{session_id} || '';
+	$session_id .= ": " if $session_id;
+
+	$msg = $session_id.$server_id if $enable;
 	$color ||= $color_blue;
 
 	display($dbg_life,0,sprintf("Pane$this->{pane_num} setEnabled($enable,$msg,0x%08x) enabled=$this->{enabled}",$color));
