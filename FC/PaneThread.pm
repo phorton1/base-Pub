@@ -419,7 +419,6 @@ sub onIdle
 						$msg,
 						$color_blue);
 				}
-				$event->RequestMore(1);
 			}
 		}
 
@@ -434,8 +433,15 @@ sub onIdle
 
 		if ($do_exit)
 		{
-			warning(0,0,"Pane$this->{pane_num} closing parent Window");
-			$this->{parent}->closeSelf();
+			warning($dbg_idle,-1,"Pane$this->{pane_num} closing parent Window for buddy");
+			my $parent = $this->{parent};
+			my $frame = $parent->{frame};
+			$parent->closeSelf();
+			if (!@{$frame->{panes}})
+			{
+				warning($dbg_idle,0,"Closing Frame on Last Window for buddy");
+				$frame->Destroy();
+			}
 			return;
 		}
 
@@ -454,9 +460,9 @@ sub onIdle
 					# no error checking on result
 					# 1 == $override_protocol to allow sending
 					# another packet while INSTANCE->{in_protocol}
-				$event->RequestMore(1);
 			}
 		}
+		$event->RequestMore(1);
 	}
 }
 

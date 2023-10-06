@@ -17,8 +17,7 @@ use Wx::Event qw(
     EVT_SIZE
     EVT_MENU
 	EVT_IDLE
-	EVT_CLOSE
-    EVT_MENU_RANGE
+	EVT_MENU_RANGE
     EVT_CONTEXT_MENU
     EVT_UPDATE_UI_RANGE
     EVT_LIST_KEY_DOWN
@@ -196,8 +195,7 @@ sub new
 
     EVT_SIZE($this,\&onSize);
 	EVT_IDLE($this,\&onIdle);
-	EVT_CLOSE($this,\&onClose);
-    EVT_CONTEXT_MENU($ctrl,\&onContextMenu);
+	EVT_CONTEXT_MENU($ctrl,\&onContextMenu);
     EVT_MENU($this,$COMMAND_REPOPULATE,\&onRepopulate);
     EVT_MENU_RANGE($this, $COMMAND_XFER, $COMMAND_DISCONNECT, \&onCommand);
 	EVT_UPDATE_UI_RANGE($this, $COMMAND_XFER, $COMMAND_DISCONNECT, \&onCommandUI);
@@ -321,22 +319,21 @@ sub onSize
     $event->Skip();
 }
 
-sub onClose
-	# the bane of my existence.
-	# onClose seems to get called twice,  once before deleting the pane
-	# and once after ... I may try to figure that out later, but for
-	# now I exit the whole program when it reaches zero
+sub doClose
+	# Note that only top level windows get onClose events
+	# so this is NOT called onClose() and we do NOT register
+	# an EVT_CLOSE handler.  This is called explicitly by
+	# FC::Window::onClose();
 {
 	my ($this,$event) = @_;
-	display($dbg_life,-1,"Pane$this->{pane_num} onClose(pane$this->{pane_num}) called");
+	display($dbg_life,0,"Pane$this->{pane_num} doClose(pane$this->{pane_num}) called");
 	if ($this->{port} && $this->{session}->{SOCK} && !$this->{GOT_EXIT})
 	{
 		$this->{GOT_EXIT} = 1;
 		# no error checking on result
 		$this->{session}->sendPacket($PROTOCOL_EXIT)
 	}
-	# $this->SUPER::onClose();
-	$event->Skip();
+	# $this->SUPER::onClose($event);
 }
 
 

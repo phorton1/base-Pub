@@ -59,6 +59,7 @@ sub connect()
 {
     my ($class,$parent) = @_;
 	display($dbg_dlg,0,"ConnectDialog::connect()");
+	return if !waitPrefs();
 
 	# Create the dialog
 
@@ -80,9 +81,8 @@ sub connect()
 	EVT_UPDATE_UI_RANGE($this, $ID_CONNECT_CONNECTION, $ID_CONNECT_SELECTED, \&onUpdateUI);
     EVT_LIST_ITEM_ACTIVATED($this->{list_ctrl},-1,\&onDoubleClick);
 
-	# Lock the prefs and Setup the starting information
+	# Setup the starting information
 
-	waitPrefs();
 	my $app_frame = getAppFrame();
 	my $pane = $app_frame->getCurrentPane();
 	$this->{connection} = $pane ?
@@ -91,8 +91,8 @@ sub connect()
 
 	# print Dumper($this->{connection});
 
-	$this->fill();
-	$this->fillList();
+	$this->toControls();
+	$this->populateListCtrl();
 
 	# Run the Dialog and release the prefs
 
@@ -104,6 +104,56 @@ sub connect()
 	if ($rslt == $ID_CONNECT_CONNECTION)
 	{
 		$app_frame->createPane($ID_CLIENT_WINDOW,undef,$this->{connection});
+	}
+
+	# Remember that dialogs must be destroyed
+	# when you are done with them !!!
+	$this->Destroy();
+}
+
+
+#-----------------------------------
+# event handlers
+#-----------------------------------
+
+sub onDoubleClick
+{
+	my ($ctrl,$event) = @_;
+	my $this = $ctrl->{parent};
+    my $item = $event->GetItem();
+    my $connection_id = $item->GetText();
+	my $connection = getPrefConnection($connection_id);
+	if ($connection)
+	{
+		$this->{connection} = $connection;
+		$this->EndModal($ID_CONNECT_CONNECTION);
+	}
+}
+
+
+sub onButton
+{
+    my ($this,$event) = @_;
+    my $id = $event->GetId();
+    $event->Skip();
+
+	if ($id == $ID_CONNECT_CONNECTION)
+	{
+		$this->fromControls();
+	    $this->EndModal($id);
+	}
+	elsif ($id == $ID_CONNECT_SELECTED ||
+		   $id == $ID_LOAD_SELECTED )
+	{
+		my $connection_id = getSelectedItem($this->{list_ctrl});
+		my $connection = getPrefConnection($connection_id,1);
+		if ($connection)
+		{
+			$this->{connection} = $connection;
+			$id == $ID_CONNECT_SELECTED ?
+				$this->EndModal($ID_CONNECT_CONNECTION) :
+				$this->toControls();
+		}
 	}
 }
 
@@ -130,7 +180,96 @@ sub onUpdateUI
 }
 
 
+#-----------------------------------
+# utilities
+#-----------------------------------
 
+sub getSelectedItem
+{
+	my ($ctrl) = @_;
+    for (my $i=0; $i<$ctrl->GetItemCount(); $i++)
+    {
+		return $ctrl->GetItemText($i)
+			if $ctrl->GetItemState($i,wxLIST_STATE_SELECTED);
+	}
+	return '';
+}
+
+
+sub toControls
+{
+	my ($this) = @_;
+
+	my $connection = $this->{connection};
+	my $params0 = $connection->{params}->[0];
+	my $params1 = $connection->{params}->[1];
+
+    $this->{cid} 	   ->SetValue($connection->{connection_id});
+    $this->{auto_start}->SetValue($connection->{auto_start});
+    $this->{sdir0}	   ->SetValue($params0->{dir});
+    $this->{port0}	   ->SetValue($params0->{port});
+    $this->{host0}	   ->SetValue($params0->{host});
+    $this->{sdir1}	   ->SetValue($params1->{dir});
+    $this->{port1}	   ->SetValue($params1->{port});
+    $this->{host1}	   ->SetValue($params1->{host});
+}
+
+
+sub fromControls
+{
+	my ($this) = @_;
+
+	my $connection = $this->{connection};
+	my $params0 = $connection->{params}->[0];
+	my $params1 = $connection->{params}->[1];
+
+    $connection->{connection_id} = $this->{cid} 	  ->GetValue();
+    $connection->{auto_start}	 = $this->{auto_start}->GetValue();
+    $params0->{dir}				 = $this->{sdir0}	  ->GetValue();
+    $params0->{port}			 = $this->{port0}	  ->GetValue();
+    $params0->{host}			 = $this->{host0}	  ->GetValue();
+    $params1->{dir}				 = $this->{sdir1}	  ->GetValue();
+    $params1->{port}			 = $this->{port1}	  ->GetValue();
+    $params1->{host}			 = $this->{host1}	  ->GetValue();
+}
+
+
+
+sub getParamDesc
+{
+	my ($params) = @_;
+	my $name =
+		$params->{host} ? "$params->{host}".
+			($params->{port}?":$params->{port}":'') :
+		$params->{port} ? "port($params->{port})" :
+		"local";
+	return $name;
+}
+
+sub populateListCtrl
+	# only called when list changes
+{
+	my ($this) = @_;
+	my $ctrl = $this->{list_ctrl};
+	$ctrl->DeleteAllItems();
+
+	my $row = 0;
+	my $prefs = getPrefs();
+	my $connections = $prefs->{connections};
+	for my $connection (@$connections)
+	{
+        $ctrl->InsertStringItem($row,$connection->{connection_id});
+		$ctrl->SetItemData($row,$row);
+		$ctrl->SetItem($row,1,getParamDesc($connection->{params}->[0]));
+		$ctrl->SetItem($row,2,getParamDesc($connection->{params}->[1]));
+	}
+}
+
+
+
+#------------------------------------------------------------
+# createControls()
+#------------------------------------------------------------
 
 sub createControls
 {
@@ -224,117 +363,6 @@ sub createControls
 
 	$y += 1.5*$LINE_HEIGHT;
 	$ctrl = Wx::Button->new($this,wxID_CANCEL,'Cancel',[$RIGHT_COLUMN,$y],[70,20]);
-}
-
-
-
-sub fill
-{
-	my ($this) = @_;
-
-	my $connection = $this->{connection};
-	my $params0 = $connection->{params}->[0];
-	my $params1 = $connection->{params}->[1];
-
-    $this->{cid} 		->SetValue($connection->{connection_id});
-    $this->{auto_start} ->SetValue($connection->{auto_start});
-
-    $this->{sdir0}	->SetValue($params0->{dir});
-    $this->{port0}	->SetValue($params0->{port});
-    $this->{host0}	->SetValue($params0->{host});
-
-    $this->{sdir1}	->SetValue($params1->{dir});
-    $this->{port1}	->SetValue($params1->{port});
-    $this->{host1}	->SetValue($params1->{host});
-}
-
-
-
-sub getParamDesc
-{
-	my ($params) = @_;
-	my $name =
-		$params->{host} ? "$params->{host}".
-			($params->{port}?":$params->{port}":'') :
-		$params->{port} ? "port($params->{port})" :
-		"local";
-	return $name;
-}
-
-
-sub fillList
-	# only called when list changes
-{
-	my ($this) = @_;
-	my $ctrl = $this->{list_ctrl};
-	$ctrl->DeleteAllItems();
-
-	my $row = 0;
-	my $prefs = getPrefs();
-	my $connections = $prefs->{connections};
-	for my $connection (@$connections)
-	{
-        $ctrl->InsertStringItem($row,$connection->{connection_id});
-		$ctrl->SetItemData($row,$row);
-		$ctrl->SetItem($row,1,getParamDesc($connection->{params}->[0]));
-		$ctrl->SetItem($row,2,getParamDesc($connection->{params}->[1]));
-	}
-}
-
-
-sub getSelectedItem
-{
-	my ($ctrl) = @_;
-    for (my $i=0; $i<$ctrl->GetItemCount(); $i++)
-    {
-		return $ctrl->GetItemText($i)
-			if $ctrl->GetItemState($i,wxLIST_STATE_SELECTED);
-	}
-	return '';
-}
-
-
-
-sub onDoubleClick
-{
-	my ($ctrl,$event) = @_;
-	my $this = $ctrl->{parent};
-    my $item = $event->GetItem();
-    my $connection_id = $item->GetText();
-	my $connection = getPrefConnection($connection_id);
-	if ($connection)
-	{
-		$this->{connection} = $connection;
-		$this->EndModal($ID_CONNECT_CONNECTION);
-	}
-}
-
-
-
-sub onButton
-{
-    my ($this,$event) = @_;
-    my $id = $event->GetId();
-    $event->Skip();
-
-	if ($id == $ID_CONNECT_CONNECTION)
-	{
-	    $this->EndModal($id);
-	}
-	elsif ($id == $ID_CONNECT_SELECTED ||
-		   $id == $ID_LOAD_SELECTED )
-	{
-		my $connection_id = getSelectedItem($this->{list_ctrl});
-		my $connection = getPrefConnection($connection_id,1);
-		if ($connection)
-		{
-			$this->{connection} = $connection;
-			$id == $ID_CONNECT_SELECTED ?
-				$this->EndModal($ID_CONNECT_CONNECTION) :
-				$this->fill();
-		}
-	}
-
 }
 
 

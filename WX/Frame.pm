@@ -21,9 +21,9 @@ use Pub::WX::Dialogs;
 use base qw(Wx::Frame Pub::WX::FrameBase);
 
 
-our $dbg_frame = 2;
+our $dbg_frame = 1;
     # debug Pub::WX::Frame - lower means more
-our $dbg_sr = 2;
+our $dbg_sr = 1;
     # debug save & restore of config state
 
 
@@ -68,8 +68,21 @@ our $dbg_sr = 2;
 	# well known variables, mostly shared.
 
 
+#----------------------------
+# Display Methods
+#----------------------------
+
+sub showError
+{
+    my ($this,$msg) = @_;
+	my $dlg = Wx::MessageDialog->new($this,$msg,"Error",wxOK|wxICON_EXCLAMATION);
+	$dlg->ShowModal();
+}
+
+
+
 #--------------------------------------------
-# Construct, Init, Close, and Destroy
+# new() and onInit()
 #--------------------------------------------
 
 sub new
@@ -87,7 +100,7 @@ sub new
 
     my $config_rect = readConfigRect("window_rect");
 	my $config_exists = $config_rect ? 1 : 0;
-    display($dbg_frame,2,"config_exists=$config_exists");
+    display($dbg_sr,2,"config_exists=$config_exists");
 	$config_rect = Wx::Rect->new(200,100,900,600) if (!$config_rect);
     writeConfigRect("window_rect",$config_rect);
     writeConfig("running",1);
@@ -120,24 +133,6 @@ sub onInit
 	$this->{frames}  = {};
     $this->{panes}   = [];
 	$this->{notebooks} = {};
-	warning($dbg_frame,0,"$this initial frames=$this->{frames}");
-
-    # add notebook commands to the view menu if the client desires
-
-    # my $got_one = 0;
-    # my @nb_command_ids;
-    # for my $nb (@{$resources->{notebooks}})
-    # {
-    #     my $command_id = $$nb{command_id};
-    #     if ($command_id)
-    #     {
-    #         push @{$resources->{view_menu}},$ID_SEPARATOR
-    #             if (!$got_one);
-    #         $got_one = 1;
-    #         push @{$resources->{view_menu}},$command_id;
-    #         EVT_MENU($this, $command_id, \&onOpenNotebook);
-    #     }
-    # }
 
     # restore the state from the ini file if it exists
     # or, if not, create the default setup and save it ...
@@ -163,8 +158,8 @@ sub onInit
 
 	EVT_MENU($this, $CLOSE_ALL_PANES, \&onCloseWindows);
 	EVT_MENU($this, $CLOSE_OTHER_PANES, \&onCloseWindows);
-    EVT_UPDATE_UI($this, $CLOSE_ALL_PANES, \&onCloseWindowsUI);
-	EVT_UPDATE_UI($this, $CLOSE_OTHER_PANES, \&onCloseWindowsUI);
+    EVT_UPDATE_UI($this, $CLOSE_ALL_PANES, \&onCloseUpdateUI);
+	EVT_UPDATE_UI($this, $CLOSE_OTHER_PANES, \&onCloseUpdateUI);
 
     # finished
 
@@ -175,31 +170,113 @@ sub onInit
 
 
 
-sub addFloatingFrame
+#------------------------------------------------------
+# onCloseFrame(), onCloseWindows(), and DESTROY()
+#------------------------------------------------------
+
+sub onCloseFrame
+	# save the state of the windows and frames.
+	# clear the running flag to indicate we are shutting down,
+	# close the windows, and if anybody objects reset the flag
+	# returns 0 if anybody objected, 1 if everybody was closed
 {
-	my ($this,$instance,$frame) = @_;
-	warning($dbg_frame,0,"$this $this->{frames} addFloatingFrame($instance)=$frame");
-	$this->{frames}->{$instance} = $frame;
+	my ($this,$event) = @_;
+	display($dbg_frame,0,"start Pub::WX::Frame::onCloseFrame()");
+
+	$this->save_state();
+
+	$this->{running} = 0;
+	my $rslt = $this->onCloseWindows($event);
+	display($dbg_frame,0,"end Pub::WX::Frame::onCloseFrame() rslt="._def($rslt));
+
+	if (!$rslt)
+	{
+		$this->{running} = 1;
+		$event->Veto();
+	}
+	else
+	{
+		$event->Skip();
+	}
+    return $rslt;
 }
 
-sub deleteFloatingFrame
+
+sub onCloseWindows
+	# Close all, or most of the windows in the system.
+	# Called by events $CLOSE_ALL_PANES and $CLOSE_OTHER_PANES
+	# and frame::onClose(), or explicitly with no event i.e.
+	# when changing logins or re-initialize database, etc.
+	#
+	# For each window we call it's closeOK() method
+	# where it returns:
+	#
+	#  	0 to not close the window and stop the loop.
+	#  	1 to close the window and continue the loop.
+	#  -1 to close the window, and continue the loop,
+	#     but not call closeOK() any more (abandon all changes).
 {
-	my ($this,$instance) = @_;
-	warning($dbg_frame,0,"$this $this->{frames} deleteFloatingFrame($instance)="._def($this->{frames}->{$instance}));
-	delete $this->{frames}->{$instance};
-	warning($dbg_frame,0,"after delete $this->{frames}");
+	my ($this,$event) = @_;
+    my $id = $event ? $event->GetId() : 0;
+    my $skip = ($id == $CLOSE_OTHER_PANES) ? $this->getCurrentPane() : undef;
+
+	display($dbg_frame,0,"onCloseWindows($id) skip="._def($skip));
+
+	my $rslt = 1;
+	my @panes = @{$this->{panes}};
+    for my $pane (@panes)
+    {
+		if ($pane)
+		{
+			display($dbg_frame,1,"checking($rslt) $pane(".$pane->GetId().") title="._def($pane->{title}));
+			if ( (!$skip || $pane != $skip) &&
+			     ($rslt == -1 || ($rslt = $pane->closeOK())) )
+			{
+				my $book = $pane->GetParent();
+				$book->closeBookPage($pane);
+			}
+			last if !$rslt;
+		}
+		else
+		{
+			warning(0,0,"NULL pane in onCloseWindows()");
+		}
+	}
+
+	$event->Skip() if $event && $rslt;
+	display($dbg_frame,0,"onCloseWindows() reutrning rslt="._def($rslt));
+	return $rslt;
 }
 
+
+sub onCloseUpdateUI
+{
+	my ($this,$event) = @_;
+    my $id = $event->GetId();
+    my $panes = $this->{panes};
+    my $skip = ($id == $CLOSE_OTHER_PANES) ? $this->getCurrentPane() : undef;
+
+	my $enable = 0;
+	for my $pane (@$panes)
+	{
+		if ($pane && (!$skip || $pane != $skip))
+		{
+			$enable = 1;
+			last;
+		}
+	}
+	$event->Enable($enable);
+}
 
 
 sub DESTROY
+	# bypassing months of work years ago,
+	# the entire DESTORY call chain is now
+	# short returning
 {
 	my ($this) = @_;
 	display($dbg_frame,0,"DESTROY Pub::WX::Frame");
 	setAppFrame(undef);
-
-	# bypassing months of work years ago, I now just bail on
-	# any memory management and return short here ..
 	return;
 
 	$this->Pub::WX::FrameBase::DESTROY();
@@ -237,51 +314,24 @@ sub DESTROY
 }
 
 
-sub onCloseFrame
-	# save the state of the windows and frames.
-	# clear the running flag to indicate we are shutting down,
-	# close the windows, and if anybody objects reset the flag
-	# returns 0 if anybody objected, 1 if everybody was closed
-{
-	my ($this,$event) = @_;
-	display($dbg_frame,0,"start Pub::WX::Frame::onCloseFrame()");
-
-	$this->save_state();
-
-	$this->{running} = 0;
-	my $rslt = $this->onCloseWindows($event);
-	display($dbg_frame,0,"end Pub::WX::Frame::onCloseFrame() rslt="._def($rslt));
-
-	if (!$rslt)
-	{
-		$this->{running} = 1;
-		$event->Veto();
-	}
-	else
-	{
-		$event->Skip();
-	}
-    return $rslt;
-}
-
 
 #------------------------------------------------------------
-# create the main menu
+# create the Main menu
 #------------------------------------------------------------
 
 sub setMainMenu
 {
 	my ($this) = @_;
-	display($dbg_frame,1,"setMainMenu()");
+	display($dbg_frame+1,0,"setMainMenu()");
 
     my $menu_items = $resources->{main_menu};
     my $menubar= Wx::MenuBar->new();
-	display($dbg_frame,2,"found ".scalar(@$menu_items)." menu items");
+	display($dbg_frame+2,1,"found ".scalar(@$menu_items)." menu items");
 
 	foreach my $menu_title (@$menu_items)
 	{
 		my ($menu_name,$menu_title) = split(/,/,$menu_title);
-		display($dbg_frame+1,2,"menu_item($menu_name,$menu_title)");
+		display($dbg_frame+2,2,"menu_item($menu_name,$menu_title)");
 		my $menu = Pub::WX::Menu::createMenu($menu_name);
 		$menubar->Append($menu,$menu_title);
 	}
@@ -290,11 +340,194 @@ sub setMainMenu
 
 
 
+#------------------------------------------------------
+# Frames and Notebooks
+#------------------------------------------------------
+
+sub addFloatingFrame
+{
+	my ($this,$instance,$frame) = @_;
+	warning($dbg_frame,0,"$this $this->{frames} addFloatingFrame($instance)=$frame");
+	$this->{frames}->{$instance} = $frame;
+}
+
+sub deleteFloatingFrame
+{
+	my ($this,$instance) = @_;
+	warning($dbg_frame,0,"$this $this->{frames} deleteFloatingFrame($instance)="._def($this->{frames}->{$instance}));
+	delete $this->{frames}->{$instance};
+	warning($dbg_frame,0,"after delete $this->{frames}");
+}
+
+
+sub getOpenNotebook
+    # finds the named notebook and shows it if it
+    # exists and is not showing. Creates and shows it
+    # if it does not exist. Floating frame is passing
+    # an extra third parameter 'this' for the floating
+    # frame ($this is always the Pub::WX::Frame) ..
+{
+	my ($this,$name,$float_frame) = @_;
+	display($dbg_frame,0,"getOpenNotebook($name)");
+	my $book = $this->{notebooks}{$name};
+	if (!$book)
+	{
+		$book = Pub::WX::Notebook->new($this,$name,$float_frame);
+	}
+	elsif (!$book->{is_floating})
+	{
+		my $pane = $this->{manager}->GetPane($book);
+		if (!$pane->IsShown())
+		{
+			$pane->Show(1);
+			$this->{manager}->Update();
+		}
+	}
+	return $book;
+}
+
+
+sub getOpenDefaultNotebook
+	# get resource description of the default notebook
+	# and open a notebook as described
+{
+	my ($this,$id) = @_;
+	display($dbg_frame,0,"getOpenDefaultNotebook($id)");
+	my $r_data = ${$resources->{pane_data}}{$id};
+	my ($label,$book_name) = @$r_data;
+	return $this->getOpenNotebook($book_name);
+}
+
+
+
+#------------------------------------------------------
+# panes
+#------------------------------------------------------
+
+sub createPane
+	# base class factory does nothing and should probably be removed
+	# would like to remove base class createPane method?
+{
+	my ($this,$id,$book,$data,$config_str) = @_;
+	error("Your application must implement createPane!!");
+	return;
+}
+
+
+sub getCurrentPane
+{
+	my ($this) = @_;
+	return $this->{current_pane};
+}
+
+
+sub findPane
+{
+	my ($this,$id) = @_;
+	return if (!$id);
+    for my $pane (@{$this->{panes}})
+	{
+		return $pane if ($pane->{id}==$id);
+	}
+}
+
+
+sub addPane
+	# set pane into list of all panes, and make it current
+{
+	my ($this,$pane) = @_;
+	push @{$this->{panes}},$pane;
+	display($dbg_frame,0,"added $pane");
+	$this->setCurrentPane($pane);
+}
+
+
+sub removePane
+{
+	my ($this,$del_pane) = @_;
+	display($dbg_frame,0,"removing $del_pane from frame::panes");
+	my $found = 0;
+	for my $idx (0..@{$this->{panes}})
+	{
+		my $pane = @{$this->{panes}}[$idx];
+		if ($pane && $pane == $del_pane)
+		{
+			$found = 1;
+			display($dbg_frame+1,1,"-->found $del_pane");
+			splice @{$this->{panes}},$idx,1;
+			last;
+		}
+	}
+	if (!$found)
+	{
+		display($dbg_frame,0,"note: could not find $del_pane for removal");
+	}
+	$this->setCurrentPane(undef);
+}
+
+
+sub setCurrentPane
+{
+	my ($this,$new_cur) = @_;
+	display($dbg_frame,0,"setCurrentPane(pane=".($new_cur?$new_cur:'undef').")",1);
+
+	# Notebook may call this with a stale pane.
+	# We only accept the pane if it is our {panes} array
+
+	my $found;
+	if ($new_cur)
+	{
+		for my $pane (@{$this->{panes}})
+		{
+			$found = $pane if $pane == $new_cur;
+		}
+		if (!$found)
+		{
+			display($dbg_frame,1,"setCurrentPane() could not find $new_cur; returning!");
+			return;
+		}
+	}
+
+	# note if it is already the current pane
+
+	my $cur = $this->getCurrentPane();
+	if (_def($found) eq _def($cur))
+	{
+		display($dbg_frame,1,"note: "._def($cur)." is already the current pane");
+	}
+
+	# if !$this->{running} we are shutting down,
+	# so clear the member.
+
+	if ($found && !$this->{running})
+	{
+		display($dbg_frame,1,"Shutting down, so setting current pane to undef!");
+		$found = undef;
+	}
+
+	# set the member
+
+	$this->{current_pane} = $found;
+
+	# implement a pending_populate scheme.
+	# this is called anytime the window comes into focus
+
+
+	if ($found &&
+		$found->{pending_populate} &&
+		$found->can("populate"))
+	{
+		display($dbg_frame,1,"setCurrentPane($found->{label}) calling pending populate() ");
+		$found->populate();
+		$found->{pending_populate} = 0;
+	}
+}
+
+
 
 #------------------------------------------------------------
 # Save and Restore window state
 #------------------------------------------------------------
-
 
 sub display_rect
 {
@@ -548,64 +781,9 @@ sub restore_state
 
 
 
-
-#----------------------------
-# Display Methods
-#----------------------------
-
-sub showError
-{
-    my ($this,$msg) = @_;
-	my $dlg = Wx::MessageDialog->new($this,$msg,"Error",wxOK|wxICON_EXCLAMATION);
-	$dlg->ShowModal();
-}
-
-
-
-
-#------------------------------------------------------
-# notebooks
-#------------------------------------------------------
-
-sub getOpenNotebook
-    # finds the named notebook and shows it if it
-    # exists and is not showing. Creates and shows it
-    # if it does not exist. Floating frame is passing
-    # an extra third parameter 'this' for the floating
-    # frame ($this is always the Pub::WX::Frame) ..
-{
-	my ($this,$name,$float_frame) = @_;
-	display($dbg_frame,1,"getOpenNotebook($name)");
-	my $book = $this->{notebooks}{$name};
-	if (!$book)
-	{
-		$book = Pub::WX::Notebook->new($this,$name,$float_frame);
-	}
-	elsif (!$book->{is_floating})
-	{
-		my $pane = $this->{manager}->GetPane($book);
-		if (!$pane->IsShown())
-		{
-			$pane->Show(1);
-			$this->{manager}->Update();
-		}
-	}
-	return $book;
-}
-
-
-sub getOpenDefaultNotebook
-	# get resource description of the default notebook
-	# and open a notebook as described
-{
-	my ($this,$id) = @_;
-	display($dbg_frame,1,"getOpenDefaultNotebook($id)");
-	my $r_data = ${$resources->{pane_data}}{$id};
-	my ($label,$book_name) = @$r_data;
-	return $this->getOpenNotebook($book_name);
-}
-
-
+#----------------------------------------------
+# Obsolete Methods
+#----------------------------------------------
 
 # sub findPageBook
 #     # return the book and pageid for a given page (pane)
@@ -654,113 +832,6 @@ sub getOpenDefaultNotebook
 #}
 
 
-
-#------------------------------------------------------
-# panes
-#------------------------------------------------------
-
-
-sub createPane
-	# base class factory does nothing and should probably be removed
-	# would like to remove base class createPane method?
-{
-	my ($this,$id,$book,$data,$config_str) = @_;
-	error("Your application must implement createPane!!");
-	return;
-	# display($dbg_frame,1,"UNUSED Pub::WX::Frame::createPane($id) called ... book=".($book?$book->{name}:'undef'));
-	# if (!$id)
-	# {
-	# 	error("No id specified in Pub::WX::Frame::createPane()");
-	# 	return;
-	# }
-    # if (!$book)
-    # {
-    #     $book = $this->getOpenDefaultNotebook($id);
-    # }
-	# error("Unknown pane id=$id in Pub::WX::Frame::createPane()");
-}
-
-
-
-sub addPane
-	# set pane into list of all panes, and make it current
-{
-	my ($this,$pane) = @_;
-	push @{$this->{panes}},$pane;
-	display($dbg_frame,0,"added $pane");
-	$this->setCurrentPane($pane);
-}
-
-
-sub removePane
-{
-	my ($this,$del_pane) = @_;
-	display($dbg_frame,0,"removing $del_pane from frame::panes");
-	for my $idx (0..@{$this->{panes}})
-	{
-		my $pane = @{$this->{panes}}[$idx];
-		if ($pane && $pane == $del_pane)
-		{
-			display($dbg_frame,1,"-->found $del_pane");
-			splice @{$this->{panes}},$idx,1;
-			last;
-		}
-	}
-	$this->setCurrentPane(undef);
-}
-
-
-sub getCurrentPane
-{
-	my ($this) = @_;
-	return $this->{current_pane};
-}
-
-
-sub setCurrentPane
-{
-	my ($this,$pane) = @_;
-
-	# if !$this->{running} we are shutting down
-	# so we don't set the member
-
-	my $cur = $this->getCurrentPane();
-	if ($this->{running} && (
-		defined($cur) != defined($pane) ||
-		($pane && $pane != $cur)))
-	{
-		display($dbg_frame,0,"setCurrentPane(pane=".($pane?$pane:'undef').")");
-		$this->{current_pane} = $pane;
-
-		# this code *could* or perhaps *should* be in cmManager
-		# there are no cases of member  pending_populate in mbeManager at this time
-
-		if ($pane &&
-			$pane->{pending_populate} &&
-			$pane->can("populate"))
-		{
-			display($dbg_frame,0,"Pub::WX::Frame::setCurrentPane($pane->{label}) calling pending_populate()");
-			$pane->populate();
-			$pane->{pending_populate} = 0;
-		}
-
-
-		return $pane;
-	}
-}
-
-
-sub findPane
-{
-	my ($this,$id) = @_;
-	return if (!$id);
-    for my $pane (@{$this->{panes}})
-	{
-		return $pane if ($pane->{id}==$id);
-	}
-}
-
-
 # sub findOrOpenPaneWithData
 #     # called by clients, will find or create the
 #     # given toolpane by id (single instance only)
@@ -790,7 +861,6 @@ sub findPane
 #     $this->{manager}->Update();
 # }
 #
-
 
 #sub findOrOpenMultipleInstancePane
 #	# find the existing multiple instance pane, if any
@@ -823,7 +893,6 @@ sub findPane
 #	return $found;
 #}
 #
-
 
 #sub onOpenPane
 #	# Called directly from an event, this method
@@ -881,87 +950,6 @@ sub findPane
 #}
 
 
-
-#------------------------------------------------------
-# Commands implemented in base class
-#------------------------------------------------------
-
-
-sub onCloseWindows
-	# Close all, or most of the windows in the system.
-	#
-	# Called by events $CLOSE_ALL_PANES and $CLOSE_OTHER_PANES
-	# and frame::onClose(), or explicitly with no event i.e.
-	# when changing logins or re-initialize database, etc.
-	#
-	# Only in the cases of $CLOSE_PANES ui events do we call
-	# each window's autoClose() method to see if it normally
-	# closes (default == yes) during these events.
-	#
-	# Otherwise, for each window we call it's closeOK() method
-	# where it returns:
-	#
-	#  	0 to not close the window and stop the loop.
-	#  	1 to close the window and continue the loop.
-	#  -1 to close the window, and continue the loop,
-	#     but not call closeOK() any more (abandon all changes).
-{
-	my ($this,$event) = @_;
-    my $id = $event ? $event->GetId() : 0;
-    my $skip = ($id == $CLOSE_OTHER_PANES) ? $this->getCurrentPane() : undef;
-	my $check_auto = ($id == $CLOSE_ALL_PANES) || ($id == $CLOSE_OTHER_PANES) ? 1 : 0;
-
-	display($dbg_frame,-1,"onCloseWindows($id,$check_auto) skip="._def($skip));
-
-	my $rslt = 1;
-	my @panes = @{$this->{panes}};
-    for my $pane (@panes)
-    {
-		display($dbg_frame,-11,"checking($rslt) $pane(".$pane->GetId().") title="._def($pane->{title}));
-
-        if ($pane &&
-			(!$skip || $pane != $skip) &&
-			(!$check_auto || $pane->autoClose()) &&
-			($rslt == -1 || ($rslt = $pane->closeOK())))
-		{
-			# my $book = $pane->{book};
-			my $book = $pane->GetParent();
-			$book->closeBookPage($pane);
-		}
-		last if !$rslt;
-	}
-
-	$event->Skip() if $event && $rslt;
-	display($dbg_frame,-1,"onCloseWindows() reutrning rslt="._def($rslt));
-	return $rslt;
-}
-
-
-
-sub onCloseWindowsUI
-{
-	my ($this,$event) = @_;
-    my $id = $event->GetId();
-    my $panes = $this->{panes};
-    my $skip = ($id == $CLOSE_OTHER_PANES) ? $this->getCurrentPane() : undef;
-	$skip = undef if $skip && (!$skip->can('autoClose') || !$skip->autoClose());
-	my $enable = 0;
-
-	if ($id != $CLOSE_OTHER_PANES || $skip)
-	{
-		for my $pane (@$panes)
-		{
-	        if ($pane && (!$skip || $pane != $skip) &&
-				$pane->can('autoClose') &&
-				$pane->autoClose())
-			{
-				$enable = 1;
-				last;
-			}
-		}
-	}
-	$event->Enable($enable);
-}
 
 
 

@@ -39,7 +39,7 @@ use Wx::Event qw(EVT_CHILD_FOCUS EVT_CLOSE);
 use Pub::Utils;
 use base qw(Wx::Window);
 
-our $debug_aw = 2;
+our $debug_aw = 1;
 
 
 sub MyWindow
@@ -68,7 +68,7 @@ sub MyWindow
 
 	# register event handlers
 
-	EVT_CLOSE($this,'onClose');	 # \&onSuperClose);
+	EVT_CLOSE($this,'onClose');
 	EVT_CHILD_FOCUS($this,\&onChildFocus);
 }
 
@@ -77,8 +77,9 @@ sub closeSelf
 {
 	my ($this) = @_;
 	my $book = $this->GetParent();
+	display($debug_aw,0,"closeSelf ".ref($this));
 	$book->closeBookPage($this);
-
+	display($debug_aw,0,"closeSelf finishing".ref($this));
 }
 
 sub DESTROY
@@ -90,27 +91,19 @@ sub DESTROY
 	return;
 
 	delete $this->{frame};
+	return;
 }
 
-
-sub onSuperClose
-	# So that classes that implement onClose do not all need their
-	# own event handler, we get the event in this base class, and then
-	# call the virtual onClose() call chain.
-{
-	my ($this,$event) = @_;
-	display($debug_aw,0,"Pub::WX::Window::onSuperClose($this) called");
-	$this->onClose($event);	  # turn it into a virtual call
-}
 
 
 sub onClose
 {
 	my ($this,$event) = @_;
 	my $id = $this->GetId();
-	display($debug_aw,0,"Pub::WX::Window::close(".ref($this)."($id) $this->{caption})");
+	display($debug_aw,0,"Pub::WX::Window::onClose(".ref($this)."($id) $this->{caption})");
 	my $frame = $this->{frame};
 	$frame->removePane($this);
+	$event->Skip();
 }
 
 
@@ -130,7 +123,6 @@ sub closeOK
 	#    and prompt to Abandon Changes? (or save the file), and
 	#    return 1 if it is ok to continue with closing this and
 	#    subsequent windows.
-	#
 	# Return 0 to not close the window and stop the loop.
 	# Return 1 to close the window and continue the loop.
 	# Return -1 to close the window, and continue the loop,
@@ -140,23 +132,6 @@ sub closeOK
 	display($debug_aw,0,"Pub::WX::Window::closeOK($this->{label}) called");
 	return 1;
 }
-
-
-
-sub autoClose
-	# By default, windows are closed by calls to onCloseWindows()
-	# via the $CLOSE_ALL_PANES and $CLOSE_OTHER_PANES comamnds.
-	#
-	# Windows that do not wish to be closed in this way should
-	# impelement this method and return 0.
-	#
-	# Note that this window's closeOK() and onClose() methods
-	# will still be called the frame onClose(), ignoring this
-	# setting.
-{
-	return 1;
-}
-
 
 
 

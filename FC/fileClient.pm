@@ -56,9 +56,7 @@ sub onInit
 	# as-if Utils.pm has not been parsed.  Must be some kind of
 	# magic in WX with eval() or mucking around with Perl itself.
 
-	display(0,0,"before init_prefs()");
-	initPrefs();
-	display(0,0,"after init_prefs()");
+	return if !initPrefs();
 
 	# same with (and especially) the call to parseCommandLine
 	# setAppFrame($this);
@@ -72,7 +70,7 @@ sub onInit
 	else
 	{
 		my @start_connections;
-		waitPrefs();
+		return if !waitPrefs();
 		for my $shared_connection (@{getPrefs()->{connections}})
 		{
 			push @start_connections,getPrefConnection(
@@ -141,7 +139,7 @@ sub OnInit
 	$frame = Pub::FC::AppFrame->new();
 	if (!$frame)
 	{
-		error("unable to create frame");
+		warning(0,0,"unable to create frame");
 		return undef;
 	}
 	$frame->Show( 1 );

@@ -52,7 +52,7 @@ use base 'Wx::AuiNotebook';
 	# well known variables, mostly shared.
 
 
-our $dbg_nb = 2;
+our $dbg_nb = 1;
 
 
 sub new
@@ -289,8 +289,8 @@ sub onChildFocus
 	my ($this,$event) = @_;
 	my $sel = $this->GetSelection();
 	my $pane = $this->GetPage($sel);
-	# display($dbg_nb+5,6,"Pub::WX::Notebook::onChildFocus($pane)");
-	$this->{app_frame}->setCurrentPane($pane);
+	display($dbg_nb,0,"Pub::WX::Notebook::onChildFocus("._def($pane).") getPageCount=".$this->GetPageCount());;
+	$this->{app_frame}->setCurrentPane($pane) if $pane;
 	$event->Skip();
 }
 
@@ -324,9 +324,6 @@ sub onAuiPageClose
 
 
 sub closeBookPageIDX
-	# returns 0 to abaandon the change
-	# returns 1 if the page was closed ok
-	# returns -1 if future closes should be "forced"
 {
     my ($this,$page,$idx) = @_;
     display($dbg_nb,1,"$this closeBookPageIDX($page->{label},$idx) isfloat=$this->{is_floating}");
@@ -334,10 +331,13 @@ sub closeBookPageIDX
 	display($dbg_nb,2,"getPageCount=".$this->GetPageCount());
 	$page->Close();
 	$this->{app_frame}->removePane($page);
-	if (($this->GetPageCount() == 1) && ($idx == 0) && $this->{is_floating})
+    $this->DeletePage($idx);
+	display($dbg_nb,2,"after DeletePage() getPageCount=".$this->GetPageCount());
+	if ($this->{is_floating} && !$this->GetPageCount())
 	{
 		$this->closeSelf($this);
 	}
+    display($dbg_nb,1,"$this closeBookPageIDX($page) finishing");
 }
 
 
@@ -347,7 +347,8 @@ sub closeBookPage
 	display($dbg_nb,0,"$this closeBookPage($page)");
     my $idx = $this->GetPageIndex($page);
     $this->closeBookPageIDX($page,$idx);
-    $this->DeletePage($idx);
+	display($dbg_nb,0,"$this closeBookPage($page) finished");
+
 }
 
 

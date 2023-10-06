@@ -8,9 +8,10 @@ use warnings;
 use threads;
 use threads::shared;
 use Pub::Utils;
+use Pub::WX::Dialogs;
 
 
-my $dbg_prefs = -1;
+my $dbg_prefs = 0;
 
 our $prefs_filename;
 
@@ -44,7 +45,7 @@ BEGIN
 
 
 
-my $PREFS_MUTEX_NAME:shared = ''; # 'fileClientPrefsMutex';
+my $PREFS_MUTEX_NAME =  'fileClientPrefsMutex';
 	# set to '' to turn feature off
 my $PREFS_SEM;
 
@@ -81,7 +82,18 @@ my @param_fields = qw(
 sub waitPrefs
 {
 	return if !$PREFS_MUTEX_NAME;
-	return $PREFS_SEM->wait();  # undef == forever
+	my $rslt = $PREFS_SEM->wait(1000);
+	display($dbg_prefs,0,"waitPrefs()=$rslt");
+	if (!$rslt)
+	{
+		my $continue = yesNoDialog(undef,
+			"Another process has opened $prefs_filename.\n".
+			"Do you wish to continue waiting (indefinitely)??\n\n".
+			"Pressing 'No' will abandon this process.",
+			"$prefs_filename locked");
+		$rslt = $PREFS_SEM->wait() if $continue;
+	}
+	return $rslt;
 }
 
 
@@ -95,9 +107,16 @@ sub releasePrefs
 sub startPrefSemaphore
 {
 	return if !$PREFS_MUTEX_NAME;
-	$PREFS_SEM = Win32::Mutex->open($PREFS_MUTEX_NAME);
-	$PREFS_SEM ||= Win32::Mutex->new(0,$PREFS_MUTEX_NAME);
-	error("Could not OPEN or CREATE $PREFS_MUTEX_NAME SEMAPHORE") if !$PREFS_SEM;
+
+	$PREFS_SEM = Win32::Mutex->new(0,$PREFS_MUTEX_NAME);
+	if ($PREFS_SEM)
+	{
+		display($dbg_prefs,0,"MUTEX ".($^E?"OPENED":"CREATED"));
+	}
+	else
+	{
+		error("Could not OPEN or CREATE $PREFS_MUTEX_NAME SEMAPHORE");
+	}
 }
 
 
@@ -187,7 +206,7 @@ sub argError
 	my ($msg) = @_;
 	error($msg);
 	releasePrefs();
-	return '';
+	return 0;
 }
 
 
@@ -199,7 +218,7 @@ sub argOK
 		$$psession_num++;
 		display($dbg_prefs,0,"ADVANCE PANE_NUM($$psession_num)");
 	}
-	return argError("too many session parameters")
+	return argError("Too many command line parameters '$lval'")
 		if $$psession_num > 1;
 	$got_arg->{$lval} = 1;
 	$connection->{sessions}->[$$psession_num]->{$what} = $rval;
@@ -209,10 +228,12 @@ sub argOK
 
 
 sub parseCommandLine
-	# returns '' or a connection
+	# returns undef if could not waitPrefs()
+	# returns 0 if there's no command line, or an error was reported
+	# returns a $connection on success.
 {
-	return '' if !@ARGV;
-	waitPrefs();
+	return 0 if !@ARGV;
+	return undef if !waitPrefs();
 
 	my $retval = defaultConnection();
 
@@ -236,7 +257,7 @@ sub parseCommandLine
 			if ($rval ne 'local')
 			{
 				$retval = getPrefConnection($rval);
-				return if !$retval;
+				return 0 if !$retval;
 			}
 		}
 		elsif ($lval eq '-cid')
@@ -286,13 +307,16 @@ sub parseCommandLine
 # use Data::Dumper;
 
 sub initPrefs()
+	# returns 0 if could not waitPrefs()
+	# returns 1 otherwise
 {
 	my ($multi_process) = @_;
 
 	display($dbg_prefs,0,"init_prefs()");
 
-	return if !$prefs_filename;
-	waitPrefs();
+	return 1 if !$prefs_filename;
+	startPrefSemaphore();
+	return 0 if !waitPrefs();
 
 	my $text = getTextFile($prefs_filename);
 	if ($text)
@@ -351,15 +375,19 @@ sub initPrefs()
 	# writePrefs();
 
 	releasePrefs();
+	return 1;
 }
 
 
 
 sub writePrefs
+	# returns undef if could not waitPrefs()
+	# returns 0 if it could not write the prefs file
+	# reeturns 1 on success.
 {
 	display($dbg_prefs,0,"write_prefs()");
 
-	waitPrefs();
+	return undef if !waitPrefs();
 	my $text = '';
 	for my $key (@header_fields)
 	{
@@ -386,10 +414,13 @@ sub writePrefs
 
 	if (!printVarToFile(1,$prefs_filename,$text))
 	{
-		warning($dbg_prefs,-1,"Could not write to $prefs_filename");
+		releasePrefs();
+		error("Could not write to $prefs_filename");
+		return 0;
 	}
-
 	releasePrefs();
+	return 1;
+
 }
 
 

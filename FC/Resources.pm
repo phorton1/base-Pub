@@ -17,8 +17,7 @@ use Pub::WX::Resources;
 BEGIN
 {
  	use Exporter qw( import );
-	our @EXPORT = qw (
-        $resources
+	our @EXPORT = ( qw(
 
 		$COMMAND_CONNECT
 		$ID_CLIENT_WINDOW
@@ -30,8 +29,10 @@ BEGIN
         $COMMAND_MKDIR
         $COMMAND_RECONNECT
         $COMMAND_DISCONNECT
-    );
+	),
+	@Pub::WX::Resources::EXPORT );
 }
+
 
 # derived class decides if wants viewNotebook
 # commands added to the view menu, by setting

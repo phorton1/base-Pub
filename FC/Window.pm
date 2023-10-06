@@ -18,8 +18,7 @@ use threads;
 use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(
-	EVT_SIZE
-	EVT_CLOSE );
+	EVT_SIZE );
 use Pub::Utils;
 use Pub::WX::Window;
 use Pub::FS::ClientSession;		# for $DEFAULT_PORT
@@ -145,7 +144,8 @@ sub new
 
     # Finished
 
-	EVT_CLOSE($this,\&onClose);
+	# EVT_CLOSE is already registered by Pub::WX::Window
+	# EVT_CLOSE($this,\&onClose);
     EVT_SIZE($this,\&onSize);
 	return $this;
 }
@@ -166,19 +166,16 @@ sub populate
 sub onClose
 {
 	my ($this,$event) = @_;
-	display($dbg_fcw,-1,"FC::Window::onClose(".scalar(@{$this->{frame}->{panes}}).") called");
-	$this->{pane1}->onClose($event);
-	$this->{pane2}->onClose($event);
-	if ($this->{connection}->{connection_id} eq 'buddy' &&
-		@{$this->{frame}->{panes}} == 0)
-	{
-		# no warnings 'threads';
-			# tries to eliminate Perl exited with XXX threads running
-			# if we don't use detach in ThreadedSession.pm
-		display($dbg_fcw,-1,"Exiting fileClient(buddy) as last window");
-		exit(0);
-	}
-	$this->SUPER::onClose();
+	display($dbg_fcw,0,"FC::Window::onClose() called");
+
+	# The sub-windows do not receive the EVT_CLOSE,
+	# even if they register for it, so we have to
+	# call doClose explicitly
+
+	$this->{pane1}->doClose($event);
+	$this->{pane2}->doClose($event);
+
+	$this->SUPER::onClose($event);
 	$event->Skip();
 }
 
