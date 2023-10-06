@@ -23,7 +23,6 @@ use Pub::Utils;
 use Pub::FS::FileInfo;
 use Pub::FS::Session;		# for $PROTOCOL_XXX
 use Pub::FC::Pane;			# for $THREAD_EVENT
-use Pub::FC::Prefs;			# for $started_by_buddy
 
 
 my $dbg_thread = 0;
@@ -32,8 +31,10 @@ my $dbg_thread = 0;
 	# -2 = onThreadEvent details
 my $dbg_idle = 0;
 
+# PRH - there IS a problem with using threads, sigh, getting leaks, etc
+# PRH - there is a big problem with copy recursive into same folder
 
-my $USE_FORKING = 0;
+my $USE_FORKING = 1;
 	# Forking and threading now both work 'oK' with CONSOLE output,
 	# no thread warnings, etc, after I commented line out of
 	# Win32::Console.pm
@@ -387,6 +388,7 @@ sub onIdle
 		$this->{session})
 	{
 		my $session = $this->{session};
+		my $is_buddy_win = $this->{parent}->{connection}->{connection_id} eq 'buddy';
 
 		my $do_exit = 0;
 		if ($session->{SOCK})
@@ -406,7 +408,7 @@ sub onIdle
 					# until a possible pref exists,
 					# only buddy automatically exits the pane on a lost socket
 
-					$this->{GOT_EXIT} = 1 if $started_by_buddy;
+					$this->{GOT_EXIT} = 1 if $is_buddy_win;
 				}
 				elsif ($packet =~ /^($PROTOCOL_ENABLE|$PROTOCOL_DISABLE)(.*)$/)
 				{
@@ -417,6 +419,7 @@ sub onIdle
 						$msg,
 						$color_blue);
 				}
+				$event->RequestMore(1);
 			}
 		}
 
@@ -426,7 +429,7 @@ sub onIdle
 			$this->{has_socket} = 0;
 			$this->{connected} = 0;
 			$this->setEnabled(0,"No Connection!!",$color_red);
-			$do_exit = $started_by_buddy
+			$do_exit = $is_buddy_win;
 		}
 
 		if ($do_exit)
@@ -451,10 +454,9 @@ sub onIdle
 					# no error checking on result
 					# 1 == $override_protocol to allow sending
 					# another packet while INSTANCE->{in_protocol}
+				$event->RequestMore(1);
 			}
 		}
-
-		$event->RequestMore(1);
 	}
 }
 

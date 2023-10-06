@@ -217,7 +217,7 @@ that allow double click to be synonymous with "Load-Connect"
 Has buttons for Loading/Saving the Connection.
 Has buttons for Loading/Saving each Session individually.
 
-
+                                                [ Cancel ]
 	Connection [ untitled ]                     [ Connect ]
 		AutoStart   [x]                         [ Save ]
 		Start Dir1  [                   ]

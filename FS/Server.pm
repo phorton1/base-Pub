@@ -116,7 +116,7 @@ sub stop
     while ($this->{running} && time() < $time + $TIMEOUT)
     {
         display($dbg_server,0,"waiting for FS::Server on port($this->{PORT}) to stop");
-        sleep(1);
+        sleep(0.2);
     }
     if ($this->{running})
     {

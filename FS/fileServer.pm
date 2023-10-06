@@ -36,7 +36,7 @@ my $file_server = Pub::FC::fileServer->new();
 
 while (1)
 {
-	sleep(10);
+	sleep(1);
 }
 
 

@@ -25,6 +25,8 @@ use base qw(Pub::FS::SocketSession);
 
 our $dbg_connect = 0;
 
+my $CONNECT_TIMEOUT = 2;
+
 
 BEGIN {
     use Exporter qw( import );
@@ -92,7 +94,7 @@ sub connect
 		PeerAddr => "$host:$port",
         PeerPort => "http($port)",
         Proto    => 'tcp',
-		Timeout  => $DEFAULT_TIMEOUT );
+		Timeout  => $CONNECT_TIMEOUT );  # $DEFAULT_TIMEOUT );
 
     if (!$this->{SOCK})
     {

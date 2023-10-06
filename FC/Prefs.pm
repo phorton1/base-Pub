@@ -10,35 +10,38 @@ use threads::shared;
 use Pub::Utils;
 
 
-my $dbg_prefs = 0;
+my $dbg_prefs = -1;
 
 our $prefs_filename;
-our $started_by_buddy = 0;
 
 
 BEGIN
 {
  	use Exporter qw( import );
-	our @EXPORT = qw(
+	our @EXPORT = (
 
-		$started_by_buddy
+		'$prefs_filename',		# set at top of fileClient.pm
+		'getPref',				# returns a unary preference with no checking
 
-		$prefs_filename
+		'initPrefs',			# called near top of fileClient.pm AppFrame::onInit()
 
-		initPrefs
-		getPref
-		parseCommandLine
-		getConnections
+		'parseCommandLine',
+			# called from fileClient.pm AppFrame::onInit()
+			# internally calls waitPrefs() and releasePrefs()
+			# parses command line and returns populated Connection
+			# 	if such is specified on command line
 
-		setSessionServerId
+		'waitPrefs',			# called before connection loop in fileClient.pm and at top of ConnectionDialog and PrefsDialog
+		'getPrefs',				# called for connection loop and by ConnectionDialog and PrefsDialog
+		'releasePrefs',			# called after connection loop in fileClient.pm and at bottom of ConnectionDialog and PrefsDialog
+		'writePrefs',			# called by PrefsDialog or ConnectionDialog if prefs changed
 
-		waitPrefs
-		releasePrefs
-		getPrefs
-		writePrefs
-
+		'getEffectiveDir',		# resolves the dir for Connecton Params
+		'getPrefConnection',	# returns a non-shared copy of Connection by ID
+		'defaultConnection',	# returns empty Connection
     );
 };
+
 
 
 my $PREFS_MUTEX_NAME:shared = ''; # 'fileClientPrefsMutex';
@@ -52,9 +55,7 @@ my $prefs:shared = shared_clone({
 	default_local_dir 	=> "/",
 	default_remote_dir 	=> "/",
 	connections		 	=> shared_clone([]),
-	sessions 			=> shared_clone([]),
 	connectionById 		=> shared_clone({}),
-	sessionById 		=> shared_clone({}),
 });
 
 
@@ -65,27 +66,12 @@ my @header_fields = qw(
 
 my @connection_fields = qw(
 	connection_id
-	auto_start
-	session1
-	dir1
-	session2
-	dir2 );
+	auto_start );
 
-my @session_fields = qw(
-	session_id
+my @param_fields = qw(
 	dir
 	port
-	host
-	last_SERVER_ID );
-
-
-
-sub getPref
-	# should only be used for unary prefs
-{
-	my ($id) = @_;
-	return shared_clone($prefs->{$id});
-}
+	host );
 
 
 #----------------------------------------------------
@@ -109,10 +95,86 @@ sub releasePrefs
 sub startPrefSemaphore
 {
 	return if !$PREFS_MUTEX_NAME;
-	$PREFS_SEM = Win32::Mutex->new(0,$PREFS_MUTEX_NAME);
-	error("Could not CREATE $PREFS_MUTEX_NAME SEMAPHORE") if !$PREFS_SEM;
+	$PREFS_SEM = Win32::Mutex->open($PREFS_MUTEX_NAME);
+	$PREFS_SEM ||= Win32::Mutex->new(0,$PREFS_MUTEX_NAME);
+	error("Could not OPEN or CREATE $PREFS_MUTEX_NAME SEMAPHORE") if !$PREFS_SEM;
 }
 
+
+#----------------------------------------------------
+# Client API
+#----------------------------------------------------
+
+
+sub getPrefs
+{
+	return $prefs;
+}
+
+
+sub getPref
+	# should only be used for unary prefs
+{
+	my ($id) = @_;
+	return $prefs->{$id};
+}
+
+
+sub getEffectiveDir
+{
+	my ($params) = @_;
+	my $dir = $params->{dir};
+	$dir ||= $params->{port} ?
+		$prefs->{default_remote_dir} :
+		$prefs->{default_local_dir};
+	$dir ||= '/';
+	return $dir;
+}
+
+
+sub defaultParams
+{
+	my $retval = {
+		dir => '',
+		host => '',
+		port => '' };
+	return $retval;
+}
+
+
+sub defaultConnection
+{
+	my $retval = {
+		connection_id => '',
+		auto_start => 0,
+		params => [
+			defaultParams(),
+			defaultParams() ] };
+	return $retval;
+}
+
+
+
+
+sub getPrefConnection
+{
+	my ($connection_id) = @_;
+	my $retval = defaultConnection();
+	if ($connection_id)
+	{
+		my $connection = $prefs->{connectionById}->{$connection_id};
+		if (!$connection)
+		{
+			error("Could not find Connection($connection)");
+			return '';
+		}
+		$retval->{connection_id} = $connection->{connection_id};
+		$retval->{auto_start} = $connection->{auto_start};
+		mergeHash($retval->{params}->[0],$connection->{params}->[0]);
+		mergeHash($retval->{params}->[1],$connection->{params}->[1]);
+	}
+	return $retval;
+}
 
 
 
@@ -131,68 +193,17 @@ sub argError
 
 sub argOK
 {
-	my ($connection,$what,$ppane_num,$got_arg,$lval,$rval) = @_;
+	my ($connection,$what,$psession_num,$got_arg,$lval,$rval) = @_;
 	if ($got_arg->{$lval})
 	{
-		$$ppane_num++;
-		display($dbg_prefs,0,"ADVANCE PANE_NUM($$ppane_num)");
+		$$psession_num++;
+		display($dbg_prefs,0,"ADVANCE PANE_NUM($$psession_num)");
 	}
-	$got_arg->{$lval} = 1;
 	return argError("too many session parameters")
-		if $$ppane_num > 1;
-	$connection->{panes}->[$$ppane_num]->{$what} = $rval;
-	return $connection->{panes}->[$$ppane_num];
-}
-
-
-sub getSession
-{
-	my ($pane_num,$session_id) = @_;
-	my $retval = {
-		pane_num => $pane_num,
-		session_id => $session_id,
-		host => '',
-		port => '',
-		dir  => '' };
-	return $retval if $session_id eq 'local';
-	my $session = $prefs->{sessionById}->{$session_id};
-	return argError("Could not find session $session_id")
-		if !$session;
-	mergeHash($retval,$session);
-	return $retval;
-}
-
-
-sub fixSession
-{
-	my ($session,$dir) = @_;
-	$session->{dir} =
-		$dir ? $dir :
-		$session->{dir} ? $session->{dir} :
-		$session->{port} ?
-			$prefs->{default_remote_dir} :
-			$prefs->{default_local_dir};
-}
-
-
-sub createDefaultConnection
-{
-	my ($resolved) = @_;
-
-	my $retval = {
-		connection_id => 'untitled',
-		dir1 => '',
-		dir2 => '',
-		panes => [
-			getSession(1,'local'),
-			getSession(2,'local') ]};
-
-	if ($resolved)
-	{
-		fixSession($retval->{panes}->[0],$retval->{dir1});
-		fixSession($retval->{panes}->[1],$retval->{dir2});
-	}
-	return $retval;
+		if $$psession_num > 1;
+	$got_arg->{$lval} = 1;
+	$connection->{sessions}->[$$psession_num]->{$what} = $rval;
+	return $connection->{sessions}->[$$psession_num];
 }
 
 
@@ -203,11 +214,11 @@ sub parseCommandLine
 	return '' if !@ARGV;
 	waitPrefs();
 
-	my $retval = createDefaultConnection();
+	my $retval = defaultConnection();
 
 	my $i = 0;
 	my %got_arg;
-	my $pane_num = 0;
+	my $session_num = 0;
 	while ($i<@ARGV)
 	{
 		my $lval = $ARGV[$i++];
@@ -217,45 +228,20 @@ sub parseCommandLine
 
 		if ($lval eq '-buddy')
 		{
-			$started_by_buddy = 1;
-			$retval->{panes}->[1]->{port} = $rval;
-			$retval->{panes}->[1]->{session_id} = 'buddy';
-			# last?
+			$retval->{connection_id} = 'buddy';
+			$retval->{params}->[1]->{port} = $rval
 		}
 		elsif ($lval eq '-c')
 		{
-			# create unshared copy of the connection
-
-			my $connection = $prefs->{connectionById}->{$rval};
-			return argError("Could not find connection($rval)")
-				if !$connection;
-			$retval = {};
-			mergeHash($retval,$connection);
-			$retval->{panes} = [];
-			$retval->{panes}->[0] = getSession(1,$retval->{session1});
-			return if !$retval->{panes}->[0];
-			$retval->{panes}->[1] = getSession(2,$retval->{session2});
-			return if !$retval->{panes}->[1];
+			if ($rval ne 'local')
+			{
+				$retval = getPrefConnection($rval);
+				return if !$retval;
+			}
 		}
 		elsif ($lval eq '-cid')
 		{
 			$retval->{connection_id} = $rval;
-		}
-		elsif ($lval eq '-s')
-		{
-			$pane_num++ if keys %got_arg;
-			return argError("too many session parametrs")
-				if $pane_num > 1;
-
-			$retval->{panes}->[$pane_num] = getSession(1,$rval);
-			return if !$retval->{panes}->[$pane_num];
-			$got_arg{$lval} = 1;
-			$got_arg{'-sid'} = 1;
-		}
-		elsif ($lval eq '-sid')
-		{
-			return if !argOK($retval,'session_id',\$pane_num,\%got_arg,$lval,$rval);
-			$got_arg{'-s'} = 1;
 		}
 		elsif ($lval eq '-d')
 		{
@@ -264,11 +250,11 @@ sub parseCommandLine
 				warning($dbg_prefs,0,"fixing relative dir '$rval'");
 				$rval = '/'.$rval;
 			}
-			return if !argOK($retval,'dir',\$pane_num,\%got_arg,$lval,$rval);
+			return if !argOK($retval,'dir',\$session_num,\%got_arg,$lval,$rval);
 		}
 		elsif ($lval eq '-h')
 		{
-			my $session = argOK($retval,'host',\$pane_num,\%got_arg,$lval,$rval);
+			my $session = argOK($retval,'host',\$session_num,\%got_arg,$lval,$rval);
 			return if !$session;
 
 			if ($session->{host} =~ s/:(.*)$//)
@@ -279,10 +265,7 @@ sub parseCommandLine
 		}
 		elsif ($lval eq '-p')
 		{
-			return if !argOK($retval,'port',\$pane_num,\%got_arg,$lval,$rval);
-		}
-		elsif ($lval eq '-M')
-		{
+			return if !argOK($retval,'port',\$session_num,\%got_arg,$lval,$rval);
 		}
 		else
 		{
@@ -291,92 +274,9 @@ sub parseCommandLine
 
 	}
 
-	fixSession($retval->{panes}->[0],$retval->{dir1});
-	fixSession($retval->{panes}->[1],$retval->{dir2});
-
 	releasePrefs();
 	return $retval;
 }
-
-
-
-
-#-----------------------------------------------------
-# Accessors
-#-----------------------------------------------------
-
-
-sub resolveSession
-{
-	my ($pane_num,$session_id,$dir) = @_;
-	display($dbg_prefs,0,"resolveSession($session_id,$dir)");
-	my $retval ={
-		pane_num => $pane_num,
-		session_id => $session_id,
-		port => '',
-		host => '' };
-	if ($session_id eq 'local')
-	{
-		$retval->{dir} = $dir ?	$dir :
-			$prefs->{default_local_dir};
-	}
-	else
-	{
-		my $session = $prefs->{sessionById}->{$session_id};
-		if (!$session)
-		{
-			error("Could not find session $session_id");
-			return '';
-		}
-		mergeHash($retval,$session);
-		$retval->{dir} =
-			$dir ? $dir :
-			$retval->{dir} ? $retval->{dir} :
-			$retval->{port} ?
-				$prefs->{default_remote_dir} :
-				$prefs->{default_local_dir};
-	}
-	return $retval;
-}
-
-
-sub resolveConnection
-{
-	my ($connection) = @_;
-	my $retval = {
-		auto_start => $connection->{auto_start},
-		connection_id => $connection->{connection_id},
-		panes => [] };
-	display($dbg_prefs,0,"resolveConnection($connection->{connection_id})");
-	my $val = resolveSession(1,$connection->{session1},$connection->{dir1});
-	return '' if !$retval;
-	push @{$retval->{panes}},$val;
-	$val = resolveSession(2,$connection->{session2},$connection->{dir2});
-	return '' if !$retval;
-	push @{$retval->{panes}},$val;
-	return $retval;
-}
-
-
-
-sub getConnections
-	# returns a list of resolved connections for the
-	# Connection dialog box
-{
-	waitPrefs();
-	my $retval = [];							# doesn't need to be shared
-	my $connections = $prefs->{connections};
-	for my $connection (@$connections)
-	{
-		push @$retval,resolveConnection($connection);
-	}
-	releasePrefs();
-	return $retval;
-}
-
-
-
-
 
 
 #-----------------------------------------------------
@@ -386,21 +286,6 @@ sub getConnections
 # use Data::Dumper;
 
 sub initPrefs()
-	# if init_prefs(multi_process=1) a thread will be started
-	# which can be paused via a lock on the %prefs variable
-	# and/or via a Mutex between processes.
-	#
-	# The thread will check if the DT of the prefs have changed,
-	# and read the modified prefs into memory if they have.
-	#
-	# The thread will be locked out and the Mutex gotten while
-	# in the Preferences dialog, ensuring that only one process
-	# at a time can change the Preferences. When done, the dialog
-	# will possibly write the preferences than unlock %prefs
-	# and give up the Mutex.
-	#
-	# Similar protection will wrap the call to setSessionServerId()
-	# as it writes the preferences as well.
 {
 	my ($multi_process) = @_;
 
@@ -413,46 +298,43 @@ sub initPrefs()
 	if ($text)
 	{
 		$prefs = shared_clone({
-			connectionById => shared_clone({}),
-			sessionById => shared_clone({}) });
+			connections => shared_clone([]),
+			connectionById => shared_clone({}) });
 
-		my $array;
-		my $by_id;
-		my $id_field = '';;
+		my $connection;
+		my $param_num = 0;
 		my $thing = $prefs;
 		my @lines = split(/\n/,$text);
 		for my $line (@lines)
 		{
 			$line =~ s/^\s+|\s$//g;
-			if ($line =~ /^(connections|sessions)$/)
+			if ($line =~ /^connection$/)
 			{
-				my $name = $1;
-				display($dbg_prefs+1,1,"$name");
-				$array = shared_clone([]);
-				$prefs->{$name} = $array;
-
+				display($dbg_prefs+1,1,"connection");
+				$connection = shared_clone({
+					params => shared_clone([
+						shared_clone({}),
+						shared_clone({})  ]) });
+				push @{$prefs->{connections}},$connection;
+				$thing = $connection;
+				$param_num = 0;
 			}
-			elsif ($line =~ /^(connection|session)$/)
+			elsif ($line =~ /^params$/)
 			{
-				my $name = $1;
-				$id_field = $name."_id";
-				$by_id = $prefs->{$name."ById"};
-				display($dbg_prefs+1,2,"$name id_field=$id_field");
-				$thing = shared_clone({});
-				push @$array,$thing;
+				display($dbg_prefs+1,2,"params($param_num)");
+				$thing = $connection->{params}->[$param_num++];
 			}
 			elsif ($line =~ /^(.+?)\s*=\s*(.*)$/)
 			{
 				my ($lvalue,$rvalue) = ($1,$2);
-
 				display($dbg_prefs+1,3,"$lvalue <= $rvalue");
 
 				$rvalue ||= '';
 				$thing->{$lvalue} = $rvalue;
-				if ($lvalue eq $id_field)
+				if ($lvalue eq 'connection_id')
 				{
-					display($dbg_prefs+1,4,"byId($id_field} $thing->{$id_field}");
-					$by_id->{$rvalue} = $thing ;
+					display($dbg_prefs+1,4,"connectionById($rvalue)");
+					$prefs->{connectionById}->{$rvalue} = $connection;
 				}
 			}
 		}
@@ -484,23 +366,21 @@ sub writePrefs
 		$text .= "$key = $prefs->{$key}\n";
 	}
 
-	$text .= "connections\n";
 	for my $connection (@{$prefs->{connections}})
 	{
-		$text .= "    connection\n";
+		$text .= "connection\n";
 		for my $key (@connection_fields)
 		{
-			$text .= "        $key = $connection->{$key}\n";
+			$text .= "    $key = $connection->{$key}\n";
 		}
-	}
-
-	$text .= "sessions\n";
-	for my $session (@{$prefs->{sessions}})
-	{
-		$text .= "    session\n";
-		for my $key (@session_fields)
+		for my $param_num (0..1)
 		{
-			$text .= "        $key = $session->{$key}\n";
+			$text .= "    params\n";
+			my $params = $connection->{params}->[$param_num];
+			for my $key (@param_fields)
+			{
+				$text .= "        $key = $params->{$key}\n";
+			}
 		}
 	}
 

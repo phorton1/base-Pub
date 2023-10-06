@@ -23,10 +23,11 @@ use Wx::Event qw(
 use Pub::Utils;
 use Pub::WX::Window;
 use Pub::FS::ClientSession;		# for $DEFAULT_PORT
-use Pub::FC::Resources;
 use Pub::FC::Pane;
-use Pub::FC::PaneCommand;
+use Pub::FC::Prefs;
+use Pub::FC::Resources;
 use Pub::FC::PaneThread;
+use Pub::FC::PaneCommand;
 use base qw(Wx::Window Pub::WX::Window);
 
 
@@ -75,7 +76,7 @@ sub getBestPaneName
 }
 
 
-sub getConnection
+sub getWinConnection
 {
 	my ($this) = @_;
 	return $this->{connection};
@@ -113,15 +114,16 @@ sub new
 	my $ctrl2 = Wx::StaticText->new($this,-1,'',[$INITIAL_SPLITTER + 10,5]);
 	$ctrl2->SetFont($title_font);
 
-	my $params1 = $connection->{panes}->[0];
-	my $params2 = $connection->{panes}->[1];
-
-	$params1->{enabled_ctrl} = $ctrl1;
-	$params2->{enabled_ctrl} = $ctrl2;
+	my $params0 = $connection->{params}->[0];
+	my $params1 = $connection->{params}->[1];
+	$params0->{pane_num} = 0;
+	$params1->{pane_num} = 1;
+	$params0->{enabled_ctrl} = $ctrl1;
+	$params1->{enabled_ctrl} = $ctrl2;
 
     $this->{splitter} = Wx::SplitterWindow->new($this, -1, [0, $PAGE_TOP]); # ,[400,400], wxSP_3D);
-    my $pane1 = $this->{pane1} = Pub::FC::Pane->new($this,$this->{splitter},$params1);
-    my $pane2 = $this->{pane2} = Pub::FC::Pane->new($this,$this->{splitter},$params2);
+    my $pane1 = $this->{pane1} = Pub::FC::Pane->new($this,$this->{splitter},$params0);
+    my $pane2 = $this->{pane2} = Pub::FC::Pane->new($this,$this->{splitter},$params1);
 
 	if (!$pane1 || !$pane2)
 	{
@@ -167,12 +169,13 @@ sub onClose
 	display($dbg_fcw,-1,"FC::Window::onClose(".scalar(@{$this->{frame}->{panes}}).") called");
 	$this->{pane1}->onClose($event);
 	$this->{pane2}->onClose($event);
-	if (@{$this->{frame}->{panes}} == 0)
+	if ($this->{connection}->{connection_id} eq 'buddy' &&
+		@{$this->{frame}->{panes}} == 0)
 	{
-		no warnings 'threads';
+		# no warnings 'threads';
 			# tries to eliminate Perl exited with XXX threads running
 			# if we don't use detach in ThreadedSession.pm
-		display($dbg_fcw,-1,"Exiting Program as last window");
+		display($dbg_fcw,-1,"Exiting fileClient(buddy) as last window");
 		exit(0);
 	}
 	$this->SUPER::onClose();

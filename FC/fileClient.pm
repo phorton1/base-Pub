@@ -15,6 +15,7 @@ use Pub::WX::Frame;
 use Pub::FC::Resources;
 use Pub::FC::Window;
 use Pub::FC::Prefs;
+use Pub::FC::ConnectDialog;
 use base qw(Pub::WX::Frame);
 
 
@@ -70,14 +71,18 @@ sub onInit
 	}
 	else
 	{
-		my $connections = getConnections();
-		if ($connections)
+		my @start_connections;
+		waitPrefs();
+		for my $shared_connection (@{getPrefs()->{connections}})
 		{
-			for my $connection (@$connections)
-			{
-				$this->createPane($ID_CLIENT_WINDOW,undef,$connection)
-					if $connection->{auto_start};
-			}
+			push @start_connections,getPrefConnection(
+				$shared_connection->{connection_id})
+				if $shared_connection->{auto_start};
+		}
+		releasePrefs();
+		for my $connection (@start_connections)
+		{
+			$this->createPane($ID_CLIENT_WINDOW,undef,$connection);
 		}
 	}
 
@@ -107,10 +112,7 @@ sub createPane
 sub commandConnect
 {
 	my ($this,$event) = @_;
-	my $pane = getAppFrame()->getCurrentPane();
-	my $connection = $pane ? $pane->getConnection() :
-		Pub::FC::Prefs::createDefaultConnection(1);
-	$this->createPane($ID_CLIENT_WINDOW,undef,$connection,'')
+	Pub::FC::ConnectDialog->connect();
 }
 
 

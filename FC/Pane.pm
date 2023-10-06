@@ -33,6 +33,7 @@ use Pub::WX::Dialogs;
 use Pub::FS::FileInfo;
 use Pub::FS::ClientSession;
 use Pub::FC::Resources;
+use Pub::FC::Prefs;
 use base qw(Wx::Window);
 
 
@@ -127,10 +128,12 @@ sub new
 	#------------------
 
     $this->{parent}  	  = $parent;
-    $this->{dir}     	  = $params->{dir};
 	$this->{pane_num}	  = $params->{pane_num};
 	$this->{port}	 	  = $params->{port};
+	$this->{host}		  = $params->{host};
 	$this->{enabled_ctrl} = $params->{enabled_ctrl};
+
+    $this->{dir} = getEffectiveDir($params);
 
 	$this->{enabled}   = 0;
 	$this->{got_list}  = 0;
@@ -165,16 +168,13 @@ sub new
 	# Create the {session}
 	#---------------------------
 
-	if ($params->{port})
+	if ($this->{port})
 	{
 		# ctor tries to connect and returns !SOCK
 
 		$this->{session} = Pub::FS::ClientSession->new({
-			pane => $this,
-			HOST => $params->{host},
 			PORT => $params->{port},
-			session_id => $params->{session_id} });
-
+			HOST => $params->{host} });
 		$this->{connected} = $this->{session}->isConnected();
 		$this->{has_socket} = $this->{connected};
 		$this->{enabled} = -1;	 # to force setEnabled to show the message
@@ -182,8 +182,7 @@ sub new
 	}
 	else
 	{
-		$this->{session} = Pub::FS::Session->new({
-			session_id => $params->{session_id} });
+		$this->{session} = Pub::FS::Session->new();
 			# cannot fail
 		$this->{connected} = 1;
 		$this->setEnabled(1);
@@ -235,6 +234,19 @@ sub new
 #      implies ==> !enabled.  It is explicitly set
 #      to enable the
 
+sub getThisConnectionName
+{
+	my ($this) = @_;
+	my $name =
+		$this->{host} ? $this->{host}.
+			($this->{port}?":$this->{port}":'') :
+		$this->{port} ?
+			"port($this->{port})" :
+		"local";
+	return $name;
+}
+
+
 sub setEnabled
 	# 0 = requires and uses all params
 	# 1 = forces color=black and msg=session->{SERVER_ID}
@@ -242,13 +254,11 @@ sub setEnabled
 	my ($this,$enable,$msg,$color) = @_;
 
 	$color = $color_black if $enable;
-
+	my $name = $this->getThisConnectionName();
 	my $server_id = $this->{session}->{SERVER_ID} || '';
-	my $session_id = $this->{session}->{session_id} || '';
-	$session_id .= ": " if $session_id;
 
 	$msg = $server_id if $enable;
-	$msg = $session_id.$msg;
+	$msg = $name." ".$msg;
 
 	display($dbg_life,0,sprintf("Pane$this->{pane_num} setEnabled($enable,$msg,0x%08x) enabled=$this->{enabled}",$color));
 	if ($this->{enabled} != $enable)
@@ -338,7 +348,7 @@ sub doLayout
     my $width = $sz->GetWidth();
     my $height = $sz->GetHeight();
     $this->{list_ctrl}->SetSize([$width,$height-$PANE_TOP]);
-	if ($this->{pane_num} == 2)
+	if ($this->{pane_num})
 	{
 		my $sash_pos = $this->{parent}->{splitter}->GetSashPosition();
 		$this->{enabled_ctrl}->Move($sash_pos+10,5);
@@ -735,6 +745,7 @@ sub setContents
 {
     my ($this,$dir_info,$from_other) = @_;
 	return if !$this->{connected};
+
 	$dir_info ||= '';
 	$from_other ||= 0;
 
@@ -783,14 +794,17 @@ sub setContents
 	{
 		$this->{list_ctrl}->DeleteAllItems();
 		my $ctrl = $this->{enabled_ctrl};
-		$ctrl->SetLabel("Could not get directory listing");
+		$ctrl->SetLabel($this->getThisConnectionName().
+			" could not get directory listing");
 		$ctrl->SetForegroundColour($color_red);
+		$this->{no_directory} = 1;
 	}
 
 	# else, got a directory listing
 
 	else
 	{
+		$this->{no_directory} = 0;
 		$this->{enabled} = 0;	# force redraw
 		$this->setEnabled(1);
 		$this->{got_list} = 1;
@@ -812,17 +826,40 @@ sub setContents
     $this->{last_desc}   = 0;
     $this->{changed} = 1;
 
+	# This is bogus and going away anyways
 	# if the other pane has the same connection as us
-	# update it with our dir_info.
+	# update it with our dir_info if $is_valid or
+	# sameService.  Added {no_directory} member
+	# for quick fix to bug where if this is temporarily
+	# disconnected, the other may call setContents() on us,
+	# cuz it has valid data, and thus overwrite our temporary
+	# 'disabled' state with its dircectory, even though one's
+	# on a server and one's not.
 
 	my $other = $this->{other_pane};
+	my $same_service = $other ?
+		sameService($this->{session},$other->{session}) : 0;
+
 	$other->setContents($dir_info,1) if
 		$other &&
+		(($is_valid && !$other->{no_directory}) || $same_service) &&
 		!$from_other &&
 		$this->{session}->sameMachineId($other->{session}) &&
 		$this->{dir} eq $other->{dir};
 
+
 }   # setContents
+
+
+sub sameService
+{
+	my ($session1,$session2) = @_;
+	my $host1 = $session1->{HOST} || '';
+	my $port1 = $session1->{PORT} || '';
+	my $host2 = $session2->{HOST} || '';
+	my $port2 = $session2->{PORT} || '';
+	return $host1 eq $host2 && $port1 eq $port2 ? 1 : 0;
+}
 
 
 
