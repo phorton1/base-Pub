@@ -760,7 +760,7 @@ sub setContents
 			$PROTOCOL_LIST,
 			$dir);
 		return if $dir_info && $dir_info eq '-2';
-			# PRH -2 indicates a threaded command underway
+			# -2 indicates a threaded command underway
 	}
 
 	# We always add ...UP... or ...ROOT...

@@ -2,6 +2,9 @@
 #-------------------------------------------------------------------------
 # the main application object
 #-------------------------------------------------------------------------
+# PRH - need to setup real data_dir esp for prefs
+# PRH - need to implement prefsDlg
+# PRH - I think buddy prefs go in fileClient.prefs (it's all one big thing?)
 
 package Pub::FC::AppFrame;
 use strict;

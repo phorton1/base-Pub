@@ -31,13 +31,10 @@ my $dbg_thread = 0;
 	# -2 = onThreadEvent details
 my $dbg_idle = 0;
 
-# PRH - there IS a problem with using threads, sigh, getting leaks, etc
-# PRH - there is a big problem with copy recursive into same folder
-
 my $USE_FORKING = 1;
-	# Forking and threading now both work 'oK' with CONSOLE output,
-	# no thread warnings, etc, after I commented line out of
-	# Win32::Console.pm
+	# There is still a problem with threads getting leaks,
+	# so for now we are using FORKING.
+	# Note the line I commented line out Win32::Console.pm
 my $fork_num = 0;
 
 
