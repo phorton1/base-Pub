@@ -12,6 +12,9 @@ use Pub::WX::Dialogs;
 
 
 my $dbg_prefs = 0;
+my $dbg_sem = 0;
+	#  0 = show initial create/open
+	# -1 = show wait and release details
 
 our $prefs_filename;
 
@@ -44,11 +47,13 @@ BEGIN
 };
 
 
-
 my $PREFS_MUTEX_NAME =  'fileClientPrefsMutex';
 	# set to '' to turn feature off
 my $PREFS_SEM;
 
+# The ONLY reason prefs need to be shared is for
+# the date-time check to read them from another thread.
+# In the app, they are always used from the main thread.
 
 my $prefs_dt:shared;
 my $prefs:shared = shared_clone({
@@ -79,11 +84,40 @@ my @param_fields = qw(
 # Mutex
 #----------------------------------------------------
 
+sub startPrefSemaphore
+{
+	my ($dbg_level) = @_;
+	return if !$PREFS_MUTEX_NAME;
+	$PREFS_SEM = Win32::Mutex->new(0,$PREFS_MUTEX_NAME);
+	if ($PREFS_SEM)
+	{
+		display($dbg_sem+$dbg_level,0,"MUTEX ".($^E?"OPENED":"CREATED"));
+	}
+	else
+	{
+		error("Could not OPEN or CREATE $PREFS_MUTEX_NAME SEMAPHORE");
+	}
+}
+
+
 sub waitPrefs
 {
 	return if !$PREFS_MUTEX_NAME;
+	startPrefSemaphore(0) if !$PREFS_SEM;
+		# start the semaphore on the first call
+
 	my $rslt = $PREFS_SEM->wait(1000);
-	display($dbg_prefs,0,"waitPrefs()=$rslt");
+	if (!defined($rslt))
+	{
+		# forks/threads apparently close the semaphore.
+		# we detect that with !defined($rslt) and restart it
+
+		display($dbg_sem+1,0,"restarting PREFS_SEM");
+		startPrefSemaphore(1);
+		$rslt = $PREFS_SEM->wait(1000);
+		display($dbg_sem+1,0,"restarted PREFS_SEM got "._def($rslt));
+	}
+
 	if (!$rslt)
 	{
 		my $continue = yesNoDialog(undef,
@@ -93,6 +127,7 @@ sub waitPrefs
 			"$prefs_filename locked");
 		$rslt = $PREFS_SEM->wait() if $continue;
 	}
+	display($dbg_sem+1,0,"waitPrefs()="._def($rslt));
 	return $rslt;
 }
 
@@ -100,30 +135,16 @@ sub waitPrefs
 sub releasePrefs
 {
 	return if !$PREFS_MUTEX_NAME;
-	return $PREFS_SEM->release();
+	my $rslt = $PREFS_SEM->release();
+	display($dbg_sem+1,0,"releasePrefs()="._def($rslt));
+	return $rslt;
 }
 
-
-sub startPrefSemaphore
-{
-	return if !$PREFS_MUTEX_NAME;
-
-	$PREFS_SEM = Win32::Mutex->new(0,$PREFS_MUTEX_NAME);
-	if ($PREFS_SEM)
-	{
-		display($dbg_prefs,0,"MUTEX ".($^E?"OPENED":"CREATED"));
-	}
-	else
-	{
-		error("Could not OPEN or CREATE $PREFS_MUTEX_NAME SEMAPHORE");
-	}
-}
 
 
 #----------------------------------------------------
 # Client API
 #----------------------------------------------------
-
 
 sub getPrefs
 {
@@ -173,8 +194,6 @@ sub defaultConnection
 }
 
 
-
-
 sub getPrefConnection
 {
 	my ($connection_id) = @_;
@@ -216,7 +235,7 @@ sub argOK
 	if ($got_arg->{$lval})
 	{
 		$$psession_num++;
-		display($dbg_prefs,0,"ADVANCE PANE_NUM($$psession_num)");
+		display($dbg_prefs+1,0,"ADVANCE PANE_NUM($$psession_num)");
 	}
 	return argError("Too many command line parameters '$lval'")
 		if $$psession_num > 1;
@@ -224,7 +243,6 @@ sub argOK
 	$connection->{sessions}->[$$psession_num]->{$what} = $rval;
 	return $connection->{sessions}->[$$psession_num];
 }
-
 
 
 sub parseCommandLine
@@ -268,7 +286,7 @@ sub parseCommandLine
 		{
 			if ($rval !~ /^\//)
 			{
-				warning($dbg_prefs,0,"fixing relative dir '$rval'");
+				warning($dbg_prefs+1,0,"fixing relative dir '$rval'");
 				$rval = '/'.$rval;
 			}
 			return if !argOK($retval,'dir',\$session_num,\%got_arg,$lval,$rval);
@@ -315,7 +333,6 @@ sub initPrefs()
 	display($dbg_prefs,0,"init_prefs()");
 
 	return 1 if !$prefs_filename;
-	startPrefSemaphore();
 	return 0 if !waitPrefs();
 
 	my $text = getTextFile($prefs_filename);

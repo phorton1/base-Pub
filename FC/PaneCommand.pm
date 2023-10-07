@@ -265,9 +265,10 @@ sub doCommandSelected
 		error($dir_info) if $dir_info;
 		return;
 	}
-	my $entries = $dir_info->{entries};
 
 	my $first_entry;
+	my $other = $this->{other_pane};
+	my $entries = $dir_info->{entries};
     for (my $i=1; $i<$num; $i++)
     {
         if ($ctrl->GetItemState($i,wxLIST_STATE_SELECTED))
@@ -280,7 +281,8 @@ sub doCommandSelected
 				$first_entry = $entry;
 			}
             display($dbg_ops,2,"selected=$info->{entry}");
-
+			return if $is_put && subFolderCheck($this,$other,$entry);
+				# subFolderCheck
 			$info->{is_dir} ? $num_dirs++ : $num_files++;
 			$entries->{$entry} = $info;
         }
@@ -324,7 +326,6 @@ sub doCommandSelected
 		$first_entry :
 		$dir_info->{entries};
 
-	my $other = $this->{other_pane};
 	my $rslt = $this->doCommand(
 		'doCommandSelected',
 		$command,
@@ -369,6 +370,28 @@ sub doCommandSelected
 	}
 
 }   # doCommandSelected()
+
+
+
+sub subFolderCheck
+	# prevents infinite directory copy loop
+	# system generally currently thinks all windows machines are C:
+{
+	my ($this,$other,$sdir) = @_;
+	if ($this->{session}->sameMachineId($other->{session}))
+	{
+		my $target_dir = $other->{dir};
+		my $source_re = makePath($this->{dir},$sdir);
+		$source_re =~ s/\//\\\//g;
+		if ($target_dir =~ /^$source_re/)
+		{
+			error("Cannot copy - $sdir is a subfolder of $target_dir");
+			return 1;
+		}
+	}
+	return 0;
+}
+
 
 
 
