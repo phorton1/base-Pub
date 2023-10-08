@@ -2,7 +2,8 @@
 #-------------------------------------------------------------------------
 # the main application object
 #-------------------------------------------------------------------------
-# PRH - need to setup real data_dir esp for prefs
+# Currently uses 'buddy' standard data dir to hold the fileClient.prefs file
+
 # PRH - need to implement prefsDlg
 # PRH - I think buddy prefs go in fileClient.prefs (it's all one big thing?)
 
@@ -12,28 +13,17 @@ use warnings;
 use threads;
 use threads::shared;
 use Wx qw(:everything);
-use Wx::Event qw(EVT_MENU);
+use Wx::Event qw(EVT_MENU_RANGE);
 use Pub::Utils;
 use Pub::WX::Frame;
 use Pub::FC::Resources;
 use Pub::FC::Window;
 use Pub::FC::Prefs;
+use Pub::FC::PrefsDialog;
 use Pub::FC::ConnectDialog;
 use base qw(Pub::WX::Frame);
 
-
-
 my $dbg_app = 0;
-
-$temp_dir = '/base/temp';
-$prefs_filename = "$temp_dir/fileClient.prefs";
-
-
-# $data_dir = '/base/temp';
-# $logfile = "$temp_dir/fileClient2.log";
-# $Pub::WX::AppConfig::ini_file = "$temp_dir/fileClient2.ini";
-# unlink $Pub::WX::AppConfig::ini_file;
-
 
 sub new
 {
@@ -49,7 +39,7 @@ sub onInit
     my ($this) = @_;
 
     return if !$this->SUPER::onInit();
-	EVT_MENU($this, $COMMAND_CONNECT, \&commandConnect);
+	EVT_MENU_RANGE($this, $COMMAND_PREFS, $COMMAND_CONNECT, \&onCommand);
 
 	warning($dbg_app,-1,"FILE CLIENT STARTED WITH PID($$)");
 
@@ -110,10 +100,13 @@ sub createPane
 }
 
 
-sub commandConnect
+sub onCommand
 {
 	my ($this,$event) = @_;
-	Pub::FC::ConnectDialog->connect();
+	my $id = $event->GetId();
+
+	Pub::FC::ConnectDialog->connect() if $id == $COMMAND_CONNECT;
+	Pub::FC::PrefsDialog->editPrefs() if $id == $COMMAND_PREFS;
 }
 
 
@@ -129,9 +122,16 @@ use threads;
 use threads::shared;
 use Pub::Utils;
 use Pub::WX::Main;
+use Pub::FC::Prefs;
 use base 'Wx::App';
 
+# Stuff to begin my 'standard' application
+
+$debug_level = -5 if Cava::Packager::IsPackaged();
+	# set release debug level
 openSTDOUTSemaphore("buddySTDOUT") if $ARGV[0];
+setStandardDataDir("buddy");
+$prefs_filename = "$data_dir/fileClient.prefs";
 
 
 my $frame;
@@ -159,8 +159,8 @@ Pub::WX::Main::run($app);
 display(0,0,"ending fileClient.pm ...");
 $frame->DESTROY() if $frame;
 $frame = undef;
-display(0,0,"finished fileClient.pm");
-
+# display(0,0,"finished fileClient.pm");
+print "fileClient closed\r\n";
 
 
 

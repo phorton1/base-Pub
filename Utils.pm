@@ -187,8 +187,9 @@ sub setStandardTempDir
 sub setStandardDataDir
 {
 	my ($app_name) = @_;
-	$data_dir = filenameFromWin($ENV{USERPROFILE});
-	$data_dir .= "/Documents";
+	$data_dir = $Cava::Packager::PACKAGED ?
+		filenameFromWin($ENV{USERPROFILE})."/Documents" :
+		"/base/data";
 	$data_dir .= "/$app_name" if $app_name;
 	mkdir $data_dir if !-d $data_dir;
 }

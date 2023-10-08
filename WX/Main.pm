@@ -33,13 +33,13 @@ sub run
     try
     {
         $app->MainLoop();
-        LOG(-1,"program shutting down ...");
+        display($dbg_main,-1,"program shutting down ...");
     }
 
     catch Error with
     {
         my $ex = shift;   # the exception object
-        LOG(-1,"exception: $ex");
+        display($dbg_main,"exception: $ex");
         error($ex);
         my $msg = "!!! main() caught an exception !!!\n\n";
         my $dlg = Wx::MessageDialog->new(undef,$msg.$ex,"Exception Dialog",wxOK|wxICON_EXCLAMATION);
@@ -47,7 +47,7 @@ sub run
         goto AFTER_EXCEPTION if (1);
     };
 
-    LOG(0,"finishing run()");
+    display($dbg_main,-1,"finishing run()");
 }
 
 

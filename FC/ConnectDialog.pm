@@ -216,9 +216,9 @@ sub onValidateCtrl
 
 	if ($id == $ID_CTRL_CID)
 	{
-		if ($value eq 'buddy' || $value eq 'local')
+		if ($value !~ /^[A-Za-z0-9_\-\.]*$/)
 		{
-			error("Cannot use 'buddy' or 'local' as a connection_id");
+			error("Host may only contain A-Z, a-z, 0-9, dot, underscore, and dash");
 			$this->{err_ctrl} = $ctrl;
 		}
 	}
@@ -355,16 +355,6 @@ sub onUpdateUI
 {
 	my ($this,$event) = @_;
 	my $id = $event->GetId();
-
-	# short ending for CANCEL, which is always enabled
-	# if there is a control in error, which disables
-	# all other buttons
-
-	if ($id eq wxID_CANCEL || $this->{err_ctrl})
-	{
-		$event->Enable($id == wxID_CANCEL);
-		return;
-	}
 
 	# enable buttons by state
 
@@ -680,6 +670,13 @@ sub updateConnection
 	my $conn = $this->{connection};
 	my $cid = $conn->{connection_id};
 	my $exists = $prefs->{connectionById}->{$cid};
+
+	if ($cid eq 'buddy' || $cid eq 'local')
+	{
+		error("Cannot save 'buddy' or 'local' as a connection_id");
+		return;
+	}
+
 
 	return if $exists && !yesNoDialog($this,
 		"Overwrite existing connection '$cid'?",

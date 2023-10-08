@@ -19,6 +19,7 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = ( qw(
 
+		$COMMAND_PREFS
 		$COMMAND_CONNECT
 		$ID_CLIENT_WINDOW
 
@@ -39,7 +40,9 @@ BEGIN
 # the 'command_id' member on the notebook info.
 
 our (
+	$COMMAND_PREFS,
 	$COMMAND_CONNECT,
+
 	$ID_CLIENT_WINDOW,
 
     $COMMAND_XFER,
@@ -56,8 +59,9 @@ our (
 
 my %command_data = (%{$resources->{command_data}},
 
-	# the only command at this time
+	# app commands
 
+	$COMMAND_PREFS => ['Preferences', 'Edit global Preferences' ],
 	$COMMAND_CONNECT => ['Connect', 'Connect to a Host' ],
 
 	# context menu commands
@@ -109,8 +113,8 @@ my @main_menu = (
     'view_menu,&View' );
 
 unshift @{$resources->{view_menu}},$ID_SEPARATOR;
+unshift @{$resources->{view_menu}},$COMMAND_PREFS;
 unshift @{$resources->{view_menu}},$COMMAND_CONNECT;
-
 
 
 my @win_context_menu = (

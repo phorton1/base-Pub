@@ -57,7 +57,7 @@ my $PREFS_SEM;
 
 my $prefs_dt:shared;
 my $prefs:shared = shared_clone({
-	restore_windows_at_startup 	=> 0,
+	restore_startup 	=> 0,
 	default_local_dir 	=> "/",
 	default_remote_dir 	=> "/",
 	connections		 	=> shared_clone([]),
@@ -66,7 +66,7 @@ my $prefs:shared = shared_clone({
 
 
 my @header_fields = qw(
-	restore_windows_at_startup
+	restore_startup
     default_local_dir
     default_remote_dir );
 
@@ -310,9 +310,7 @@ sub parseCommandLine
 		{
 			return argError("Unknown command line params: '$lval $rval'");
 		}
-
 	}
-
 	releasePrefs();
 	return $retval;
 }
@@ -403,14 +401,13 @@ sub writePrefs
 	# reeturns 1 on success.
 {
 	display($dbg_prefs,0,"write_prefs()");
-
 	return undef if !waitPrefs();
+
 	my $text = '';
 	for my $key (@header_fields)
 	{
 		$text .= "$key = $prefs->{$key}\n";
 	}
-
 	for my $connection (@{$prefs->{connections}})
 	{
 		$text .= "connection\n";
@@ -428,7 +425,6 @@ sub writePrefs
 			}
 		}
 	}
-
 	if (!printVarToFile(1,$prefs_filename,$text))
 	{
 		releasePrefs();
