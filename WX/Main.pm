@@ -39,7 +39,7 @@ sub run
     catch Error with
     {
         my $ex = shift;   # the exception object
-        display($dbg_main,"exception: $ex");
+        display($dbg_main,0,"exception: $ex");
         error($ex);
         my $msg = "!!! main() caught an exception !!!\n\n";
         my $dlg = Wx::MessageDialog->new(undef,$msg.$ex,"Exception Dialog",wxOK|wxICON_EXCLAMATION);
