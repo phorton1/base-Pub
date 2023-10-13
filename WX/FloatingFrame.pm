@@ -15,71 +15,46 @@ use Pub::WX::Resources;
 use Pub::WX::FrameBase;
 use base qw(Wx::Frame Pub::WX::FrameBase);
 
-our $dbg_ff = 2;
+my $dbg_ff = 0;
+	# 0 = lifecyle
+	# -1 = operations
 
 my $next_floating_frame = 0;
 
 
 sub new
 {
-	my ($class,$app_frame,$mouse_x,$mouse_y,$page) = @_;
+	my ($class,$app_frame,$rect,$page) = @_;
 
 	my $instance = ++$next_floating_frame;
-	my $bname = "content($instance)";
-	my $title = "$resources->{app_title}($instance)";
 	display($dbg_ff,0,"new Pub::WX::FloatingFrame($instance) page=".($page?$page:'undef'));
 
-    my $size = $app_frame->GetSize();  # [300,300];
-	# $size = $page->recommendedSize() if ($page);
-	my $this = $class->SUPER::new( $app_frame, -1, $title, [$mouse_x,$mouse_y],
-		[int($size->GetWidth() * 0.80),
-		 int($size->GetHeight() * 0.80)]);
+	my $this = $class->SUPER::new(
+		$app_frame,
+		-1,
+		'',			# PRH $title,
+		[$rect->x,$rect->y],
+		[$rect->width, $rect->height]);;
 
-    $this->{title} = $title;
-	$this->{bname} = $bname;
-	$this->{init_page} = $page;
-
-	$this->FrameBase($app_frame,$instance);
+	$this->FrameBase($app_frame,$this,$page);
+	$app_frame->addFloatingFrame($instance,$this);
     return $this;
 }
 
-
-sub onInit
-	# called from frameBase()
-	# initialize the floating frame with a single content notebook
-	# init_page only used as pass thru, get rid of ref to page
-{
-	my ($this) = @_;
-    display($dbg_ff,1,"Pub::WX::FloatingFrame::onInit($this)");
-	my $app_frame = $this->{app_frame};
-	my $bname = $this->{bname};
-	my $page = $this->{init_page};
-	my $book = $app_frame->getOpenNotebook($bname,$this);
-
-	$this->{book} = $book;
-	$book->{frame} = $this;
-
-	if ($page)
-	{
-		$book->AddPage( $page, $page->{label}, 0);
-		delete $this->{init_page};
-	}
-    return $this;
-}
 
 
 sub DESTROY
 	# debugging only at this time
 {
 	my ($this) = @_;
-	display($dbg_ff,0,"DESTROY Pub::WX::FloatingFrame($this->{instance})");
+	display($dbg_ff,0,"DESTROY Pub::WX::FloatingFrame("._def($this).")");
 	return;
 
-	$this->{book}->DESTROY()
-		if $this->{book};
+	$this->{book}->DESTROY() if $this->{book};
 	delete $this->{book};
 	$this->Pub::WX::FrameBase::DESTROY();
 }
+
 
 
 #--------------------------------------------
@@ -105,7 +80,7 @@ sub onCloseFrame
         if ($pane &&
 			($rslt == -1 || ($rslt = $pane->closeOK())))
 		{
-			display($dbg_ff,1,"dirty_pane=$pane");
+			display($dbg_ff+1,1,"dirty_pane=$pane");
 			$book->RemovePage($pane);
 			$app_frame->removePane($pane);
 			$pane->DESTROY();
@@ -114,11 +89,9 @@ sub onCloseFrame
 
 	if ($rslt)
 	{
-		display($dbg_ff,2,"detaching frame($this->{instance}) $book->{name}");
+		display($dbg_ff+1,2,"detaching frame($this->{instance}) $book");
 		$this->{manager}->DetachPane($book);
-		delete $app_frame->{notebooks}->{$book->{name}};
 		$app_frame->deleteFloatingFrame($this->{instance});
-
 		$this->DESTROY();
 		$event->Skip();
 	}

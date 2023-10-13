@@ -9,6 +9,8 @@
 package Pub::WX::AppConfig;
 use strict;
 use warnings;
+use threads;
+use threads::shared;
 use Wx qw(:everything);
 use Pub::Utils;
 use Pub::WX::Resources;
@@ -19,21 +21,17 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw (
         $ini_file
+		clearConfigFile
 
-		deleteConfig
 		readConfig
 		writeConfig
-		readConfigMenu
-		writeConfigMenu
 		readConfigRect
-		writeConfigRect
-		configHasGroup
-		configDeleteGroup );
+		writeConfigRect );
 }
 
 our $ini_file = '';
 
-my $global_config_file;
+my $config:shared;
 
 
 
@@ -42,123 +40,76 @@ sub initialize
 {
 	return if !$ini_file;
 	display(9,0,"AppConfig::initialize($ini_file)");
-	$global_config_file = Wx::FileConfig->new(
-        $resources->{app_title},
-        "Pat Horton",
-        $ini_file,
-        '',
-        wxCONFIG_USE_LOCAL_FILE);
+	my $text = getTextFile($ini_file);
+	$config = shared_clone([ split(/\n/,$text) ]);
 }
+
+
+sub clearConfigFile
+{
+	return if !$ini_file;
+	$config = shared_clone([]);
+	unlink $ini_file;
+}
+
 
 sub save
 	# not exported
 {
 	return if !$ini_file;
-	$global_config_file->Flush() if ($global_config_file);
-}
-
-
-sub configHasGroup
-{
-	my ($title) = @_;
-	return if !$ini_file;
-	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
-	return $global_config_file->HasGroup($title);
-}
-
-
-sub configDeleteGroup
-{
-	my ($title) = @_;
-	return if !$ini_file;
-	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
-	return $global_config_file->DeleteGroup($title);
-}
-
-
-sub deleteConfig
-{
-	my ($title) = @_;
-	return if !$ini_file;
-	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
-	return $global_config_file->DeleteEntry($title)
+	my $text = join("\n",@$config);
+	printVarToFile(1,$ini_file,$text);
 }
 
 
 sub readConfig
+	# id's cannot contain re-breaking symbols
 {
-	my ($title) = @_;
+	my ($id) = @_;
 	return if !$ini_file;
-	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
-	return $global_config_file->Read($title);
+	for my $line (@$config)
+	{
+		return $line if $line =~ s/^$id=//;
+	}
+	return '';
 }
 
 
 sub writeConfig
 {
-	my ($title,$val) = @_;
+	my ($id,$val) = @_;
 	return if !$ini_file;
-	$title = "/ $$resources{app_title}/$title" if ($title !~ /^\//);
-	$global_config_file->Write($title,$val);
-}
-
-
-sub writeConfigMenu
-	# writes full set of pull down menus passed in as an array of (refs to) arrays.
-	# each subarray consists of two elements, the submenu title (i.e. &File),
-	# and a (reference to an) array of command_ids for the pull down items.
-{
-	my ($title,@menus) = @_;
-	return if !$ini_file;
-
-	my $num = 1;
-	foreach my $r_menu (@menus)
+	for (my $i=0; $i<@$config; $i++)
 	{
-		my ($menu_title, $r_ids) = @$r_menu;
-		my $menu_str = $menu_title.",".join(",",@$r_ids);
-		writeConfig($title.($num++), $menu_str);
+		if ($config->[$i] =~ /^$id=/)
+		{
+			$config->[$i] = "$id=$val";
+			return;
+		}
 	}
-}
-
-
-sub readConfigMenu
-	# reads a full menu bar (set of pull down menu items) from config file.
-	# see coments on writeConfigMenu for details on data structure.
-	# reads $config_title1 thru $config_titleN until N is not found.
-{
-	my ($title,@menus) = @_;
-	return if !$ini_file;
-
-	my $num = 1;
-	my @retval = ();
-	while ((my $menu_str=readConfig($title.($num++))) ne "")
-	{
-		my @data = split(/,/,$menu_str);
-		my $title = shift @data;
-		push @retval, [$title, [@data]];
-	}
-	return @retval;
+	push @$config,"$id=$val";
 }
 
 
 sub writeConfigRect
 {
-	my ($title,$rect) = @_;
+	my ($id,$rect) = @_;
 	return if !$ini_file;
-	writeConfig($title,sprintf("%d,%d,%d,%d",$rect->x,$rect->y,$rect->width,$rect->height));
+	writeConfig($id,sprintf("%d,%d,%d,%d",$rect->x,$rect->y,$rect->width,$rect->height));
 }
 
 
 sub readConfigRect
 {
-	my ($title) = @_;
+	my ($id) = @_;
 	return if !$ini_file;
-	my $str = readConfig($title);
-	if ($str ne "")
+	my $str = readConfig($id);
+	if ($str)
 	{
 		my $rect = Wx::Rect->new(split(/,/,$str));
 		return $rect;
 	}
+	return undef;
 }
 
 

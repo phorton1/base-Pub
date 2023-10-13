@@ -17,7 +17,7 @@ use Pub::Utils;
 use Pub::WX::Resources;
 
 
-our $dbg_resources = 4;
+my $dbg_menu = 1;
 
 #---------------------------------------------------
 # Routines
@@ -38,7 +38,7 @@ sub createMenu
 		# can append to an already existing menu
 
 	$level ||= 0;
-	display($dbg_resources,2,"createMenu($level,$menu_name)");
+	display($dbg_menu,2,"createMenu($level,$menu_name)");
 
 	# the menu can be gotten by name or passed in by ref
 
@@ -71,13 +71,13 @@ sub createMenu
 
 		if ($level < $required_level)
 		{
-			display($dbg_resources,0,"Skipping menu item($text) STYLE=$style  level=$level required=$required_level");
+			display($dbg_menu,0,"Skipping menu item($text) STYLE=$style  level=$level required=$required_level");
 			next;
 		}
 
 		if ($pref_id && !get_pref($pref_id))
 		{
-			display($dbg_resources,0,"Skipping menu item($text) STYLE=$style pref_id=$pref_id");
+			display($dbg_menu,0,"Skipping menu item($text) STYLE=$style pref_id=$pref_id");
 			next;
 
 		}
@@ -90,7 +90,7 @@ sub createMenu
 		$started = 1;
 
 		$style ||= 0;
-		display($dbg_resources,0,"Adding menu item($text) style=$style required=$required_level");
+		display($dbg_menu,0,"Adding menu item($text) style=$style required=$required_level");
 
 		my $kind = wxITEM_NORMAL;
 		if ($style eq '1')

@@ -2,23 +2,22 @@
 #-------------------------------------------------------------------------
 # Pub::WX::Notebook
 #-------------------------------------------------------------------------
-# A Pub::WX::Notebook is a container (control) that hold Pub::WX::Windows,
+# A Pub::WX::Notebook is a container (control) that holds Pub::WX::Windows,
 # and which presents a tab bar at the top.
 #
 # It is derived from a Wx::AuiNotebook, which is turn derived from
 # Wx::Control, which is basically just a window.
 #
-# A Pub::WX::Notebook is owned by exactly one Pub::WX::Frame or Pub::WX::FloatingFrame,
-# both of which are derived from Pub::WX::Frame and Pub::WX::FrameBase. Pub::WX::FrameBase
+# There is a one to one relationship between a Pub::WX::Notebook is and
+# a Pub::WX::Frame or Pub::WX::FloatingFrame, both of which are derived
+# from Pub::WX::Frame and Pub::WX::FrameBase. Pub::WX::FrameBase
 # is derived from Wx::EventHandler, and provides a common object that
-# gives each frame in our system a Wx::AuiManager.
+# gives each frame in our system a Wx::AuiManager and a Pub::WX::Notebook.
 #
 # The Pub::WX::Frame is special in that has a system menu, contains
-# functionality, but most imortantly, structurally, it keeps hashes
-# and a list of the Pub::WX::FloatingFrames, Pub::WX::Notebooks, and Pub::WX::Windows
-# in the entire system.
-#
-# All Pub::WX::Notebooks begin life as being owned by the Pub::WX::Frame.
+# functionality, but most importantly, structurally, it keeps hashes
+# and a hash by instance, {frames}, of all the Pub::WX::FloatingFrames,
+# and a list of all the Pub::WX::Windows in the entire system.
 
 
 package Pub::WX::Notebook;
@@ -34,34 +33,33 @@ use Wx::Event qw(
 	EVT_AUINOTEBOOK_PAGE_CLOSE
 	EVT_AUINOTEBOOK_ALLOW_DND
 	EVT_AUINOTEBOOK_PAGE_CHANGING
-	EVT_AUINOTEBOOK_PAGE_CHANGED
-);
+	EVT_AUINOTEBOOK_PAGE_CHANGED );
+use JSON;
+use Error qw(:try);
 use Pub::Utils;
 use Pub::WX::Resources;
-use Pub::WX::FloatingFrame;
+use Pub::WX::AppConfig;
 use base 'Wx::AuiNotebook';
 
+
 #sub CLONE_SKIP { 1 };
-	# putting this in a package prevents it from being
-	# cloned when the perl interpreter is copied to a new
-	# thread, so that, also, the DESTROY methods are not
-	# called on the bogus memory object.  This should be
-	# in all WxWidgets objects, which should not be
-	# touchable, except by the main thread, and all
-	# threads should only work on a small set of
-	# well known variables, mostly shared.
+	# putting this in a package prevents it from being cloned
+	# when the perl interpreter is copied to a new thread, so that
+	# the DESTROY methods are not when the thread exits
 
 
-our $dbg_nb = 1;
+my $dbg_nb = 9;
+	# 0 = show minimal notebook lifecycle
+	# -1 = show operations
+my $dbg_sr = 1;
+	# 0 = show everything
 
 
 sub new
 {
-	my ($class,$app_frame,$name,$float_frame) = @_;
-    my $use_name = $name;
-    $use_name =~ s/\(\d+\)$//;
-    my $data = ${$resources->{notebook_data}}{$use_name};
-	display($dbg_nb,0,"new notebook($name) data=$data");
+	my ($class,$app_frame,$float_frame) = @_;
+	$float_frame ||= '';
+ 	warning($dbg_nb,0,"Pub::WX::Notebook::new() float_frame=$float_frame");
 
 	# create the notebook
 
@@ -73,21 +71,17 @@ sub new
 		wxAUI_NB_CLOSE_ON_ACTIVE_TAB |
 		wxAUI_NB_TAB_MOVE );
 
-    $this->{data} = $data;
-	$this->{name} = $name;
 	$this->{frame} = $frame;
     $this->{app_frame} = $app_frame;
-	$this->{is_floating} = $float_frame ? 1 : 0;
+	$this->{is_floating} = $float_frame;
 	$this->{manager} = $frame->{manager};
-	$frame->{notebooks}{$name} = $this;
 
 	# add it to the aui manager
 
 	my $pane = Wx::AuiPaneInfo->new
-		->Name($name)
-		->Caption($$data{title})
-		->Row($$data{row})
-		->Position($$data{pos})
+		->Name('blah')
+		->Row(1)
+		->Position(1)
 		->CenterPane
 		->Dockable
 		->Floatable
@@ -96,17 +90,6 @@ sub new
 		->CloseButton
 		->MinimizeButton;
 
-	# let me document this a little better ...
-	# you MUST call Left and Bottom on the resources
-	# and output notebooks AFTER the above setup or they
-	# WILL NOT initially be floatable.
-
-    my $pane_direction = $$data{direction} || '';
-	$pane->Gripper  if ($name !~ /^content/);
-	$pane->Left() 	if ($pane_direction =~ /left/);
-	$pane->Top() 	if ($pane_direction =~ /top/);
-	$pane->Right() 	if ($pane_direction =~ /right/);
-	$pane->Bottom() if ($pane_direction =~ /bottom/);
 	$this->{manager}->AddPane($this, $pane);
 	$this->{manager}->Update();
 
@@ -120,6 +103,7 @@ sub new
 
 	# return to caller
 
+ 	display($dbg_nb+1,1,"Pub::WX::Notebook(float_frame=$float_frame) returning $this");
 	return $this;
 
 }	# Pub::WX::Notebook::new()
@@ -132,80 +116,15 @@ sub new
 sub DESTROY
 {
 	my ($this) = @_;
-
-	# my ($indent,$file,$line,$tree) = Pub::Utils::get_indent(0,1);
-	# display(0,0,$tree);
-
-	my $app_frame = $this->{app_frame};
-	my $name = $this->{name};
-	display($dbg_nb,0,"DESTROY $this($name)");
 	return;
 
-    if ($app_frame && $app_frame->{notebooks} && $app_frame->{notebooks}{$name})
-	{
-		display($dbg_nb,1,"removing notebook from parent frame($app_frame)");
-		delete $app_frame->{notebooks}{$name};
-	}
+	display($dbg_nb,0,"DESTROY($this)");
 
 	delete $this->{frame};
     delete $this->{app_frame};
 	delete $this->{manager};
 
 }
-
-
-sub getConfigStr
-    # called by the frame during save_state, returns
-    # a vertical bar delimited string.  The first element
-    # is the perspective for the notebook, followed by
-    # four elements per pane (the id, the instance,
-	# the data, and the config_str
-{
-	my ($this) = @_;
-
-    my $pers = $this->SavePerspective() || '';
-	my $config_str = $pers.'|';
-
-	for (my $i=0; $i<$this->GetPageCount(); $i++)
-	{
-		my $page = $this->GetPage($i);
-        next if !defined($page);
-		next if !$page->saveThisPane();
-			# pages (i.e. untitled) decide if they should
-			# be saved with the notebook ..
-
-        my $data = $page->{data} || '';
-        my $str = $page->getConfigStr() || '';
-		my $instance = $page->{instance} || 0;
-        $config_str .= $page->{id}.'|'.$instance.'|'.$data.'|'.$str.'|';
-	}
-	return $config_str;
-}
-
-
-# Misleading at best, these methods are not consistently
-# called in Perl.  Pages are added and deleted by WxWidgets
-# C++ code in drag and drop
-#
-# 	sub AddPage
-# 		# overidden so we can update the title
-# 		# when a page is added or deleted
-# 	{
-# 		my ($this,$page,$caption,$select,@params) = @_;
-# 		display($dbg_nb,0,"$this AddPage($page)");
-# 		my $rslt = $this->SUPER::AddPage($page,$caption,$select,@params);
-# 	}
-#
-#
-# 	sub RemovePage
-# 		# overidden so we can update the title
-# 		# when a page is added or deleted
-# 	{
-# 		my ($this,$idx) = @_;
-# 		display($dbg_nb,0,"$this RemovePage($idx)");
-# 		my $rslt = $this->SUPER::RemovePage($idx);
-# 		return $rslt;
-# 	}
 
 
 sub GetPage
@@ -228,41 +147,25 @@ sub selfOrChildOf
 }
 
 
-sub closeSelf
-	# closes a notebook when all of the panes are gone.
-	# the notebook may be owned by a floating frame, or
-	# indirectly by the frame as a managed aui pane.
-	# we never close the main content notebook pane
+sub closeFloatingSelf
+	# called on floating frames when the notebook closes it's last pane.
 {
 	my ($this) = @_;
-	my $name = $this->{name};
 	my $app_frame = $this->{app_frame};
-	return if ($this->{name} eq "content");
-	display($dbg_nb,0,"$this closeSelf($name) floating=$this->{is_floating}");
 
-	# if it's owned by one of my floating frames, close it
+	display($dbg_nb+1,0,"closeFloatingSelf($this)");
 
 	my $frame = $this->{frame};
-	if ($frame && $this->{is_floating})
-	{
-		display($dbg_nb,1,"closeSelf calling $frame Close()");
-		$frame->Close();
-		return;
-	}
-	elsif ($this->{is_floating})
+	if (!$frame)
 	{
 		error("floating notebook without a parent frame??");
 		return;
 	}
 
-	# Remove the managed window it from the aui manager by
-	# hiding it.  We never really delete the main content windows.
-	# Might have to float them first to get drawing to work right.
-
-	my $pane = $this->{manager}->GetPane($this);
-	$pane->Hide();
-	$this->{manager}->Update();
+	display($dbg_nb+1,1,"closeFloatingSelf calling $frame Close()");
+	$frame->Close();
 }
+
 
 
 #--------------------------------------
@@ -273,7 +176,7 @@ sub onPageChanged
 {
 	my ($this,$event)=@_;
 	my $idx = $event->GetSelection();
-	display($dbg_nb,0,"Pub::WX::Notebook::onPageChanged(new=$idx)");
+	display($dbg_nb+1,0,"Pub::WX::Notebook::onPageChanged(new=$idx)");
 	my $page = $this->GetPage($idx);
 	$this->{app_frame}->setCurrentPane($page);
 	$event->Skip();
@@ -289,19 +192,37 @@ sub onChildFocus
 	my ($this,$event) = @_;
 	my $sel = $this->GetSelection();
 	my $pane = $this->GetPage($sel);
-	display($dbg_nb,0,"Pub::WX::Notebook::onChildFocus("._def($pane).") getPageCount=".$this->GetPageCount());;
+	display($dbg_nb+9,0,"Pub::WX::Notebook::onChildFocus("._def($pane).") getPageCount=".$this->GetPageCount());;
 	$this->{app_frame}->setCurrentPane($pane) if $pane;
 	$event->Skip();
 }
 
 
-sub onAuiAllowDND
-	# allows the event for external tab drag and drop
+sub closeBookPageIDX
 {
-	my ($this,$event) = @_;
-	$event->Allow();
-	return;
+    my ($this,$page,$idx) = @_;
+    display($dbg_nb+1,1,"$this closeBookPageIDX($page->{label},$idx) isfloat=$this->{is_floating}");
+	display($dbg_nb+1,2,"page=$page");
+	display($dbg_nb+1,2,"getPageCount=".$this->GetPageCount());
+	$page->Close();
+	$this->{app_frame}->removePane($page);
+    $this->DeletePage($idx);
+	display($dbg_nb+1,2,"after DeletePage() getPageCount=".$this->GetPageCount());
+	$this->closeFloatingSelf() if $this->{is_floating} && !$this->GetPageCount();
+    display($dbg_nb+1,1,"$this closeBookPageIDX($page) finishing");
 }
+
+
+sub closeBookPage
+{
+    my ($this,$page) = @_;
+	display($dbg_nb+1,0,"$this closeBookPage($page)");
+    my $idx = $this->GetPageIndex($page);
+    $this->closeBookPageIDX($page,$idx);
+	display($dbg_nb+1,0,"$this closeBookPage($page) finished");
+
+}
+
 
 sub onAuiPageClose
 	# stop the process if the page is dirty and should not be closed.
@@ -311,7 +232,7 @@ sub onAuiPageClose
 	my ($this,$event) = @_;
 	my $tab_idx = $event->GetSelection();
 	my $page = $this->GetPage($tab_idx);
-	display($dbg_nb,0,"$this onAuiPageClose(book=$this->{name}) page=$page");
+	display($dbg_nb+1,0,"onAuiPageClose($this) page=$page");
 	if ($page->closeOK())
 	{
 		$this->closeBookPageIDX($page,$tab_idx);
@@ -323,35 +244,13 @@ sub onAuiPageClose
 }
 
 
-sub closeBookPageIDX
+sub onAuiAllowDND
+	# allows the event for external tab drag and drop
 {
-    my ($this,$page,$idx) = @_;
-    display($dbg_nb,1,"$this closeBookPageIDX($page->{label},$idx) isfloat=$this->{is_floating}");
-	display($dbg_nb,2,"page=$page");
-	display($dbg_nb,2,"getPageCount=".$this->GetPageCount());
-	$page->Close();
-	$this->{app_frame}->removePane($page);
-    $this->DeletePage($idx);
-	display($dbg_nb,2,"after DeletePage() getPageCount=".$this->GetPageCount());
-	if ($this->{is_floating} && !$this->GetPageCount())
-	{
-		$this->closeSelf($this);
-	}
-    display($dbg_nb,1,"$this closeBookPageIDX($page) finishing");
+	my ($this,$event) = @_;
+	$event->Allow();
+	return;
 }
-
-
-sub closeBookPage
-{
-    my ($this,$page) = @_;
-	display($dbg_nb,0,"$this closeBookPage($page)");
-    my $idx = $this->GetPageIndex($page);
-    $this->closeBookPageIDX($page,$idx);
-	display($dbg_nb,0,"$this closeBookPage($page) finished");
-
-}
-
-
 
 sub onAuiDragDone
 	# Uses modified wxWidgets to allow drop in space
@@ -359,7 +258,7 @@ sub onAuiDragDone
 {
 	my ($this,$event) = @_;
 	my $flag = $event->GetSelection();
-	display($dbg_nb,0,"$this onAuiDragDone(flag=$flag)");
+	display($dbg_nb+1,0,"$this onAuiDragDone(flag=$flag)",0,$display_color_light_magenta);
 
 	# drop over empty space indicated by -1
 	# we create new floating frame for the page
@@ -369,19 +268,139 @@ sub onAuiDragDone
         my $pt = Wx::GetMousePosition();
 		my $page = $event->GetEventObject();
 		my $idx = $this->GetPageIndex($page);
-		display($dbg_nb,1,"drop_in_space book=$this->{name}($idx) page=$page->{label}");
+		my $size = $this->{app_frame}->GetSize();
+		my $rect = Wx::Rect->new($pt->x,$pt->y,$size->GetWidth(),$size->GetHeight());
+		display($dbg_nb+1,1,"drop_in_space book=$this page($idx)=$page->{label}");
 		$this->RemovePage($idx);
-		my $frame = Pub::WX::FloatingFrame->new($this->{app_frame}, $pt->x, $pt->y, $page);
+		my $frame = Pub::WX::FloatingFrame->new($this->{app_frame}, $rect, $page);
 		$frame->Show(1);
 	}
 
 	# otherwise, close self if no pages left
 
-    display($dbg_nb,3,"pagecount=".$this->GetPageCount()." isfloat=$this->{is_floating}");
-	$this->closeSelf() if ($this->GetPageCount()==0 && $this->{is_floating});
+    display($dbg_nb+1,3,"pagecount=".$this->GetPageCount()." isfloat=$this->{is_floating}");
+	$this->closeFloatingSelf() if $this->{is_floating} && !$this->GetPageCount();
 }
 
 
+
+#----------------------------------------
+# save and restore
+#----------------------------------------
+
+sub saveBook
+    # called by the frame during save_state.
+	# gets the books perspective (tabframe=), prepends
+	# NUM_PANES comma to it, and writes it as book_$num
+	#
+	#     book_0=NUM_PANES,tabframe=5,0,0,0,100000,1,1,882,539,*10003;
+	#
+	# followed by a number of book_$num_pane_XXX entries
+	#
+	#     book_0_pane_0=10003,json_data
+	#
+	# giving the windowID and the jsonified window data to
+	# be used in restore, noting that multiple instance windows
+	# know how to create their instance numbers
+{
+	my ($this,$num) = @_;
+	display($dbg_sr,0,"$this saveBook($num)");
+
+	my $pane_num = 0;
+	for (my $i=0; $i<$this->GetPageCount(); $i++)
+	{
+		my $pane = $this->GetPage($i);
+        next if !defined($pane);
+		next if !$pane->saveThisPane();
+			# skip the pane if it doesn't want to be saved.
+			# the base Pub::WX::Window returns true, so we continue
+
+        my $data = $pane->getDataForIniFile() || '';
+		display($dbg_sr,1,"got data=$data");
+
+		my $encoded = $data;
+
+		if ($data)
+		{
+			try
+			{
+				my $json = JSON->new();
+				$json->allow_nonref();
+				$encoded = $json->encode($data);
+			}
+			catch Error with
+			{
+				my $ex = shift;   # the exception object
+				error("Could not encode_json($data): $ex");
+				return;
+			}
+		}
+
+		display($dbg_sr,1,"encoded=$encoded");
+
+		my $str = "$pane->{id},".$encoded;
+		my $config_id = "book_$num"."_pane_".$pane_num++;
+
+		display($dbg_sr,1,"Writing $config_id=$str");
+		writeConfig($config_id,$str);
+	}
+
+	my $count = $this->GetPageCount();
+    my $book_pers = "$pane_num,".$this->SavePerspective();
+	display($dbg_sr,1,"Writing book_$num=$book_pers");
+	writeConfig("book_$num",$book_pers);
+}
+
+
+sub restoreBook
+{
+	my ($this,$num) = @_;
+	display($dbg_sr,0,"$this restoreBook($num)");
+
+	my $book_pers = readConfig("book_$num") || '';
+	display($dbg_sr,1,"got book_$num=$book_pers");
+	$book_pers =~ s/^(\d+),//;
+	my $pane_count = $1;
+
+	for (my $i=0; $i<$pane_count; $i++)
+	{
+		my $config_id = "book_$num"."_pane_$i";
+		my $str = readConfig($config_id) || '';
+		display($dbg_sr,1,"got $config_id=$str");
+		if (!$str)
+		{
+			error("Could not readConfig($config_id)");
+			return;
+		}
+		if ($str !~ s/^(\d+),//)
+		{
+			error("malformed $config_id=$str");
+			return;
+		}
+		my $id = $1;
+		my $data = $str;
+		if ($str)
+		{
+			try
+			{
+				my $json = JSON->new();
+				$json->allow_nonref();
+				$data = $json->decode($str);
+			}
+			catch Error with
+			{
+				my $ex = shift;   # the exception object
+				error("Could not decode_json($data): $ex");
+				return;
+			}
+		}
+		display($dbg_sr,2,"calling createPane($id,$data");
+		$this->{app_frame}->createPane($id,$this,$data);
+	}
+
+	display($dbg_sr,1,"calling LoadPerspective($book_pers)");
+	$this->LoadPerspective($book_pers);
+}
 
 
 

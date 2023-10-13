@@ -39,7 +39,7 @@ use Wx::Event qw(EVT_CHILD_FOCUS EVT_CLOSE);
 use Pub::Utils;
 use base qw(Wx::Window);
 
-our $debug_aw = 1;
+my $debug_aw = 1;
 
 
 sub MyWindow
@@ -49,12 +49,15 @@ sub MyWindow
 	my ($this,$frame,$book,$id,$label,$data,$instance) = @_;
 
 	$instance ||= 0;
-	$this->SetId($id + $instance);
+	$this->SetId($id);
+		# hmmm ... I previously encoded the instance into the id.
+		# 		$this->SetId($id + $instance);
+		# but that doesn't work with retoreState(), so I am removing it
 
 	# set member variables
 
 	$this->{instance} = $instance;
-	$this->{id} = $id + $instance;
+	$this->{id} = $id;	#  + $instance;
 	$this->{frame} = $frame;
     $this->{app_frame} = $frame->{app_frame};
 	$this->{label} = $label;
@@ -136,17 +139,15 @@ sub closeOK
 
 
 
-sub getConfigStr
-	# Return a string to be saved in the ini file
-	# representing instance data for this window.
-	#
-	# The string MAY NOT USE, or INCLUDE '|' vertical bars,
-	# or carriages returns, which are the delimiter in the
-	# ini file for the Pub::WX::Notebook containing this window.
-	#
-	# Examples include a client_number, a comma delimited list
-	# of expanded tab identiferes, dot and colon delimited strings.
+sub getDataForIniFile
+	# Return a data object (or '') to be jsonified
+	# and stored in the ini file to later be de-jsonified
+	# and retured as the $data param during window ctor.
+	# DATA CANNOT CONTAIN \n and
+	# MUST BE PURE SIMPLE PERL scalar, hash, or array
 {
+	my ($this) = @_;
+	return '';
 }
 
 
