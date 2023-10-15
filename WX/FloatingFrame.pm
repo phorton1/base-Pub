@@ -32,7 +32,7 @@ sub new
 	my $this = $class->SUPER::new(
 		$app_frame,
 		-1,
-		'',			# PRH $title,
+		'',			# no $title,
 		[$rect->x,$rect->y],
 		[$rect->width, $rect->height]);;
 

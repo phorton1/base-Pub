@@ -49,7 +49,7 @@ sub FrameBase
 		wxAUI_MGR_ALLOW_FLOATING |
     	wxAUI_MGR_ALLOW_ACTIVE_PANE );
 
-	# PRH - invariantly create the notebook, add page if needed
+	# invariantly create the notebook, add page if needed
 	# and call Update();
 
 	$this->{book} = Pub::WX::Notebook->new($app_frame, $instance);

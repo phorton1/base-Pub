@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #---------------------------------------------------------------------
-# PRH - there is a one to one correlation between frames and notebooks
+# There is a one to one correlation between frames and notebooks
 # A frame is the main frame and has it's 'book'
 # all other frames are floating, and have their 'book'
 # The only time I need to know about multiple notebooks is in save/restore
