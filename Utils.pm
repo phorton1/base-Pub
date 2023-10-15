@@ -14,6 +14,7 @@ use Scalar::Util qw(blessed);
 use Cava::Packager;
 use MIME::Base64;
 use Time::Local;
+use Time::HiRes qw(sleep time);
 use Win32::Console;
 use Win32::DriveInfo;
 use Win32::Mutex;
@@ -41,7 +42,11 @@ BEGIN
 		setStandardDataDir
 		setStandardCavaResourceDir
 
+		$WITH_SEMAPHORES
+		$USE_SHARED_LOCK_SEM
 		createSTDOUTSemaphore
+		$HOW_SEMAPHORE_WIN32
+		$HOW_SEMAPHORE_LOCAL
 		openSTDOUTSemaphore
 		waitSTDOUTSemaphore
 		releaseSTDOUTSemaphore
@@ -146,8 +151,6 @@ my $USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
 
 
 
-
-
 #---------------
 # appFrame
 #---------------
@@ -210,15 +213,25 @@ sub setStandardCavaResourceDir
 #----------------------------------------------
 # get really wonky in buddy ...
 
-my $WITH_SEMAPHORES = 0;
+our $HOW_SEMAPHORE_LOCAL = 1;
+our $HOW_SEMAPHORE_WIN32 = 2;
+
+our $WITH_SEMAPHORES:shared = 0; # $HOW_SEMAPHORE_LOCAL;  #$HOW_SEMAPHORE_WIN32; 	# $HOW_SEMAPHORE_LOCAL;
+
+my $SEMAPHORE_TIMEOUT = 1000;	# ms
 my $STD_OUT_SEM;
-my $MUTEX_TIMEOUT = 1000;
+my $local_sem:shared = 0;
+
+our $USE_SHARED_LOCK_SEM:shared = 0;
+
 
 sub createSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
-	return if !$WITH_SEMAPHORES;
+	my ($how) = @_;
+	$WITH_SEMAPHORES = $how if defined($how);
+	return if $WITH_SEMAPHORES < $HOW_SEMAPHORE_WIN32;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
 	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
@@ -231,7 +244,7 @@ sub openSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
-	return if !$WITH_SEMAPHORES;
+	return if $WITH_SEMAPHORES < $HOW_SEMAPHORE_WIN32;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
 	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
@@ -240,16 +253,47 @@ sub openSTDOUTSemaphore
 
 
 sub waitSTDOUTSemaphore
+	# returns 1 if they got it, 0 if timeout
 {
 	return if !$WITH_SEMAPHORES;
-	return $STD_OUT_SEM->wait($MUTEX_TIMEOUT) if $STD_OUT_SEM;
+	if ($WITH_SEMAPHORES == $HOW_SEMAPHORE_WIN32)
+	{
+		return $STD_OUT_SEM->wait($SEMAPHORE_TIMEOUT) if $STD_OUT_SEM;
+	}
+	else
+	{
+		if (!$local_sem)
+		{
+			$local_sem++;
+			return 1;
+		}
+		my $start = time();
+		while ($local_sem && time() < $start + $SEMAPHORE_TIMEOUT)
+		{
+			sleep(0.01);
+		}
+		if ($local_sem)
+		{
+			print "\n\nSTDOUT SEMAPHORE TIMEOUT !!!\n\n";
+			return 0;
+		}
+		$local_sem++;
+		return 1;
+	}
 }
 
 
 sub releaseSTDOUTSemaphore
 {
 	return if !$WITH_SEMAPHORES;
-	$STD_OUT_SEM->release() if $STD_OUT_SEM;
+	if ($WITH_SEMAPHORES == $HOW_SEMAPHORE_WIN32)
+	{
+		$STD_OUT_SEM->release() if $STD_OUT_SEM;
+	}
+	else
+	{
+		$local_sem--;
+	}
 }
 
 
@@ -355,25 +399,35 @@ sub _output
 		}
 	}
 
-	my $got_sem = waitSTDOUTSemaphore();
-	$USE_CONSOLE->Attr($color) if $USE_CONSOLE;
-
+	my $text = '';
 	my $started = 0;
 	my @lines = split(/\r/,$full_message);
 	for my $line (@lines)
 	{
-		$line =~ s/\n//g;
-		print pad("",$header_len).$fill."    " if $started;
-		print $line."\r\n";
+		next if !defined($line);
+		$line =~ s/\n|\s$//g;
+		$text .= pad("",$header_len).$fill."    " if $started;
+		$text .= $line."\r\n";
 		$started = 1;
 	}
+
+	lock($local_sem) if $USE_SHARED_LOCK_SEM;
+	my $got_sem = waitSTDOUTSemaphore();
+
+	$USE_CONSOLE->Attr($color) if $USE_CONSOLE;
+
+	print $text;
 
 	# print($full_message."\n");
 	# print($USE_HANDLE $full_message."\n") :
 	# $USE_CONSOLE->Write($full_message."\n") :
 	$USE_CONSOLE->Attr($DISPLAY_COLOR_NONE) if $USE_CONSOLE;
 
+	$USE_CONSOLE->Flush() if $USE_CONSOLE;
+	# sleep(0.1) if $WITH_SEMAPHORES;
+
 	releaseSTDOUTSemaphore() if $got_sem;
+
 
 	return 1;
 }
