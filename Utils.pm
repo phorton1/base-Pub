@@ -28,6 +28,7 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw (
 
+		$USE_CONSOLE
 		$debug_level
 
 		$temp_dir
@@ -146,7 +147,7 @@ our $DISPLAY_COLOR_ERROR 	= $display_color_light_red;
 
 my $STD_OUTPUT_HANDLE = -11;
 my $STD_ERROR_HANDLE = -12;
-my $USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
+our $USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
 # my $USE_HANDLE = *STDOUT;
 
 
