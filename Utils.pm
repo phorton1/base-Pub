@@ -98,6 +98,10 @@ BEGIN
 		$display_color_yellow
 		$display_color_white
 
+		$DISPLAY_COLOR_NONE
+        $DISPLAY_COLOR_LOG
+        $DISPLAY_COLOR_WARNING
+        $DISPLAY_COLOR_ERROR
     );
 }
 
