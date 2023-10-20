@@ -70,6 +70,7 @@ BEGIN
         makePath
 		pathOf
 		filenameFromWin
+		getTimestamp
 		setTimestamp
         getTextFile
 		printVarToFile
@@ -693,6 +694,37 @@ sub printVarToFile
 		close OFILE;
 	}
 }
+
+
+
+
+sub getTimestamp
+	# param = unix format full path to file
+	# returns colon delmited GMT timestamp.
+	# returns dash/space/colon delimited if pretty
+    # returns blank if the file could not be stat'd
+    # takes an optional parameter local to return
+    # local timestamp
+{
+	my ($filename,$local) = @_;
+	my $ts = '';
+
+	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+	  	$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
+    $mtime = '' if (!$mtime);
+	if ($mtime ne '')
+	{
+		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+             $local ? localtime($mtime) : gmtime($mtime);
+		$year += 1900;
+		$mon += 1;
+		$ts = sprintf("%04d-%02d-%02d %02d:%02d:%02d",
+			$year,$mon,$mday,$hour,$min,$sec);
+	}
+	return $ts;
+}
+
+
 
 
 sub setTimestamp
