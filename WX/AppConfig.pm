@@ -11,6 +11,7 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use Win32::GUI;
 use Wx qw(:everything);
 use Pub::Utils;
 use Pub::WX::Resources;
@@ -40,7 +41,19 @@ sub initialize
 {
 	return if !$ini_file;
 	display(9,0,"AppConfig::initialize($ini_file)");
-	my $text = getTextFile($ini_file);
+
+	# delete ini file if SHIFT key pressed during startup
+
+	my $VK_SHIFT = 0x10;
+	my $VK_CONTROL = 0x11;
+	if (Win32::GUI::GetAsyncKeyState($VK_SHIFT))
+	{
+		warning(0,0,"SHIFT KEY PRESSED DURING STARUP");
+		warning(0,0,,"DELETING INI FILE $ini_file");
+		unlink $ini_file;
+	}
+
+	my $text = getTextFile($ini_file) || '';
 	$config = shared_clone([ split(/\n/,$text) ]);
 }
 
