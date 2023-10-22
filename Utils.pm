@@ -61,6 +61,7 @@ BEGIN
 		display
     	display_hash
 		display_bytes
+		display_rect
 		CapFirst
 
 		now
@@ -81,6 +82,7 @@ BEGIN
 		encode64
         decode64
         mergeHash
+
 
 		$display_color_black
 		$display_color_blue
@@ -553,21 +555,15 @@ sub display_bytes
 }
 
 
-sub CapFirst
-	# changed implementation on 2014/07/19
-{
-    my ($name) = @_;
-	return '' if !$name;
-	$name =~ s/^\s+|\s+$/g/;
 
-    my $new_name = '';
-	my @parts = split(/\s+/,$name);
-    for my $part (@parts)
-    {
-        $new_name .= " " if ($name ne "");
-        $new_name .= uc(substr($part,0,1)).lc(substr($part,1));
-    }
-    return $name;
+sub display_rect
+{
+	my ($dbg,$level,$msg,$rect) = @_;
+	display($dbg,$level,$msg."(".
+		$rect->x.",".
+        $rect->y.",".
+		$rect->width.",".
+        $rect->height.")",1);
 }
 
 
@@ -696,8 +692,6 @@ sub printVarToFile
 }
 
 
-
-
 sub getTimestamp
 	# param = unix format full path to file
 	# returns colon delmited GMT timestamp.
@@ -823,6 +817,23 @@ sub getMachineId
 # miscellaneous
 #--------------------------------------
 
+sub CapFirst
+	# changed implementation on 2014/07/19
+{
+    my ($name) = @_;
+	return '' if !$name;
+	$name =~ s/^\s+|\s+$/g/;
+
+    my $new_name = '';
+	my @parts = split(/\s+/,$name);
+    for my $part (@parts)
+    {
+        $new_name .= " " if ($name ne "");
+        $new_name .= uc(substr($part,0,1)).lc(substr($part,1));
+    }
+    return $name;
+}
+
 
 sub mergeHash
 {
@@ -855,6 +866,8 @@ sub decode64
     return "" if (!defined($s));
    	return decode_base64($s."\n");
 }
+
+
 
 
 

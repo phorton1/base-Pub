@@ -503,17 +503,6 @@ sub setCurrentPane
 # Save and Restore window state
 #------------------------------------------------------------
 
-sub display_rect
-{
-	my ($dbg,$level,$msg,$rect) = @_;
-	display($dbg,$level,$msg."(".
-		$rect->x.",".
-        $rect->y.",".
-		$rect->width.",".
-        $rect->height.")",1);
-}
-
-
 
 sub saveFrame
 {
