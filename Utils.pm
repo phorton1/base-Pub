@@ -55,6 +55,8 @@ BEGIN
 		pad
 		pad2
 		_def
+		_lim
+		_plim
 		LOG
 		error
 		warning
@@ -67,6 +69,7 @@ BEGIN
 		now
 		today
 		gmtToLocalTime
+		timeToStr
 
         makePath
 		pathOf
@@ -82,7 +85,7 @@ BEGIN
 		encode64
         decode64
         mergeHash
-
+		filterPrintable
 
 		$display_color_black
 		$display_color_blue
@@ -314,6 +317,20 @@ sub _def
 {
     my ($var) = @_;
     return defined($var) ? $var : 'undef';
+}
+
+sub _lim
+{
+	my ($s,$len) = @_;
+	$s = substr($s,0,$len) if length($s) > $len;
+	return $s;
+}
+
+sub _plim
+{
+	my ($s,$len) = @_;
+	return pad(_lim($s,$len),$len);
+	return $s;
 }
 
 
@@ -632,6 +649,21 @@ sub gmtToLocalTime
 }
 
 
+sub timeToStr
+{
+	my ($tm) = @_;
+	my @time_parts = localtime($tm);
+	my $ts =
+		($time_parts[5]+1900).'-'.
+		pad2($time_parts[4]+1).'-'.
+		pad2($time_parts[3]).' '.
+		pad2($time_parts[2]).':'.
+		pad2($time_parts[1]).':'.
+		pad2($time_parts[0]);
+	return $ts;
+}
+
+
 #----------------------------------------------------------
 # File Routines
 #----------------------------------------------------------
@@ -868,6 +900,47 @@ sub decode64
 }
 
 
+sub filterPrintable
+    # reduce the string to containing only ascii characters from
+    # space to 7f, particularly mapping accented spanish characters
+	# to their ascii equivilants. Used to clean strings before putting
+	# them in vfoledb, which does not like international characters.
+{
+    my ($value) = @_;
+	# display_bytes(0,0,"value",$value);
+	# print "before($value)";
+
+	# certain unicode sequences first
+
+	$value =~ s/\xc3\xba/u/;
+	$value =~ s/\xc3\x91/N/;
+
+	# single character replacements
+	# from http://ascii-table.com/ascii-extended-pc-list.php
+
+	$value =~ s/\x80/C/g;
+	$value =~ s/\x81|\x96|\x97/u/g;
+	$value =~ s/\x82|\x88|\x89|\x8A/e/g;
+	$value =~ s/\x83|\x84|\x85|\x86|xA0/a/g;
+	$value =~ s/\x87/c/g;
+	$value =~ s/\x8B|\x8C|\x8D|\xA1/i/g;
+	$value =~ s/\x8E|\x8F/A/g;
+	$value =~ s/\x90/E/g;
+	$value =~ s/\x91/ae/g;
+	$value =~ s/\x92/AE/g;
+	$value =~ s/\x93|\x94|\x95|\xA2/o/g;
+	$value =~ s/\x98/y/g;
+	$value =~ s/\x99/O/g;
+	$value =~ s/\x9A/U/g;
+	$value =~ s/\x9F/f/g;
+
+	# remove any others
+
+    $value =~ s/[^\x20-\x7f]//g;
+	# print " after value($value)\n";
+
+    return $value;
+}
 
 
 
