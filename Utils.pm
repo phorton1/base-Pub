@@ -10,14 +10,16 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
-use Scalar::Util qw(blessed);
+use Cwd;
 use Cava::Packager;
 use MIME::Base64;
 use Time::Local;
 use Time::HiRes qw(sleep time);
+use Scalar::Util qw(blessed);
 use Win32::Console;
 use Win32::DriveInfo;
 use Win32::Mutex;
+use Win32::Process;
 
 
 our $debug_level = 0;
@@ -86,6 +88,7 @@ BEGIN
         decode64
         mergeHash
 		filterPrintable
+		execNoShell
 
 		$display_color_black
 		$display_color_blue
@@ -941,6 +944,32 @@ sub filterPrintable
 
     return $value;
 }
+
+
+
+sub execNoShell
+# This, not system(), is how I figured out how to
+# run an external program without opening a DOS box.
+{
+	my ($cmd,$path) = @_;
+	$path ||= getcwd();
+	# chdir($path) ;
+	display(1,0,"execNoShell(>$cmd<) path($path)");
+
+	# in the case of quoted commands and parameters,
+	# we need to surround the whole command with quotes
+
+	my $p;
+	Win32::Process::Create(
+		$p,
+		"C:\\Windows\\System32\\cmd.exe",
+		"/C \"$cmd\"",
+		0,
+		CREATE_NO_WINDOW |
+		NORMAL_PRIORITY_CLASS,
+		$path );
+}
+
 
 
 
