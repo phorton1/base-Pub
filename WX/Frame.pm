@@ -388,6 +388,31 @@ sub createPane
 }
 
 
+
+sub activateSingleInstancePane
+	# Called by derived classes createPane() method for
+	# 	  single instance panes that may be re-activated
+	#     by menu or with new 'data'
+	# Single instance panes may have a setPaneData() method
+	# 	  that gets called upon their activation,
+{
+	my ($this,$id,$book,$data) = @_;
+	display($dbg_frame,0,"gitUI::Frame::activateSingleInstancePane($id)".
+		" book="._def($book).
+		" data="._def($data) );
+	my $pane = $this->findPane($id);
+	if ($pane)
+	{
+		$pane->setPaneData($data) if $pane->can('setPaneData');
+		$pane->SetFocus();
+	}
+	return $pane;
+}
+
+
+
+
+
 sub getCurrentPane
 {
 	my ($this) = @_;
