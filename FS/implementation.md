@@ -217,6 +217,7 @@ that allow double click to be synonymous with "Load-Connect"
 Has buttons for Loading/Saving the Connection.
 Has buttons for Loading/Saving each Session individually.
 
+```
                                                 [ Cancel ]
 	Connection [ untitled ]                     [ Connect ]
 		AutoStart   [x]                         [ Save ]
@@ -240,6 +241,7 @@ Has buttons for Loading/Saving each Session individually.
 		XXXXXXXXX  YYYYYYYY ZZZZZZZZ             [ Connect ]
 		XXXXXXXXX  YYYYYYYY ZZZZZZZZ             [v move down]
 	...
+```
 
 
 - Connection **Connect** button will open a Window with whatever is showing.
@@ -266,7 +268,7 @@ Has buttons for Loading/Saving each Session individually.
 -file_server
 -file_client  ==> file_server
 -BAUD_RATE
--IP_ADDRESS[:PORT] ==> crlf
+-IP_ADDRESS\[:PORT] ==> crlf
 
 **Current Auto Stuff** uses ComPorts and SSDPScan in
 precedence order:

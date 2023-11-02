@@ -22,17 +22,17 @@ depend on the packet type.
 - DISABLED 		- msg
 - ERROR			- msg
 - LIST			dir
-- MKDIR			path ts  [ may_exist ]
+- MKDIR			path ts  \[ may_exist ]
 - RENAME		dir name1 name2
 - ABORT
 - ABORTED
 - PROGRESS		ADD 	num_dirs num_files
 - PROGRESS		DONE 	is_dir
-- PROGRESS		ENTRY 	entry  [size]
+- PROGRESS		ENTRY 	entry  \[size]
 - PROGRESS      BYTES   bytes
-- DELETE		dir [single_filename | (ENTRY_LIST)]
+- DELETE		dir \[single_filename | (ENTRY_LIST)]
 
-- PUT			dir target_dir [single_filename | (ENTRY_LIST)]
+- PUT			dir target_dir \[single_filename | (ENTRY_LIST)]
 - FILE          size ts fully_qualified_target_filename
 - BASE64		offset bytes ENCODED_CONTENT
 - BASE64 		0 0 ERROR - message
@@ -197,7 +197,7 @@ ERROR within the BASE64 packet.
 ### Simple Commands
 
 - LIST			dir
-- MKDIR			path ts [may_exist]
+- MKDIR			path ts \[may_exist]
 - RENAME		dir name1 name2
 - DELETE		dir single_filename
 
@@ -238,10 +238,12 @@ context of the doCommand() call.*
 PROGRESS messages are sent from the Server to the Client to
 give the client information needed to update a progress dialog.
 
+```
 	PROGRESS ADD	num_dirs num_files  // adds dirs and files to progress range
 	PROGRESS DONE   is_dir              // increments num_done for dirs and files
-	PROGRESS ENTRY  entry  [size]       // displays the path or filename. sets the range if [size] or hides guage if not
+	PROGRESS ENTRY  entry  [size]       // displays the path or filename. sets the range if \[size] or hides guage if not
 	PROGRESS BYTES  bytes               // set the value for the 2nd bytes transferred gauge
+```
 
 ABORT can be sent by the Client to stop an session-like command,
 which case the Server returns ABORTED to acknowledge the cessation
@@ -256,8 +258,10 @@ file system containing the files for the PUT command. It then
 sends FILE and BASE64 commands to the CLIENT device which is receiving
 the file and which writes it out to its file system.
 
+```
 	CLIENT 	--> PUT dir target_dir [single_filename | (ENTRY_LIST)]
 	HOST 	<-- PUT dir target_dir [single_filename | (ENTRY_LIST)]
+```
 
 The HOST recurses it's local file system as necessary to send
 one or more FILE messages back to the CLIENT, and for each
@@ -266,25 +270,31 @@ files there is an understanding that no BASE64 packets will
 be sent for that particular file and the CLIENT will immediately
 reply with OK.
 
+```
 	HOST 	--> FILE size ts fully_qualified_target_filename
 	CLIENT  <-- FILE size ts fully_qualified_target_filename
 	CLIENT  --> CONTINUE | OK | ERROR | ABORTED
 	HOST 	<-- CONTINUE | OK | ERROR | ABORTED
+```
 
 While the HOST receives appropriate CONTINUE messages, it will
 continue to send BASE64 messages
 
+```
 	HOST	--> BASE64 offset bytes ENCODED_CONTENT
 	CLIENT  <-- BASE64 offset bytes ENCODED_CONTENT
 	CLIENT  --> CONTINUE | OK | ERROR | ABORTED
 	HOST 	<-- CONTINUE | OK | ERROR | ABORTED
+```
 
 When the HOST has finished successfully sending all of the
 files, it will reply with its own OK message signalling
 that the PUT session is finished.
 
+```
 	HOST 	--> OK
 	CLIENT	<-- OK
+```
 
 #### Unsuccesful termination of a PUT session
 
@@ -297,6 +307,7 @@ back to the client.  Here are some examples.
 
 PUT session terminated because client could not open the output file:
 
+```
 	...
 	HOST 	--> FILE size ts fully_qualified_target_filename
 	CLIENT  <-- FILE size ts fully_qualified_target_filename
@@ -307,9 +318,11 @@ PUT session terminated because client could not open the output file:
 		// host stops sending any more FILE or BASE64 messages.
 		// and ends it's put session without sending any more
 		// messages
+```
 
 PUT session ABORTED by the client during a BASE64 message:
 
+```
 	...
 	HOST 	--> BASE64 offset bytes ENCODED_CONTENT
 	CLIENT  <-- BASE64 offset bytes ENCODED_CONTENT
@@ -320,15 +333,18 @@ PUT session ABORTED by the client during a BASE64 message:
 		// host stops sending any more FILE or BASE64 messages.
 		// and ends it's put session without sending any more
 		// messages
+```
 
 PUT session terminated because host gets an error reading the file:
 
+```
 	...
 	HOST 	--> BASE64 0 0 ERROR - could not read from file
 	CLIENT  <-- BASE64 0 0 ERROR - could not read from file
 		// At this point the client closes and unlinks its output file
 		// Both sides know the PUT session has been terminated.
 		// and no more messges will be sent
+```
 
 #### PROGRESS messages during a PUT session
 
