@@ -89,6 +89,8 @@ BEGIN
         mergeHash
 		filterPrintable
 		execNoShell
+		execExplorer
+		getTopWindowId
 
 		$display_color_black
 		$display_color_blue
@@ -948,8 +950,8 @@ sub filterPrintable
 
 
 sub execNoShell
-# This, not system(), is how I figured out how to
-# run an external program without opening a DOS box.
+	# This, not system(), is how I figured out how to
+	# run an external program without opening a DOS box.
 {
 	my ($cmd,$path) = @_;
 	$path ||= getcwd();
@@ -971,6 +973,38 @@ sub execNoShell
 }
 
 
+sub execExplorer
+{
+	my ($path) = @_;
+	my $win_path = $path;
+	$win_path =~ s/\//\\/g;
+	display(0,0,"execExplorer($path)");
+	`explorer /select,\"$win_path\"`;
+
+	# my $p;
+	# Win32::Process::Create(
+	# 	$p,
+	# 	"C:\\Windows\\explorer.exe",
+	# 	"/select \"$win_path\"",
+	# 	0,
+	# 	# CREATE_NO_WINDOW |
+	# 	NORMAL_PRIORITY_CLASS,
+	# 	$path );
+}
+
+
+sub getTopWindowId
+{
+	my ($parent) = @_;
+	my $window_id = 0;
+	while ($parent)
+	{
+		my $id = $parent->GetId();
+		$window_id = $id if $id > 0;
+		$parent = $parent->GetParent();
+	}
+	return $window_id;
+}
 
 
 1;

@@ -397,7 +397,7 @@ sub activateSingleInstancePane
 	# 	  that gets called upon their activation,
 {
 	my ($this,$id,$book,$data) = @_;
-	display($dbg_frame,0,"gitUI::Frame::activateSingleInstancePane($id)".
+	display($dbg_frame+1,0,"gitUI::Frame::activateSingleInstancePane($id)".
 		" book="._def($book).
 		" data="._def($data) );
 	my $pane = $this->findPane($id);
