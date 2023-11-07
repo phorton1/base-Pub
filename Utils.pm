@@ -46,19 +46,14 @@ BEGIN
 		setStandardCavaResourceDir
 
 		$WITH_SEMAPHORES
+		$HOW_SEMAPHORE_LOCAL
+		$HOW_SEMAPHORE_WIN32
 		$USE_SHARED_LOCK_SEM
 		createSTDOUTSemaphore
-		$HOW_SEMAPHORE_WIN32
-		$HOW_SEMAPHORE_LOCAL
 		openSTDOUTSemaphore
 		waitSTDOUTSemaphore
 		releaseSTDOUTSemaphore
 
-		pad
-		pad2
-		_def
-		_lim
-		_plim
 		LOG
 		error
 		warning
@@ -66,7 +61,16 @@ BEGIN
     	display_hash
 		display_bytes
 		display_rect
+
+		_def
+		_lim
+		_plim
+		pad
+		pad2
+		round
+		roundTwo
 		CapFirst
+		bytesAsKMGT
 
 		now
 		today
@@ -79,6 +83,7 @@ BEGIN
 		getTimestamp
 		setTimestamp
         getTextFile
+		getTextLines
 		printVarToFile
 		my_mkdir
 		diskFree
@@ -313,61 +318,19 @@ sub releaseSTDOUTSemaphore
 }
 
 
-#----------------------------------
-# Display Utilities
-#----------------------------------
 
-sub _def
-    # oft used debugging utility
-{
-    my ($var) = @_;
-    return defined($var) ? $var : 'undef';
-}
-
-sub _lim
-{
-	my ($s,$len) = @_;
-	$s = substr($s,0,$len) if length($s) > $len;
-	return $s;
-}
-
-sub _plim
-{
-	my ($s,$len) = @_;
-	return pad(_lim($s,$len),$len);
-	return $s;
-}
-
-
-sub pad
-{
-	my ($s,$len) = @_;
-	$len -= length($s);
-	while ($len-- > 0)
-	{
-		$s .= " ";
-	}
-	return $s;
-}
-
-
-sub pad2
-{
-	my ($d) = @_;
-	$d = '0'.$d if (length($d)<2);
-	return $d;
-}
+#--------------------------------------------
+# _output
+#--------------------------------------------
 
 
 sub get_indent
 {
     my ($call_level) = @_;
-
     my $first = 1;
     my $indent = 0;
 	my $file = '';
 	my $line = 0;
-
     while (1)
     {
         my ($p,$f,$l,$m) = caller($call_level);
@@ -376,24 +339,17 @@ sub get_indent
 		$f ||= '';
 		my @parts = split(/\/|\\/,$f);
 		my $fl = pop @parts;
-
 		if ($first)
 		{
 			$file = $fl;
 			$line = $l;
 		}
-
         $first = 0;
         $indent++;
         $call_level++;
     }
 }
 
-
-
-#----------------------
-# _output
-#----------------------
 
 sub _output
 {
@@ -589,6 +545,113 @@ sub display_rect
 }
 
 
+#--------------------------------------
+# string and rounding utilities
+#--------------------------------------
+
+sub _def
+    # oft used debugging utility
+{
+    my ($var) = @_;
+    return defined($var) ? $var : 'undef';
+}
+
+sub _lim
+{
+	my ($s,$len) = @_;
+	$s = substr($s,0,$len) if length($s) > $len;
+	return $s;
+}
+
+sub _plim
+{
+	my ($s,$len) = @_;
+	return pad(_lim($s,$len),$len);
+	return $s;
+}
+
+
+sub pad
+{
+	my ($s,$len) = @_;
+	$len -= length($s);
+	while ($len-- > 0)
+	{
+		$s .= " ";
+	}
+	return $s;
+}
+
+
+sub pad2
+{
+	my ($d) = @_;
+	$d = '0'.$d if (length($d)<2);
+	return $d;
+}
+
+
+sub round
+{
+	my ($num,$digits) = @_;
+	$num = "0.00" if (!defined($num) || ($num eq ""));
+	return sprintf("%0.$digits"."f",$num);
+}
+
+
+sub roundTwo
+{
+	my ($num,$no_zero) = @_;
+	if ($no_zero && !$num)
+	{
+		$num = '';
+	}
+	else
+	{
+		$num ||= '0.00';
+		$num = sprintf("%0.2f",$num);
+		$num = '0.00' if $num eq '-0.00';
+	}
+	return $num;
+}
+
+
+sub CapFirst
+	# changed implementation on 2014/07/19
+{
+    my ($name) = @_;
+	return '' if !$name;
+	$name =~ s/^\s+|\s+$/g/;
+
+    my $new_name = '';
+	my @parts = split(/\s+/,$name);
+    for my $part (@parts)
+    {
+        $new_name .= " " if ($name ne "");
+        $new_name .= uc(substr($part,0,1)).lc(substr($part,1));
+    }
+    return $name;
+}
+
+
+sub bytesAsKMGT
+{
+	my ($bytes,$digits) = @_;
+	$digits ||= 1;
+    $bytes ||= 0;
+
+	my @size = ('', 'K', 'M', 'G', 'T');
+	my $ctr = 0;
+	for ($ctr = 0; $bytes > 1000; $ctr++)
+	{
+		$bytes /= 1000; # 1024;
+	}
+	my $rslt = sprintf("%.$digits"."f", $bytes).$size[$ctr];
+    $rslt =~ s/\..*$// if !$size[$ctr];
+    return $rslt;
+}
+
+
 
 #----------------------------------------
 # Dates and Times
@@ -714,6 +777,15 @@ sub getTextFile
     }
     return $text;
 }
+
+
+sub getTextLines
+{
+    my ($filename) = @_;
+	my $text = getTextFile($filename);
+	return split(/\n/,$text);
+}
+
 
 
 sub printVarToFile
@@ -853,24 +925,6 @@ sub getMachineId
 #--------------------------------------
 # miscellaneous
 #--------------------------------------
-
-sub CapFirst
-	# changed implementation on 2014/07/19
-{
-    my ($name) = @_;
-	return '' if !$name;
-	$name =~ s/^\s+|\s+$/g/;
-
-    my $new_name = '';
-	my @parts = split(/\s+/,$name);
-    for my $part (@parts)
-    {
-        $new_name .= " " if ($name ne "");
-        $new_name .= uc(substr($part,0,1)).lc(substr($part,1));
-    }
-    return $name;
-}
-
 
 sub mergeHash
 {
