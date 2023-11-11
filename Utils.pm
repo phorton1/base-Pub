@@ -474,7 +474,7 @@ sub warning
 sub display_hash
 {
 	my ($level,$indent,$title,$hash) = @_;
-	return if !display($level,$indent,"display_hash($title)",1);
+	return if !display($level,$indent,$title,1);
 	if (!$hash)
 	{
 		display($level,$indent+1,"NO HASH",1);
