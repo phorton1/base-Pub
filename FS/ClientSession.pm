@@ -249,7 +249,7 @@ sub waitTerminalPacket
 	my $is_delete = $is_command eq $PROTOCOL_DELETE ? 1 : 0;
 
 	display($dbg_commands,0,"$this->{NAME} waitTerminalPacket($is_command)",
-		0,$display_color_light_cyan);
+		0,$win_color_light_cyan);
 
 	my $rslt;
 	while (1)
@@ -326,7 +326,7 @@ sub waitTerminalPacket
 	}
 
 	display($dbg_commands,0,"$this->{NAME} waitTerminalPacket($is_command) returning ".dbgPacket($dbg_commands,$rslt),
-		0,$display_color_light_cyan);
+		0,$win_color_light_cyan);
 	return $rslt;
 }
 

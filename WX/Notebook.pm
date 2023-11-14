@@ -258,7 +258,7 @@ sub onAuiDragDone
 {
 	my ($this,$event) = @_;
 	my $flag = $event->GetSelection();
-	display($dbg_nb+1,0,"$this onAuiDragDone(flag=$flag)",0,$display_color_light_magenta);
+	display($dbg_nb+1,0,"$this onAuiDragDone(flag=$flag)",0,$win_color_light_magenta);
 
 	# drop over empty space indicated by -1
 	# we create new floating frame for the page

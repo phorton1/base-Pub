@@ -10,16 +10,17 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+sub is_win { return $^O eq "MSWin32" }
 use Cwd;
-use Cava::Packager;
 use MIME::Base64;
 use Time::Local;
 use Time::HiRes qw(sleep time);
 use Scalar::Util qw(blessed);
-use Win32::Console;
-use Win32::DriveInfo;
-use Win32::Mutex;
-use Win32::Process;
+use if is_win, 'Cava::Packager';
+use if is_win, 'Win32::Console';
+use if is_win, 'Win32::DriveInfo';
+use if is_win, 'Win32::Mutex';
+use if is_win, 'Win32::Process';
 
 
 our $debug_level = 0;
@@ -28,31 +29,33 @@ our $debug_level = 0;
 BEGIN
 {
  	use Exporter qw( import );
-	our @EXPORT = qw (
 
-		$USE_CONSOLE
+	print "OS=$^O\n";
+
+	# definition of xplat
+	#
+	# is a method that can be called, or variable accessed
+	# that works and has a meaningful semantic cross platform,
+	# and that I think should be callable from xplat code.
+	#
+	# i.e. getAppFrame() is 'cross platform' in that it can be called
+	# and will only return a value on a wxWidgets Windows App,
+	# and can be called on other platforms to check for that fact.
+	#
+	# some methods *could* be conidered xplat if they do nothing
+	# and 'work' on platforms besides windows: i.e. STDOUT semaphores,
+	# but, at this time, I would prefer they are not called, so
+	# they are win only.
+
+	my @XPLAT = qw(
 		$debug_level
 
 		$temp_dir
         $data_dir
         $logfile
-		$resource_dir
 
 		setAppFrame
 		getAppFrame
-
-		setStandardTempDir
-		setStandardDataDir
-		setStandardCavaResourceDir
-
-		$WITH_SEMAPHORES
-		$HOW_SEMAPHORE_LOCAL
-		$HOW_SEMAPHORE_WIN32
-		$USE_SHARED_LOCK_SEM
-		createSTDOUTSemaphore
-		openSTDOUTSemaphore
-		waitSTDOUTSemaphore
-		releaseSTDOUTSemaphore
 
 		LOG
 		error
@@ -86,40 +89,76 @@ BEGIN
 		getTextLines
 		printVarToFile
 		my_mkdir
-		diskFree
-		getMachineId
+
 
 		encode64
         decode64
         mergeHash
 		filterPrintable
+
+		getTopWindowId
+	);
+
+
+	# Windows only methods and symbols will not work, and/or
+	# make no sense in a cross platform environment, or that
+	# I just don't want to propogate to cross platform code.
+	# This includes methods that know about Cava::Packager,
+	# which, in my usage, is Win only.
+	#
+	# Currently artisanUtils.pm uses Pub::Utils qw(!:win_only)
+
+	my @WIN_ONLY = qw(
+
+		$CONSOLE
+
+		$USE_SHARED_LOCK_SEM
+		createSTDOUTSemaphore
+		openSTDOUTSemaphore
+		waitSTDOUTSemaphore
+		releaseSTDOUTSemaphore
+
+		$resource_dir
+		setStandardTempDir
+		setStandardDataDir
+		setStandardCavaResourceDir
+
+		diskFree
+		getMachineId
 		execNoShell
 		execExplorer
-		getTopWindowId
 
-		$display_color_black
-		$display_color_blue
-		$display_color_green
-		$display_color_cyan
-		$display_color_red
-		$display_color_magenta
-		$display_color_brown
-		$display_color_light_gray
-		$display_color_gray
-		$display_color_light_blue
-		$display_color_light_green
-		$display_color_light_cyan
-		$display_color_light_red
-		$display_color_light_magenta
-		$display_color_yellow
-		$display_color_white
+		$win_color_black
+		$win_color_blue
+		$win_color_green
+		$win_color_cyan
+		$win_color_red
+		$win_color_magenta
+		$win_color_brown
+		$win_color_light_gray
+		$win_color_gray
+		$win_color_light_blue
+		$win_color_light_green
+		$win_color_light_cyan
+		$win_color_light_red
+		$win_color_light_magenta
+		$win_color_yellow
+		$win_color_white
 
 		$DISPLAY_COLOR_NONE
         $DISPLAY_COLOR_LOG
         $DISPLAY_COLOR_WARNING
         $DISPLAY_COLOR_ERROR
-    );
+	);
+
+	our @EXPORT = (
+		@XPLAT,
+		@WIN_ONLY );
+
+	our %EXPORT_TAGS = (win_only  => [@WIN_ONLY]);
 }
+
+
 
 my $app_frame;
 	# in multi-threaded WX apps, this is a weird scalar and
@@ -130,44 +169,37 @@ our $data_dir        = '';
 our $logfile         = '';
 our $resource_dir    = '';
 
-
 my $CHARS_PER_INDENT = 2;
 my $WITH_TIMESTAMPS = 0;
 my $WITH_PROCESS_INFO = 1;
 my $PAD_FILENAMES = 30;
 
-my $fg_lightgray = 7;
-my $fg_lightred = 12;
-my $fg_yellow = 14;
-my $fg_white = 15;
+our $win_color_black            = 0x00;
+our $win_color_blue             = 0x01;
+our $win_color_green            = 0x02;
+our $win_color_cyan             = 0x03;
+our $win_color_red              = 0x04;
+our $win_color_magenta          = 0x05;
+our $win_color_brown            = 0x06;
+our $win_color_light_gray       = 0x07;
+our $win_color_gray             = 0x08;
+our $win_color_light_blue       = 0x09;
+our $win_color_light_green      = 0x0A;
+our $win_color_light_cyan       = 0x0B;
+our $win_color_light_red        = 0x0C;
+our $win_color_light_magenta    = 0x0D;
+our $win_color_yellow           = 0x0E;
+our $win_color_white            = 0x0F;
+
+our $DISPLAY_COLOR_NONE 	= $win_color_light_gray;
+our $DISPLAY_COLOR_LOG  	= $win_color_white;
+our $DISPLAY_COLOR_WARNING 	= $win_color_yellow;
+our $DISPLAY_COLOR_ERROR 	= $win_color_light_red;
 
 
-our $display_color_black            = 0x00;
-our $display_color_blue             = 0x01;
-our $display_color_green            = 0x02;
-our $display_color_cyan             = 0x03;
-our $display_color_red              = 0x04;
-our $display_color_magenta          = 0x05;
-our $display_color_brown            = 0x06;
-our $display_color_light_gray       = 0x07;
-our $display_color_gray             = 0x08;
-our $display_color_light_blue       = 0x09;
-our $display_color_light_green      = 0x0A;
-our $display_color_light_cyan       = 0x0B;
-our $display_color_light_red        = 0x0C;
-our $display_color_light_magenta    = 0x0D;
-our $display_color_yellow           = 0x0E;
-our $display_color_white            = 0x0F;
-
-our $DISPLAY_COLOR_NONE 	= $display_color_light_gray;
-our $DISPLAY_COLOR_LOG  	= $display_color_white;
-our $DISPLAY_COLOR_WARNING 	= $display_color_yellow;
-our $DISPLAY_COLOR_ERROR 	= $display_color_light_red;
-
-
-my $STD_OUTPUT_HANDLE = -11;
-my $STD_ERROR_HANDLE = -12;
-our $USE_CONSOLE = Win32::Console->new($STD_OUTPUT_HANDLE);
+# my $STD_OUTPUT_HANDLE = -11;
+# my $STD_ERROR_HANDLE = -12;
+our $CONSOLE = is_win() ? Win32::Console->new(STD_OUTPUT_HANDLE) : '';
 # my $USE_HANDLE = *STDOUT;
 
 
@@ -232,27 +264,20 @@ sub setStandardCavaResourceDir
 #----------------------------------------------
 # STD_OUT Semaphore
 #----------------------------------------------
-# get really wonky in buddy ...
+# theorertically xplat, but not published as such
 
-our $HOW_SEMAPHORE_LOCAL = 1;
-our $HOW_SEMAPHORE_WIN32 = 2;
+our $USE_SHARED_LOCK_SEM:shared = 0;
+my $local_sem:shared = 0;
 
-our $WITH_SEMAPHORES:shared = 0; # $HOW_SEMAPHORE_LOCAL;  #$HOW_SEMAPHORE_WIN32; 	# $HOW_SEMAPHORE_LOCAL;
+# win32 only
 
 my $SEMAPHORE_TIMEOUT = 1000;	# ms
 my $STD_OUT_SEM;
-my $local_sem:shared = 0;
-
-our $USE_SHARED_LOCK_SEM:shared = 0;
-
 
 sub createSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
-	my ($how) = @_;
-	$WITH_SEMAPHORES = $how if defined($how);
-	return if $WITH_SEMAPHORES < $HOW_SEMAPHORE_WIN32;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->new(0,$process_group_name);
 	# print "$process_group_name SEMAPHORE CREATED\n" if $STD_OUT_SEM:
@@ -265,7 +290,6 @@ sub openSTDOUTSemaphore
 	# $process_group_name is for a group of processes that
 	# share STDOUT.  The inntial process calls this method.
 {
-	return if $WITH_SEMAPHORES < $HOW_SEMAPHORE_WIN32;
 	my ($process_group_name) = @_;
 	$STD_OUT_SEM = Win32::Mutex->open($process_group_name);
 	# print "$process_group_name SEMAPHORE OPENED\n" if $STD_OUT_SEM:
@@ -276,45 +300,32 @@ sub openSTDOUTSemaphore
 sub waitSTDOUTSemaphore
 	# returns 1 if they got it, 0 if timeout
 {
-	return if !$WITH_SEMAPHORES;
-	if ($WITH_SEMAPHORES == $HOW_SEMAPHORE_WIN32)
+
+	return $STD_OUT_SEM->wait($SEMAPHORE_TIMEOUT) if $STD_OUT_SEM;
+	if (!$local_sem)
 	{
-		return $STD_OUT_SEM->wait($SEMAPHORE_TIMEOUT) if $STD_OUT_SEM;
-	}
-	else
-	{
-		if (!$local_sem)
-		{
-			$local_sem++;
-			return 1;
-		}
-		my $start = time();
-		while ($local_sem && time() < $start + $SEMAPHORE_TIMEOUT)
-		{
-			sleep(0.01);
-		}
-		if ($local_sem)
-		{
-			print "\n\nSTDOUT SEMAPHORE TIMEOUT !!!\n\n";
-			return 0;
-		}
 		$local_sem++;
 		return 1;
 	}
+	my $start = time();
+	while ($local_sem && time() < $start + $SEMAPHORE_TIMEOUT)
+	{
+		sleep(0.01);
+	}
+	if ($local_sem)
+	{
+		print "\n\nSTDOUT SEMAPHORE TIMEOUT !!!\n\n";
+		return 0;
+	}
+	$local_sem++;
+	return 1;
 }
 
 
 sub releaseSTDOUTSemaphore
 {
-	return if !$WITH_SEMAPHORES;
-	if ($WITH_SEMAPHORES == $HOW_SEMAPHORE_WIN32)
-	{
-		$STD_OUT_SEM->release() if $STD_OUT_SEM;
-	}
-	else
-	{
-		$local_sem--;
-	}
+	$STD_OUT_SEM->release() if $STD_OUT_SEM;
+	$local_sem--;
 }
 
 
@@ -400,16 +411,16 @@ sub _output
 	lock($local_sem) if $USE_SHARED_LOCK_SEM;
 	my $got_sem = waitSTDOUTSemaphore();
 
-	$USE_CONSOLE->Attr($color) if $USE_CONSOLE;
+	$CONSOLE->Attr($color) if $CONSOLE;
 
 	print $text;
 
 	# print($full_message."\n");
 	# print($USE_HANDLE $full_message."\n") :
-	# $USE_CONSOLE->Write($full_message."\n") :
-	$USE_CONSOLE->Attr($DISPLAY_COLOR_NONE) if $USE_CONSOLE;
+	# $CONSOLE->Write($full_message."\n") :
+	$CONSOLE->Attr($DISPLAY_COLOR_NONE) if $CONSOLE;
 
-	$USE_CONSOLE->Flush() if $USE_CONSOLE;
+	$CONSOLE->Flush() if $CONSOLE;
 	# sleep(0.1) if $WITH_SEMAPHORES;
 
 	releaseSTDOUTSemaphore() if $got_sem;
@@ -914,6 +925,8 @@ sub my_mkdir
 
 
 sub getMachineId
+	# currently windows only, cuz it uses a windows
+	# specific environment variable
 {
 	# display_hash(0,0,"ENV",\%ENV);
 	my $id = $ENV{COMPUTERNAME};
@@ -1021,8 +1034,8 @@ sub execNoShell
 		"C:\\Windows\\System32\\cmd.exe",
 		"/C \"$cmd\"",
 		0,
-		CREATE_NO_WINDOW |
-		NORMAL_PRIORITY_CLASS,
+		Win32::Process::CREATE_NO_WINDOW() |
+		Win32::Process::NORMAL_PRIORITY_CLASS(),
 		$path );
 }
 
