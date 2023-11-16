@@ -397,15 +397,22 @@ sub _output
 	}
 
 	my $text = '';
-	my $started = 0;
-	my @lines = split(/\r/,$full_message);
-	for my $line (@lines)
+	if (1)	# split into indented lines on \rs
 	{
-		next if !defined($line);
-		$line =~ s/\n|\s$//g;
-		$text .= pad("",$header_len).$fill."    " if $started;
-		$text .= $line."\r\n";
-		$started = 1;
+		my $started = 0;
+		my @lines = split(/\r/,$full_message);
+		for my $line (@lines)
+		{
+			next if !defined($line);
+			$line =~ s/^\n|\n$//g;
+			$text .= pad("",$header_len).$fill."    " if $started;
+			$text .= $line."\r\n";
+			$started = 1;
+		}
+	}
+	else
+	{
+		$text = $full_message."\r\n";
 	}
 
 	lock($local_sem) if $USE_SHARED_LOCK_SEM;
