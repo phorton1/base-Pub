@@ -73,7 +73,7 @@ BEGIN
 		round
 		roundTwo
 		CapFirst
-		bytesAsKMGT
+		prettyBytes
 
 		now
 		today
@@ -652,7 +652,7 @@ sub CapFirst
 }
 
 
-sub bytesAsKMGT
+sub prettyBytes
 {
 	my ($bytes,$digits) = @_;
 	$digits ||= 1;
