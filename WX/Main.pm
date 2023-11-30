@@ -28,7 +28,7 @@ sub run
     my ($app) = @_;
     display($dbg_main,0,"starting run()");
 
-    AFTER_EXCEPTION:
+AFTER_EXCEPTION:
 
     try
     {
