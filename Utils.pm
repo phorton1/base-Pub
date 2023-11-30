@@ -30,7 +30,7 @@ BEGIN
 {
  	use Exporter qw( import );
 
-	print "OS=$^O\n";
+	# print "OS=$^O\n";
 
 	# definition of xplat
 	#
@@ -48,6 +48,8 @@ BEGIN
 	# they are win only.
 
 	my @XPLAT = qw(
+		$AS_SERVICE
+
 		$debug_level
 
 		$temp_dir
@@ -159,7 +161,7 @@ BEGIN
 }
 
 
-
+our $AS_SERVICE;
 my $app_frame;
 	# in multi-threaded WX apps, this is a weird scalar and
 	# cannot be used directly from threads
@@ -199,9 +201,27 @@ our $DISPLAY_COLOR_ERROR 	= $win_color_light_red;
 
 # my $STD_OUTPUT_HANDLE = -11;
 # my $STD_ERROR_HANDLE = -12;
-our $CONSOLE = is_win() ? Win32::Console->new(STD_OUTPUT_HANDLE) : '';
+our $CONSOLE;	# = is_win() ? Win32::Console->new(STD_OUTPUT_HANDLE) : '';
 # my $USE_HANDLE = *STDOUT;
 
+
+my $utils_initialized = 0;
+
+
+sub initUtils
+{
+	my ($as_service,$quiet) = @_;
+	return if $utils_initialized;
+
+	$AS_SERVICE = $as_service || 0;
+	for my $arg (@ARGV)
+	{
+		$AS_SERVICE = 0 if $arg eq 'NO_SERVICE';
+	}
+
+	$CONSOLE = is_win() && !$AS_SERVICE ?
+		Win32::Console->new(STD_OUTPUT_HANDLE) : '';
+}
 
 
 #---------------
@@ -367,6 +387,8 @@ sub _output
     my ($indent_level,$msg,$color,$call_level) = @_;
     $call_level ||= 0;
 
+	initUtils();
+
     my ($indent,$file,$line,$tree) = get_indent($call_level+1);
 
 	my $tid = threads->tid();
@@ -382,6 +404,9 @@ sub _output
 	my $header_len = length($full_message);
 	$full_message .= $fill.$msg;
 
+	lock($local_sem) if $USE_SHARED_LOCK_SEM;
+	my $got_sem = waitSTDOUTSemaphore();
+
 	if ($logfile)
 	{
 		if (open(LOGFILE,">>$logfile"))
@@ -396,42 +421,42 @@ sub _output
 		}
 	}
 
-	my $text = '';
-	if (1)	# split into indented lines on \rs
+	if (!$AS_SERVICE)
 	{
-		my $started = 0;
-		my @lines = split(/\r/,$full_message);
-		for my $line (@lines)
+		my $text = '';
+		if (1)	# split into indented lines on \rs
 		{
-			next if !defined($line);
-			$line =~ s/^\n|\n$//g;
-			$text .= pad("",$header_len).$fill."    " if $started;
-			$text .= $line."\r\n";
-			$started = 1;
+			my $started = 0;
+			my @lines = split(/\r/,$full_message);
+			for my $line (@lines)
+			{
+				next if !defined($line);
+				$line =~ s/^\n|\n$//g;
+				$text .= pad("",$header_len).$fill."    " if $started;
+				$text .= $line."\r\n";
+				$started = 1;
+			}
 		}
+		else
+		{
+			$text = $full_message."\r\n";
+		}
+
+
+		$CONSOLE->Attr($color) if $CONSOLE;
+
+		print $text;
+
+		# print($full_message."\n");
+		# print($USE_HANDLE $full_message."\n") :
+		# $CONSOLE->Write($full_message."\n") :
+		$CONSOLE->Attr($DISPLAY_COLOR_NONE) if $CONSOLE;
+
+		$CONSOLE->Flush() if $CONSOLE;
+		# sleep(0.1) if $WITH_SEMAPHORES;
 	}
-	else
-	{
-		$text = $full_message."\r\n";
-	}
-
-	lock($local_sem) if $USE_SHARED_LOCK_SEM;
-	my $got_sem = waitSTDOUTSemaphore();
-
-	$CONSOLE->Attr($color) if $CONSOLE;
-
-	print $text;
-
-	# print($full_message."\n");
-	# print($USE_HANDLE $full_message."\n") :
-	# $CONSOLE->Write($full_message."\n") :
-	$CONSOLE->Attr($DISPLAY_COLOR_NONE) if $CONSOLE;
-
-	$CONSOLE->Flush() if $CONSOLE;
-	# sleep(0.1) if $WITH_SEMAPHORES;
 
 	releaseSTDOUTSemaphore() if $got_sem;
-
 
 	return 1;
 }
