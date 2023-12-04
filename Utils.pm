@@ -161,7 +161,7 @@ BEGIN
 }
 
 
-our $AS_SERVICE;
+our $AS_SERVICE:shared=0;
 my $app_frame;
 	# in multi-threaded WX apps, this is a weird scalar and
 	# cannot be used directly from threads
@@ -205,12 +205,15 @@ our $CONSOLE;	# = is_win() ? Win32::Console->new(STD_OUTPUT_HANDLE) : '';
 # my $USE_HANDLE = *STDOUT;
 
 
-my $utils_initialized = 0;
+my $utils_initialized:shared = 0;
 
 
 sub initUtils
 {
 	my ($as_service,$quiet) = @_;
+	$as_service ||= 0;
+	$quiet ||= 0;
+	# print "initUtils($as_service,$quiet) initialized=$utils_initialized AS_SERVICE=$AS_SERVICE\n";
 	return if $utils_initialized;
 
 	$AS_SERVICE = $as_service || 0;
@@ -386,9 +389,6 @@ sub _output
 {
     my ($indent_level,$msg,$color,$call_level) = @_;
     $call_level ||= 0;
-
-	initUtils();
-
     my ($indent,$file,$line,$tree) = get_indent($call_level+1);
 
 	my $tid = threads->tid();
@@ -423,6 +423,8 @@ sub _output
 
 	if (!$AS_SERVICE)
 	{
+		initUtils();
+
 		my $text = '';
 		if (1)	# split into indented lines on \rs
 		{
