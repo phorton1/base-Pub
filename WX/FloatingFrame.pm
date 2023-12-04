@@ -43,20 +43,6 @@ sub new
 
 
 
-sub DESTROY
-	# debugging only at this time
-{
-	my ($this) = @_;
-	display($dbg_ff,0,"DESTROY Pub::WX::FloatingFrame("._def($this).")");
-	return;
-
-	$this->{book}->DESTROY() if $this->{book};
-	delete $this->{book};
-	$this->Pub::WX::FrameBase::DESTROY();
-}
-
-
-
 #--------------------------------------------
 # methods
 #--------------------------------------------
@@ -83,7 +69,6 @@ sub onCloseFrame
 			display($dbg_ff+1,1,"dirty_pane=$pane");
 			$book->RemovePage($pane);
 			$app_frame->removePane($pane);
-			$pane->DESTROY();
 		}
 	}
 
@@ -92,7 +77,6 @@ sub onCloseFrame
 		display($dbg_ff+1,2,"detaching frame($this->{instance}) $book");
 		$this->{manager}->DetachPane($book);
 		$app_frame->deleteFloatingFrame($this->{instance});
-		$this->DESTROY();
 		$event->Skip();
 	}
 

@@ -48,7 +48,7 @@ use base 'Wx::AuiNotebook';
 	# the DESTROY methods are not when the thread exits
 
 
-my $dbg_nb = 9;
+my $dbg_nb = -2;
 	# 0 = show minimal notebook lifecycle
 	# -1 = show operations
 my $dbg_sr = 1;
@@ -59,7 +59,7 @@ sub new
 {
 	my ($class,$app_frame,$float_frame) = @_;
 	$float_frame ||= '';
- 	warning($dbg_nb,0,"Pub::WX::Notebook::new() float_frame=$float_frame");
+ 	warning($dbg_nb,0,"Notebook::new() float_frame=$float_frame");
 
 	# create the notebook
 
@@ -103,7 +103,7 @@ sub new
 
 	# return to caller
 
- 	display($dbg_nb+1,1,"Pub::WX::Notebook(float_frame=$float_frame) returning $this");
+ 	display($dbg_nb,0,"Notebook() returning $this");
 	return $this;
 
 }	# Pub::WX::Notebook::new()
@@ -112,20 +112,6 @@ sub new
 #---------------------------------------------
 # methods
 #---------------------------------------------
-
-sub DESTROY
-{
-	my ($this) = @_;
-	return;
-
-	display($dbg_nb,0,"DESTROY($this)");
-
-	delete $this->{frame};
-    delete $this->{app_frame};
-	delete $this->{manager};
-
-}
-
 
 sub GetPage
 {
@@ -152,20 +138,38 @@ sub closeFloatingSelf
 {
 	my ($this) = @_;
 	my $app_frame = $this->{app_frame};
-
 	display($dbg_nb+1,0,"closeFloatingSelf($this)");
-
 	my $frame = $this->{frame};
 	if (!$frame)
 	{
 		error("floating notebook without a parent frame??");
 		return;
 	}
-
-	display($dbg_nb+1,1,"closeFloatingSelf calling $frame Close()");
 	$frame->Close();
+	display($dbg_nb+1,0,"closeFloatingSelf($this,$frame) finished");
 }
 
+
+
+
+sub closeBookPage
+	# only called from Pub::Wx::Frame::closeWindows() and
+	# 	Pub::Wx::Window::closeSelf()
+	# Is intenionally separated from on onAuiPageClose which
+	# 	(a) will Delete() the page upon return and
+	# 	(b) will crash if we Delete() the page out from under it
+	# Closes the notebook if this is the last page
+{
+    my ($this,$page) = @_;
+    my $idx = $this->GetPageIndex($page);
+	display($dbg_nb+1,0,"closeBookPage($idx,$page)");
+	$page->Close();
+    $this->DeletePage($idx);
+	$this->closeFloatingSelf() if
+		$this->{is_floating} &&
+		!$this->GetPageCount();
+    display($dbg_nb+1,0,"closeBookPage() finished");
+}
 
 
 #--------------------------------------
@@ -173,75 +177,68 @@ sub closeFloatingSelf
 #--------------------------------------
 
 sub onPageChanged
+	# called from event
 {
 	my ($this,$event)=@_;
 	my $idx = $event->GetSelection();
-	display($dbg_nb+1,0,"Pub::WX::Notebook::onPageChanged(new=$idx)");
 	my $page = $this->GetPage($idx);
+	display($dbg_nb+1,0,"onPageChanged($idx,"._def($page).")");
 	$this->{app_frame}->setCurrentPane($page);
+	display($dbg_nb+1,0,"onPageChanged() finished");
 	$event->Skip();
 }
 
 
 sub onChildFocus
+	# called from event
 	# notify the frame that the pane has changed
 	# this (apparently) handles switches between floating
 	# frames and manager, between notebooks, and between
 	# tabs in a notebook.
 {
 	my ($this,$event) = @_;
-	my $sel = $this->GetSelection();
-	my $pane = $this->GetPage($sel);
-	display($dbg_nb+9,0,"Pub::WX::Notebook::onChildFocus("._def($pane).") getPageCount=".$this->GetPageCount());;
-	$this->{app_frame}->setCurrentPane($pane) if $pane;
+	my $idx = $this->GetSelection();
+	my $page = $this->GetPage($idx);
+	display($dbg_nb+2,0,"onChildFocus($idx,"._def($page).")");;
+	$this->{app_frame}->setCurrentPane($page) if $page;
+	display($dbg_nb+2,0,"onChildFocus() finished");;
 	$event->Skip();
 }
 
 
-sub closeBookPageIDX
-{
-    my ($this,$page,$idx) = @_;
-    display($dbg_nb+1,1,"$this closeBookPageIDX($page->{label},$idx) isfloat=$this->{is_floating}");
-	display($dbg_nb+1,2,"page=$page");
-	display($dbg_nb+1,2,"getPageCount=".$this->GetPageCount());
-	$page->Close();
-	$this->{app_frame}->removePane($page);
-    $this->DeletePage($idx);
-	display($dbg_nb+1,2,"after DeletePage() getPageCount=".$this->GetPageCount());
-	$this->closeFloatingSelf() if $this->{is_floating} && !$this->GetPageCount();
-    display($dbg_nb+1,1,"$this closeBookPageIDX($page) finishing");
-}
-
-
-sub closeBookPage
-{
-    my ($this,$page) = @_;
-	display($dbg_nb+1,0,"$this closeBookPage($page)");
-    my $idx = $this->GetPageIndex($page);
-    $this->closeBookPageIDX($page,$idx);
-	display($dbg_nb+1,0,"$this closeBookPage($page) finished");
-
-}
-
 
 sub onAuiPageClose
-	# stop the process if the page is dirty and should not be closed.
-	# onClose() methods handle all detaching of frame objects.
-	# otherwise, if it's the last page, close the notebook.
+	# called from event.
+	# C++ will Delete the page if we Allow() it, or we Veto()
+	# the event if the page is dirty and should not be closed.
 {
 	my ($this,$event) = @_;
-	my $tab_idx = $event->GetSelection();
-	my $page = $this->GetPage($tab_idx);
-	display($dbg_nb+1,0,"onAuiPageClose($this) page=$page");
+	my $idx = $event->GetSelection();
+	my $page = $this->GetPage($idx);
+	display($dbg_nb+1,0,"onAuiPageClose($idx,$page)");
 	if ($page->closeOK())
 	{
-		$this->closeBookPageIDX($page,$tab_idx);
+		# Call $page->close().  Pub::Wx::Window::onClose() will
+		# call {app_frame}->removePane($page) as needed.
+
+		$page->Close();
+
+		# close the floating frame if this is the last window in it.
+
+		$this->closeFloatingSelf() if
+			$this->{is_floating} &&
+			$this->GetPageCount() == 1;
+		$event->Allow();
 	}
 	else
 	{
 		$event->Veto();
 	}
+	$event->Skip();
+	display($dbg_nb+1,0,"onAuiPageClose() finished");
 }
+
+
 
 
 sub onAuiAllowDND
@@ -258,7 +255,7 @@ sub onAuiDragDone
 {
 	my ($this,$event) = @_;
 	my $flag = $event->GetSelection();
-	display($dbg_nb+1,0,"$this onAuiDragDone(flag=$flag)",0,$win_color_light_magenta);
+	display($dbg_nb+1,0,"onAuiDragDone(flag=$flag)",0,$win_color_light_magenta);
 
 	# drop over empty space indicated by -1
 	# we create new floating frame for the page
@@ -278,8 +275,9 @@ sub onAuiDragDone
 
 	# otherwise, close self if no pages left
 
-    display($dbg_nb+1,3,"pagecount=".$this->GetPageCount()." isfloat=$this->{is_floating}");
+    display($dbg_nb+1,1,"pagecount=".$this->GetPageCount()." isfloat=$this->{is_floating}");
 	$this->closeFloatingSelf() if $this->{is_floating} && !$this->GetPageCount();
+    display($dbg_nb+1,0,"onAuiDragDone() finished");
 }
 
 
@@ -349,6 +347,7 @@ sub saveBook
     my $book_pers = "$pane_num,".$this->SavePerspective();
 	display($dbg_sr,1,"Writing book_$num=$book_pers");
 	writeConfig("book_$num",$book_pers);
+	display($dbg_sr,0,"$this saveBook($num) finished");
 }
 
 
@@ -400,6 +399,7 @@ sub restoreBook
 
 	display($dbg_sr,1,"calling LoadPerspective($book_pers)");
 	$this->LoadPerspective($book_pers);
+	display($dbg_sr,0,"$this restoreBook($num) finished");
 }
 
 

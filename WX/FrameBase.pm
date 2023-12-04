@@ -18,7 +18,7 @@ use base 'Wx::EvtHandler';
 
 
 
-our $dbg_fb = 1;
+our $dbg_fb = -2;
 
 
 sub FrameBase
@@ -63,25 +63,6 @@ sub FrameBase
 }	# frameBase()
 
 
-
-sub DESTROY
-{
-	my ($this) = @_;
-	display($dbg_fb,0,"DESTROY Pub::WX::FrameBase("._def($this->{instance}).")");
-	return;
-
-	if ($this->{book})
-	{
-		$this->{book}->DESTROY();
-		$this->{book} = '';
-	}
-	if ($this->{manager})
-	{
-		display($dbg_fb+1,1,"Pub::WX::FrameBase::DESTROY() deleting this->{manager}");
-		$this->{manager}->UnInit();
-		delete $this->{manager};
-	}
-}
 
 
 

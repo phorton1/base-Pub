@@ -29,7 +29,7 @@ use Pub::WX::Dialogs;
 use base qw(Wx::Frame Pub::WX::FrameBase);
 
 
-my $dbg_frame = 0;
+my $dbg_frame = -2;
     # 0 = main lifecycle events
 	# -1 = main pane events
 	# -2 = all details
@@ -298,30 +298,6 @@ sub DESTROY
 	display($dbg_frame,0,"DESTROY Pub::WX::Frame");
 	setAppFrame(undef);
 	return;
-
-	$this->Pub::WX::FrameBase::DESTROY();
-
-	delete $this->{current_pane};
-
-	if ($this->{panes})
-	{
-		for my $pane (@{$this->{panes}})
-		{
-			$pane->DESTROY();
-		}
-		delete $this->{panes};
-	}
-
-	if ($this->{frames})
-	{
-		for my $frame (values %{$this->{frames}})
-		{
-			$frame->DESTROY();
-		}
-		delete $this->{frames};
-	}
-
-	display($dbg_frame,0,"Pub::WX::Frame::DESTROY() done");
 }
 
 
@@ -358,16 +334,16 @@ sub setMainMenu
 sub addFloatingFrame
 {
 	my ($this,$instance,$frame) = @_;
-	warning($dbg_frame,0,"$this $this->{frames} addFloatingFrame($instance)=$frame");
+	warning($dbg_frame,0,"$this addFloatingFrame($instance)=$frame");
 	$this->{frames}->{$instance} = $frame;
 }
 
 sub deleteFloatingFrame
 {
 	my ($this,$instance) = @_;
-	warning($dbg_frame,0,"$this $this->{frames} deleteFloatingFrame($instance)="._def($this->{frames}->{$instance}));
+	warning($dbg_frame,0,"$this deleteFloatingFrame($instance)="._def($this->{frames}->{$instance}));
 	delete $this->{frames}->{$instance};
-	warning($dbg_frame+1,0,"after delete $this->{frames}");
+	display($dbg_frame,0,"deleteFloatingFrame() finished");
 }
 
 
@@ -400,6 +376,11 @@ sub activateSingleInstancePane
 	display($dbg_frame+1,0,"gitUI::Frame::activateSingleInstancePane($id)".
 		" book="._def($book).
 		" data="._def($data) );
+	if (!$this->{running})
+	{
+		display($dbg_frame+1,1,"not running: short return");
+		return undef;
+	}
 	my $pane = $this->findPane($id);
 	if ($pane)
 	{
@@ -445,6 +426,13 @@ sub removePane
 {
 	my ($this,$del_pane) = @_;
 	display($dbg_frame+1,0,"removing $del_pane from frame::panes");
+
+	if (_def($del_pane) eq _def($this->{current_pane}))
+	{
+		display($dbg_frame+1,1,"setting this->{current_pane} to undef");
+		$this->{current_pane} = undef;
+	}
+
 	my $found = 0;
 	for my $idx (0..@{$this->{panes}})
 	{
@@ -461,20 +449,25 @@ sub removePane
 	{
 		display($dbg_frame+2,0,"note: could not find $del_pane for removal");
 	}
-	$this->setCurrentPane(undef);
+	# $this->setCurrentPane(undef);
 }
 
 
 sub setCurrentPane
 {
 	my ($this,$new_cur) = @_;
-	display($dbg_frame+1,0,"setCurrentPane(pane=".($new_cur?$new_cur:'undef').")",1);
+	display($dbg_frame+1,0,"setCurrentPane(pane=".($new_cur?$new_cur:'undef').")"); # ,1);
 
 	# Notebook may call this with a stale pane.
 	# We only accept the pane if it is our {panes} array
+	# Note if it is already the current pane
 
-	my $found;
-	if ($new_cur)
+	my $found = undef;
+	if (!$this->{running})
+	{
+		display($dbg_frame+1,1,"not running: setting current_pane to undef");
+	}
+	elsif ($new_cur)
 	{
 		for my $pane (@{$this->{panes}})
 		{
@@ -482,26 +475,16 @@ sub setCurrentPane
 		}
 		if (!$found)
 		{
-			display($dbg_frame+1,1,"setCurrentPane() could not find $new_cur; returning!");
-			return;
+			display($dbg_frame+1,1,"setCurrentPane() could not find $new_cur; setting undef");
 		}
-	}
-
-	# note if it is already the current pane
-
-	my $cur = $this->getCurrentPane();
-	if (_def($found) eq _def($cur))
-	{
-		display($dbg_frame+9,1,"note: "._def($cur)." is already the current pane");
-	}
-
-	# if !$this->{running} we are shutting down,
-	# so clear the member.
-
-	if ($found && !$this->{running})
-	{
-		display($dbg_frame+1,1,"Shutting down, so setting current pane to undef!");
-		$found = undef;
+		else
+		{
+			my $cur = $this->getCurrentPane();
+			if (_def($found) eq _def($cur))
+			{
+				display($dbg_frame+9,1,"note: "._def($cur)." is already the current pane");
+			}
+		}
 	}
 
 	# set the member
@@ -510,7 +493,6 @@ sub setCurrentPane
 
 	# implement a pending_populate scheme.
 	# this is called anytime the window comes into focus
-
 
 	if ($found &&
 		$found->{pending_populate} &&

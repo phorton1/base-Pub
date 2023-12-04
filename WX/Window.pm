@@ -39,7 +39,7 @@ use Wx::Event qw(EVT_CHILD_FOCUS EVT_CLOSE);
 use Pub::Utils;
 use base qw(Wx::Window);
 
-my $debug_aw = 1;
+my $debug_aw = -2;
 
 
 sub MyWindow
@@ -85,27 +85,13 @@ sub closeSelf
 	display($debug_aw,0,"closeSelf finishing".ref($this));
 }
 
-sub DESTROY
-	# debug only
-{
-	my ($this) = @_;
-	my $id = $this->GetId();
-	display($debug_aw,0,"DESTROY ".ref($this));
-	return;
-
-	delete $this->{frame};
-	return;
-}
-
-
 
 sub onClose
 {
 	my ($this,$event) = @_;
 	my $id = $this->GetId();
 	display($debug_aw,0,"Pub::WX::Window::onClose(".ref($this)."($id) $this->{caption})");
-	my $frame = $this->{frame};
-	$frame->removePane($this);
+	$this->{frame}->removePane($this);
 	$event->Skip();
 }
 
@@ -132,7 +118,7 @@ sub closeOK
 	#    but not call closeOK() any more (abandon all changes).
 {
 	my ($this,$more_dirty) = @_;
-	display($debug_aw,0,"Pub::WX::Window::closeOK($this->{label}) called");
+	display($debug_aw,0,"Pub::WX::Window::closeOK($this->{label}) returning 1");
 	return 1;
 }
 
