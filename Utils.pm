@@ -224,6 +224,8 @@ sub initUtils
 
 	$CONSOLE = is_win() && !$AS_SERVICE ?
 		Win32::Console->new(STD_OUTPUT_HANDLE) : '';
+	$CONSOLE->OutputCP(1252) if $CONSOLE;
+		# use 1252 Code Page to show Latin1 high chars
 }
 
 
