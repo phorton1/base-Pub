@@ -92,13 +92,34 @@ BEGIN
 		printVarToFile
 		my_mkdir
 
-
 		encode64
         decode64
         mergeHash
 		filterPrintable
 
 		getTopWindowId
+
+		$DISPLAY_COLOR_NONE
+        $DISPLAY_COLOR_LOG
+        $DISPLAY_COLOR_WARNING
+        $DISPLAY_COLOR_ERROR
+
+		$UTILS_COLOR_BLACK
+		$UTILS_COLOR_BLUE
+		$UTILS_COLOR_GREEN
+		$UTILS_COLOR_CYAN
+		$UTILS_COLOR_RED
+		$UTILS_COLOR_MAGENTA
+		$UTILS_COLOR_BROWN
+		$UTILS_COLOR_LIGHT_GRAY
+		$UTILS_COLOR_GRAY
+		$UTILS_COLOR_LIGHT_BLUE
+		$UTILS_COLOR_LIGHT_GREEN
+		$UTILS_COLOR_LIGHT_CYAN
+		$UTILS_COLOR_LIGHT_RED
+		$UTILS_COLOR_LIGHT_MAGENTA
+		$UTILS_COLOR_YELLOW
+		$UTILS_COLOR_WHITE
 	);
 
 
@@ -129,28 +150,6 @@ BEGIN
 		getMachineId
 		execNoShell
 		execExplorer
-
-		$win_color_black
-		$win_color_blue
-		$win_color_green
-		$win_color_cyan
-		$win_color_red
-		$win_color_magenta
-		$win_color_brown
-		$win_color_light_gray
-		$win_color_gray
-		$win_color_light_blue
-		$win_color_light_green
-		$win_color_light_cyan
-		$win_color_light_red
-		$win_color_light_magenta
-		$win_color_yellow
-		$win_color_white
-
-		$DISPLAY_COLOR_NONE
-        $DISPLAY_COLOR_LOG
-        $DISPLAY_COLOR_WARNING
-        $DISPLAY_COLOR_ERROR
 	);
 
 	our @EXPORT = (
@@ -175,28 +174,100 @@ my $CHARS_PER_INDENT = 2;
 my $WITH_TIMESTAMPS = 0;
 my $WITH_PROCESS_INFO = 1;
 my $PAD_FILENAMES = 30;
+my $USE_ANSI_COLORS = is_win() ? 0 : 1;
+	# by default, we use ANSI colors on linux
 
-our $win_color_black            = 0x00;
-our $win_color_blue             = 0x01;
-our $win_color_green            = 0x02;
-our $win_color_cyan             = 0x03;
-our $win_color_red              = 0x04;
-our $win_color_magenta          = 0x05;
-our $win_color_brown            = 0x06;
-our $win_color_light_gray       = 0x07;
-our $win_color_gray             = 0x08;
-our $win_color_light_blue       = 0x09;
-our $win_color_light_green      = 0x0A;
-our $win_color_light_cyan       = 0x0B;
-our $win_color_light_red        = 0x0C;
-our $win_color_light_magenta    = 0x0D;
-our $win_color_yellow           = 0x0E;
-our $win_color_white            = 0x0F;
 
-our $DISPLAY_COLOR_NONE 	= $win_color_light_gray;
-our $DISPLAY_COLOR_LOG  	= $win_color_white;
-our $DISPLAY_COLOR_WARNING 	= $win_color_yellow;
-our $DISPLAY_COLOR_ERROR 	= $win_color_light_red;
+# THESE COLOR CONSTANTS JUST HAPPEN TO MATCH WINDOWS
+# low order nibble of $attr = foreground color
+# high order nibble of $attr = background color
+# THEY ARE NOT IN THE SAME ORDER AS THE ANSI COLORS
+# and hence $ansi_colors is a lookup array
+
+our $UTILS_COLOR_BLACK            = 0x00;
+our $UTILS_COLOR_BLUE             = 0x01;
+our $UTILS_COLOR_GREEN            = 0x02;
+our $UTILS_COLOR_CYAN             = 0x03;
+our $UTILS_COLOR_RED              = 0x04;
+our $UTILS_COLOR_MAGENTA          = 0x05;
+our $UTILS_COLOR_BROWN            = 0x06;
+our $UTILS_COLOR_LIGHT_GRAY       = 0x07;
+our $UTILS_COLOR_GRAY             = 0x08;
+our $UTILS_COLOR_LIGHT_BLUE       = 0x09;
+our $UTILS_COLOR_LIGHT_GREEN      = 0x0A;
+our $UTILS_COLOR_LIGHT_CYAN       = 0x0B;
+our $UTILS_COLOR_LIGHT_RED        = 0x0C;
+our $UTILS_COLOR_LIGHT_MAGENTA    = 0x0D;
+our $UTILS_COLOR_YELLOW           = 0x0E;
+our $UTILS_COLOR_WHITE            = 0x0F;
+
+# mapping from $UTILS_COLORS to ansi_color constants
+# and backwards for clients (i.e. console/buddy) who want
+# to display ansi colors in windows apps
+
+our $ansi_color_black 	     	= 30;
+our $ansi_color_red 	     	= 31;
+our $ansi_color_green 	     	= 32;
+our $ansi_color_brown 	 		= 33;
+our $ansi_color_blue 	     	= 34;
+our $ansi_color_magenta 	 	= 35;
+our $ansi_color_cyan 	     	= 36;
+our $ansi_color_light_gray 		= 37;
+our $ansi_color_gray  	        = 90;
+our $ansi_color_light_red 	 	= 91;
+our $ansi_color_light_green 	= 92;
+our $ansi_color_yellow 			= 93;
+our $ansi_color_light_blue  	= 94;
+our $ansi_color_light_magenta 	= 95;
+our $ansi_color_light_cyan 		= 96;
+our $ansi_color_white  			= 97;
+
+
+our $utils_color_to_ansi = {
+	$UTILS_COLOR_BLACK         => $ansi_color_black,
+	$UTILS_COLOR_BLUE          => $ansi_color_blue,
+	$UTILS_COLOR_GREEN         => $ansi_color_green,
+	$UTILS_COLOR_CYAN          => $ansi_color_cyan,
+	$UTILS_COLOR_RED           => $ansi_color_red,
+	$UTILS_COLOR_MAGENTA       => $ansi_color_magenta,
+	$UTILS_COLOR_BROWN         => $ansi_color_brown,
+	$UTILS_COLOR_LIGHT_GRAY    => $ansi_color_light_gray,
+	$UTILS_COLOR_GRAY          => $ansi_color_gray,
+	$UTILS_COLOR_LIGHT_BLUE    => $ansi_color_light_blue,
+	$UTILS_COLOR_LIGHT_GREEN   => $ansi_color_light_green,
+	$UTILS_COLOR_LIGHT_CYAN    => $ansi_color_light_cyan,
+	$UTILS_COLOR_LIGHT_RED     => $ansi_color_light_red,
+	$UTILS_COLOR_LIGHT_MAGENTA => $ansi_color_light_magenta,
+	$UTILS_COLOR_YELLOW        => $ansi_color_yellow,
+	$UTILS_COLOR_WHITE         => $ansi_color_white,
+};
+
+our $ansi_color_to_utils = {
+	$ansi_color_black 			=> $UTILS_COLOR_BLACK,
+	$ansi_color_blue	 		=> $UTILS_COLOR_BLUE,
+	$ansi_color_green	 		=> $UTILS_COLOR_GREEN,
+	$ansi_color_cyan 			=> $UTILS_COLOR_CYAN,
+	$ansi_color_red 			=> $UTILS_COLOR_RED,
+	$ansi_color_magenta 		=> $UTILS_COLOR_MAGENTA,
+	$ansi_color_brown 			=> $UTILS_COLOR_BROWN,
+	$ansi_color_light_gray 		=> $UTILS_COLOR_LIGHT_GRAY,
+	$ansi_color_gray			=> $UTILS_COLOR_GRAY,
+	$ansi_color_light_blue 		=> $UTILS_COLOR_LIGHT_BLUE,
+	$ansi_color_light_green	 	=> $UTILS_COLOR_LIGHT_GREEN,
+	$ansi_color_light_cyan		=> $UTILS_COLOR_LIGHT_CYAN,
+	$ansi_color_light_red		=> $UTILS_COLOR_LIGHT_RED,
+	$ansi_color_light_magenta	=> $UTILS_COLOR_LIGHT_MAGENTA,
+	$ansi_color_yellow			=> $UTILS_COLOR_YELLOW,
+	$ansi_color_white			=> $UTILS_COLOR_WHITE,
+};
+
+
+
+
+our $DISPLAY_COLOR_NONE 	= $UTILS_COLOR_LIGHT_GRAY;
+our $DISPLAY_COLOR_LOG  	= $UTILS_COLOR_WHITE;
+our $DISPLAY_COLOR_WARNING 	= $UTILS_COLOR_YELLOW;
+our $DISPLAY_COLOR_ERROR 	= $UTILS_COLOR_LIGHT_RED;
 
 
 my $STD_OUTPUT_HANDLE = -11;
@@ -387,6 +458,23 @@ sub get_indent
 }
 
 
+sub _setColor
+{
+	my ($utils_color) = @_;
+	if (is_win())
+	{
+		$CONSOLE->Attr($utils_color) if $CONSOLE;
+	}
+	elsif ($USE_ANSI_COLORS)
+	{
+		printf "\033[%dm",$utils_color_to_ansi->{$utils_color};
+	}
+}
+
+
+
+
+
 sub _output
 {
     my ($indent_level,$msg,$color,$call_level) = @_;
@@ -446,15 +534,14 @@ sub _output
 			$text = $full_message."\r\n";
 		}
 
-
-		$CONSOLE->Attr($color) if $CONSOLE;
+		_setColor($color);
 
 		print $text;
-
 		# print($full_message."\n");
 		# print($USE_HANDLE $full_message."\n") :
 		# $CONSOLE->Write($full_message."\n") :
-		$CONSOLE->Attr($DISPLAY_COLOR_NONE) if $CONSOLE;
+
+		_setColor($DISPLAY_COLOR_NONE);
 
 		$CONSOLE->Flush() if $CONSOLE;
 		# sleep(0.1) if $WITH_SEMAPHORES;
@@ -464,6 +551,7 @@ sub _output
 
 	return 1;
 }
+
 
 
 #---------------------------------------------------------------
