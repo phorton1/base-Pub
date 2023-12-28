@@ -16,7 +16,7 @@ use threads;
 use threads::shared;
 use Pub::Utils;
 
-our $dbg_info = 1;
+our $dbg_info = -1;
 	# 0 = show new() events
 	# -1 = show fromText hashes
 our $dbg_text:shared = 1;
@@ -136,8 +136,8 @@ sub fromText
 	$this->{entry} = '/' if $this->{is_dir} && !$this->{entry};
 
 	# errors at $call_level=1 with $suppress_show
-	return error("bad FS::FileInfo size($this->{size}) for directory: $text",$call_level)
-		if $this->{is_dir} && $this->{size};
+	#return error("bad FS::FileInfo size($this->{size}) for directory: $text",$call_level)
+	#	if $this->{is_dir} && $this->{size};
 	return error("bad FS::FileInfo size($this->{size}) for file: $text",$call_level)
 		if !$this->{is_dir} && $this->{size} !~ /^\d+$/;
 	return error("bad FS::FileInfo timestamp($this->{ts}): $text",$call_level)
@@ -145,7 +145,7 @@ sub fromText
 
 
 	$this->{entries} = shared_clone({}) if $this->{is_dir};
-	display($dbg_info+1,0,"fromText",toText($this,1));
+	display($dbg_info+1,0,"fromText=".toText($this,1));
 	bless $this,$class;
 	return $this;
 }
