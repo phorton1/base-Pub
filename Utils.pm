@@ -900,23 +900,45 @@ sub setTimestamp
 
 
 sub diskFree
-	# win32 only
 	# returns free space for the drive in the given $path.
-	# if no DRIVER_LETTER COLON is specified, defaults to C:
+	# win32: if no DRIVER_LETTER COLON is specified, defaults to C:
 {
 	my ($path) = @_;
-	my $drive = 'C:';
-	$drive = $1 if $path && $path =~ /^([A-Z]:)/i;
-	my ($SectorsPerCluster,
-		$BytesPerSector,
-		$NumberOfFreeClusters,
-		$TotalNumberOfClusters,
-		$FreeBytesAvailableToCaller,
-		$TotalNumberOfBytes,
-		$TotalNumberOfFreeBytes) = Win32::DriveInfo::DriveSpace($drive);
-	# display(0,0,"diskFree=$TotalNumberOfFreeBytes");
-	return $TotalNumberOfFreeBytes;
+	my $rslt = 0;
+	if (is_win())
+	{
+		my $drive = 'C:';
+		$drive = $1 if $path && $path =~ /^([A-Z]:)/i;
+		my ($SectorsPerCluster,
+			$BytesPerSector,
+			$NumberOfFreeClusters,
+			$TotalNumberOfClusters,
+			$FreeBytesAvailableToCaller,
+			$TotalNumberOfBytes,
+			$TotalNumberOfFreeBytes) = Win32::DriveInfo::DriveSpace($drive);
+		$rslt = $TotalNumberOfFreeBytes;
+	}
 
+	# linux, call 'df', parse the lines looking for "Mounted On" eq "/"
+	# and return the 3rd integer (4th space delimited part) blocks  * 1024
+
+	else
+	{
+		my $text = `df`;
+		my @lines = split(/\n/,$text);
+		for my $line (@lines)
+		{
+			my @parts = split(/\s+/,$line);
+			if ($parts[5] eq '/')
+			{
+				$rslt = $parts[3] * 1024;
+				last;
+			}
+		}
+	}
+
+	display(0,0,"diskFree=$rslt");
+	return $rslt;
 }
 
 
