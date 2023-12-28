@@ -199,7 +199,7 @@ our $DISPLAY_COLOR_WARNING 	= $win_color_yellow;
 our $DISPLAY_COLOR_ERROR 	= $win_color_light_red;
 
 
-# my $STD_OUTPUT_HANDLE = -11;
+my $STD_OUTPUT_HANDLE = -11;
 # my $STD_ERROR_HANDLE = -12;
 our $CONSOLE;	# = is_win() ? Win32::Console->new(STD_OUTPUT_HANDLE) : '';
 # my $USE_HANDLE = *STDOUT;
@@ -223,7 +223,7 @@ sub initUtils
 	}
 
 	$CONSOLE = is_win() && !$AS_SERVICE ?
-		Win32::Console->new(STD_OUTPUT_HANDLE) : '';
+		Win32::Console->new($STD_OUTPUT_HANDLE) : '';
 	$CONSOLE->OutputCP(1252) if $CONSOLE;
 		# use 1252 Code Page to show Latin1 high chars
 }
