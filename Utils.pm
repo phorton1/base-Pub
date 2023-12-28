@@ -961,11 +961,14 @@ sub my_mkdir
 
 
 sub getMachineId
-	# currently windows only, cuz it uses a windows
-	# specific environment variable
+	# uses $ENV{COMPUTERNAME) on Windows
+	# uses hostname command otherwise
 {
 	# display_hash(0,0,"ENV",\%ENV);
-	my $id = $ENV{COMPUTERNAME};
+	my $id = is_win() ?
+		$ENV{COMPUTERNAME} :
+		`hostname`;
+	$id =~ s/\s+$//;
     # display(0,0,"getMachineId=$id");
 	return $id;
 }
