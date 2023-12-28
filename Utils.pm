@@ -48,6 +48,7 @@ BEGIN
 	# they are win only.
 
 	my @XPLAT = qw(
+		is_win
 		$AS_SERVICE
 
 		$debug_level
@@ -96,6 +97,9 @@ BEGIN
         decode64
         mergeHash
 		filterPrintable
+
+		diskFree
+		getMachineId
 
 		getTopWindowId
 
@@ -146,8 +150,6 @@ BEGIN
 		setStandardDataDir
 		setStandardCavaResourceDir
 
-		diskFree
-		getMachineId
 		execNoShell
 		execExplorer
 	);
