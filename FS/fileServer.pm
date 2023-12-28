@@ -5,7 +5,7 @@
 # where 0 will pick a random port. Otherwise
 # uses $DEFAULT_PORT defined in Session.pm
 
-package Pub::FC::fileServer;
+package Pub::FS::fileServer;
 use strict;
 use warnings;
 use threads;
@@ -32,7 +32,7 @@ sub new
 
 
 
-my $file_server = Pub::FC::fileServer->new();
+my $file_server = Pub::FS::fileServer->new();
 
 while (1)
 {
