@@ -68,7 +68,6 @@ sub initServerUtils
 	my ($requires_wifi, $pid_file) = @_;
 	LOG(-1,"initServerUtils($requires_wifi,$pid_file");
 
-	start_unix_service($pid_file) if $AS_SERVICE && !is_win();
 	if ($requires_wifi)
 	{
 		my $wifi_count = 0;
@@ -81,6 +80,7 @@ sub initServerUtils
 		display(0,0,"wifi Connected at $server_ip");
 	}
 
+	start_unix_service($pid_file) if $AS_SERVICE && !is_win();
 	display($dbg_su,0,"initServerUtils() returning");
 }
 
