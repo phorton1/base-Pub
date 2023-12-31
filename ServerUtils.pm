@@ -227,10 +227,10 @@ sub wifiThread
             else    # rPi
             {
 				my $text = `ifconfig`;
-                my @parts = split(/wlan0:/,$text);
+				my @parts = split(/wlan0:/,$text);
                 if (@parts > 1)
                 {
-                    if ($parts[1] =~ /inet:\s*(\d+\.\d+\.\d+\.\d+)/)
+                    if ($parts[1] =~ /inet\s*(\d+\.\d+\.\d+\.\d+)\s+/)
                     {
                         $server_ip = $1;
                         display($dbg_wifi+1,-1,"linux wifi connected with ip=$server_ip");
@@ -238,7 +238,7 @@ sub wifiThread
                     }
                     else
                     {
-                        warning($dbg_wifi+1,-1,"win wifi disconnected!");
+                        warning($dbg_wifi+1,-1,"linux wifi disconnected!");
                     }
 				}
 			}
