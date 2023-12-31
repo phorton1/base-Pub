@@ -101,7 +101,8 @@ sub myDie
 
 sub start_unix_service
 {
-	my ($pid_file,$err_logfile) = @_;
+	my ($pid_file) = @_;
+	
     LOG(0,"start_unix_service($pid_file) pid=$$");
 
     # otherwise child process hang around
@@ -122,8 +123,8 @@ sub start_unix_service
 
     chdir '/' or myDie "Can't chdir to /: $!";
     open STDIN, '/dev/null'  or myDie "Can't open STDIN to /dev/null: $!";
-	open STDOUT,">>$err_logfile" or myDie "Can't open STDOUT to >> $err_logfile: $!";
-	open STDERR,">>$err_logfile" or myDie "Can't open STDERR to >> $err_logfile: $!";
+	open STDOUT,">>$logfile" or myDie "Can't open STDOUT to >> $logfile: $!";
+	open STDERR,">>$logfile" or myDie "Can't open STDERR to >> $logfile: $!";
 
     # fork off the child process
 
@@ -133,7 +134,7 @@ sub start_unix_service
         display($dbg_su,1,"inside first fork");
         while (!(-e $pid_file))
         {
-            display($dbg_su,"inside fork(1) - parent $$ waiting for pid file");
+            display($dbg_su,1,"inside fork(1) - parent $$ waiting for pid file");
             sleep(1);
         }
         display($dbg_su,1,"parent $$ got pid file, exiting");
