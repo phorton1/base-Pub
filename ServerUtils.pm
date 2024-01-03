@@ -209,6 +209,9 @@ sub wifiThread
             display($dbg_wifi+1,0,"checking wifi ...");
             if (is_win())
             {
+				# This 'flashes' from the artisan tray icon app, but not
+				# from anyone else, sigh.
+
                 my $text = `ipconfig /all`;
                 my @parts = split(/Wireless LAN adapter Wi-Fi:/,$text);
                 if (@parts > 1)
