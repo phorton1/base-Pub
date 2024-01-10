@@ -764,10 +764,10 @@ sub CapFirst
 	my @parts = split(/\s+/,$name);
     for my $part (@parts)
     {
-        $new_name .= " " if ($name ne "");
+        $new_name .= " " if $new_name;
         $new_name .= uc(substr($part,0,1)).lc(substr($part,1));
     }
-    return $name;
+    return $new_name;
 }
 
 
