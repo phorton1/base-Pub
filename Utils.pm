@@ -97,6 +97,7 @@ BEGIN
         decode64
         mergeHash
 		filterPrintable
+		fix1252String
 
 		diskFree
 		getMachineId
@@ -1166,6 +1167,36 @@ sub filterPrintable
 }
 
 
+sub fix1252String
+	# still digging to understand why.
+	#
+	#	/mp3s/albums/Classical/Guitar/Various - Road to the Sun (Estrada do Sol)/10 - El decamerón negro_ III. Balada de la doncella enamorada.mp3
+	#
+	# Shows correctly here: El decamerón negro_ III, and in CONSOLE after
+	# I added $CONSOLE->OutputCP(1252) to Pub Utils;
+	#
+	# filenames with latin characters (i.e. 7E == o accent) were not playing.
+	# the string has exactly the same bytes as when I scanned the dir and
+	# put it in the database, but perl failed -f now, and not then.
+	# this 'fixes' it by rebuilding the string from the bytes therin,
+	# but it bugs the heck out of me.  Undoubtedly Perl is utf8 encoding
+	# them when I retrieve them from the database, but there's no way
+	# I have found to 'prove' that.  The UTF8 'internal flag' is opaque.
+	#
+	# Who knows when this will come back to haunt me in another way
+	# when I try to open a file or directory in some other piece
+	# of code?
+{
+	my ($s) = @_;
+	my $out = '';
+	for (my $i=0; $i<length($s); $i++)
+	{
+		my $b = ord(substr($s,$i,1));
+		$out .= chr($b);
+	}
+	return $out;
+}
+
 
 sub execNoShell
 	# This, not system(), is how I figured out how to
@@ -1223,6 +1254,8 @@ sub getTopWindowId
 	}
 	return $window_id;
 }
+
+
 
 
 1;
