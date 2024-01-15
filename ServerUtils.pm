@@ -40,27 +40,17 @@ my $dbg_su = 0;
 my $dbg_wifi = 0;
 
 
-my $REPORT_RSSI = 1;
-	# report RSSI on linux every $RSSI_REPORT_TIME seconds
-my $WIFI_REFRESH_TIME_INIT = 1;
-my $WIFI_REFRESH_TIME_NORMAL = 15;
-my $RSSI_REPORT_TIME = 900;
-
-
 BEGIN
 {
  	use Exporter qw( import );
 	our @EXPORT = qw (
 	    $server_ip
-		$wifi_connected
 	);
 }
 
 
 
 our $server_ip:shared = '';
-our $wifi_connected:shared = 0;
-
 
 
 sub initServerUtils
@@ -68,19 +58,9 @@ sub initServerUtils
 	my ($requires_wifi, $pid_file) = @_;
 	LOG(-1,"initServerUtils($requires_wifi,$pid_file");
 
-	if ($requires_wifi)
-	{
-		my $wifi_count = 0;
-		startWifiThread();
-		while (!$wifi_connected)
-		{
-			display(0,0,"Waiting for wifi connection ".$wifi_count++);
-			sleep(1);
-		}
-		display(0,0,"wifi Connected at $server_ip");
-	}
-
+	getServerIP() if $requires_wifi;
 	start_unix_service($pid_file) if $AS_SERVICE && !is_win();
+
 	display($dbg_su,0,"initServerUtils() returning");
 }
 
@@ -102,7 +82,7 @@ sub myDie
 sub start_unix_service
 {
 	my ($pid_file) = @_;
-	
+
     LOG(0,"start_unix_service($pid_file) pid=$$");
 
     # otherwise child process hang around
@@ -178,100 +158,43 @@ sub finish_unix_service
 
 
 
-sub startWifiThread
+sub getServerIP
 {
-    LOG(-1,"startWifiThread()");
-	my $wifi_thread = threads->create(\&wifiThread);
-	$wifi_thread->detach();
-	display($dbg_su,0,"startWifiThread() returning");
-}
+    display($dbg_su,0,"getServerIP() started");
 
-
-
-sub wifiThread
-{
-    display($dbg_su,0,"wifiThread() started");
-    my $last_check = 0;
-    my $last_report = 0;
-	my $wifi_rssi = 0;
-
-    while (1)
+    while (!$server_ip)
     {
-        my $now = time();
-		my $use_interval = $server_ip ?
-			$WIFI_REFRESH_TIME_NORMAL :
-			$WIFI_REFRESH_TIME_INIT;
-
-        if ($now > $last_check + $use_interval)
-        {
-            $last_check = $now;
-            my $got_connected = 0;
-            display($dbg_wifi+1,0,"checking wifi ...");
-            if (is_win())
-            {
-				# This 'flashes' from the artisan tray icon app, but not
-				# from anyone else, sigh.
-
-                my $text = `ipconfig /all`;
-                my @parts = split(/Wireless LAN adapter Wi-Fi:/,$text);
-                if (@parts > 1)
-                {
-                    if ($parts[1] =~ /IPv4 Address.*:\s*(\d+\.\d+\.\d+\.\d+)/)
-                    {
-                        $server_ip = $1;
-                        display($dbg_wifi+1,-1,"win wifi connected with ip=$server_ip");
-                        $got_connected = 1;
-                    }
-                    else
-                    {
-                        warning($dbg_wifi+1,-1,"win wifi disconnected!");
-                    }
-                }
-            }
-            else    # rPi
-            {
-				my $text = `ifconfig`;
-				my @parts = split(/wlan0:/,$text);
-                if (@parts > 1)
-                {
-                    if ($parts[1] =~ /inet\s*(\d+\.\d+\.\d+\.\d+)\s+/)
-                    {
-                        $server_ip = $1;
-                        display($dbg_wifi+1,-1,"linux wifi connected with ip=$server_ip");
-                        $got_connected = 1;
-                    }
-                    else
-                    {
-                        warning($dbg_wifi+1,-1,"linux wifi disconnected!");
-                    }
-				}
-			}
-
-			if (!is_win() && $got_connected &&
-				$now > $last_report + $RSSI_REPORT_TIME)
+		display($dbg_wifi+1,0,"checking wifi ...");
+		if (is_win())
+		{
+			my $text = `ipconfig /all`;
+			my @parts = split(/Wireless LAN adapter Wi-Fi:/,$text);
+			if (@parts > 1)
 			{
-				$last_report = $now;
-	            my $text = `iwconfig wlan0`;
-                my $wifi_ssid = $text =~ /ESSID:"(.*?)"/ ? $1 : 'unknown';
-				if ($text =~ /Signal level=(-\d+)/)
+				if ($parts[1] =~ /IPv4 Address.*:\s*(\d+\.\d+\.\d+\.\d+)/)
 				{
-					my $rssi = $1;
-					$wifi_rssi = $rssi if abs($wifi_rssi - $rssi) > 4;
+					$server_ip = $1;
+					LOG(0,"WIN WIFI CONNECTED with ip=$server_ip");
 				}
-				LOG(-1,"SSID=$wifi_ssid RSSI=$wifi_rssi");
 			}
-
-            if ($got_connected != $wifi_connected)
-            {
-                LOG(-1,"=============== WIFI ".($got_connected?"CONNECTED($server_ip)":"DISCONNECTED")." ===============");
-                $wifi_connected = $got_connected;
-                $wifi_rssi = 0 if !$got_connected;
-            }
-        }
+		}
+		else    # rPi
+		{
+			my $text = `ifconfig`;
+			my @parts = split(/wlan0:/,$text);
+			if (@parts > 1)
+			{
+				if ($parts[1] =~ /inet\s*(\d+\.\d+\.\d+\.\d+)\s+/)
+				{
+					$server_ip = $1;
+					LOG(0,"LINUX WIFI CONNECTED with ip=$server_ip");
+				}
+			}
+		}
 
 		sleep(1);
 
-    }	# endless loop
+    }	# while (!$server_ip)
 }
 
 
