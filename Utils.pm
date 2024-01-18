@@ -1188,6 +1188,8 @@ sub fix1252String
 	# of code?
 {
 	my ($s) = @_;
+	return $s;
+
 	my $out = '';
 	for (my $i=0; $i<length($s); $i++)
 	{
