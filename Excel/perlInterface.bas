@@ -2,77 +2,95 @@ Attribute VB_Name = "perlInterface"
 
 Public perl_pid As String
 
-' colors (B,G,R)
+' dont you just love the weird vba syntax, &H, and
+' it can't have leading zeros, and if it is less than
+' six digits it MUST have a trailing & or it gets intrepreted
+' as a (negative) number in a 16 bit integer context
 
-Public Const color_black 		= 0
-Public Const color_red 			= &H0000FF
-Public Const color_green 		= &H00FF00
-Public Const color_blue 		= &HFF0000
-Public Const color_orange 		= &H0080FF
+Public Const rgb_black As Long = 0
+Public Const rgb_red As Long = &HFF0000
+Public Const rgb_green As Long = &HFF00&
+Public Const rgb_blue As Long = &HFF&
+Public Const rgb_cyan As Long = &HFFFF&
+Public Const rgb_magenta As Long = &HFF00FF
+Public Const rgb_yellow As Long = &HFFFF00
 
-Public Const color_grey 		= &HAAAAAA
-
-Public Const color_dark_red 	= &H000099
-Public Const color_dark_green 	= &H009900
-Public Const color_dark_blue 	= &H990000
-Public Const color_dark_grey 	= &H777777
-
-Public Const color_light_red 	= &HF9999F
-Public Const color_light_green 	= &H99FF99
-Public Const color_light_blue 	= &HFF9999
-Public Const color_light_grey 	= &HCCCCCC
+Public start_count As Integer
 
 
-Sub perlEnd(result, Optional ByVal color_val As Integer)
-    perlStatusMsg result, color_val
-    perlInterfaceDialog.buttonCancel.Enabled = False
-    ' perlInterfaceDialog.buttonRun.Enabled = True
-    ' perlInterfaceDialog.enableCheckBoxes (True)
-    ' perlInterfaceDialog.deleteExistingFiles.value = False
-End Sub
+Function intToHex6(long_color)
+    Dim str
+    str = Hex(long_color)
+    While (Len(str) < 6)
+        str = "0" + str
+    Wend
+    intToHex6 = str
+End Function
 
 
-Function perlStart(pid As String)
-    ' if the window is not showing, the perl was run from the
-    ' command line, so we open the window in the "running" state
-    ' without knowing the parameters
-
-    If Not perlInterfaceDialog.Visible Then
-        initPerlInterface "started from perl(" + pid +")"
-    End If
-
-    perl_pid = pid
-    Dim msg
-    msg = "perlStart pid=" + pid
-    perlStatusMsg msg
-    perlInterfaceDialog.buttonCancel.Enabled = True
-    perlStart = True
+Function rgbToBgr(rgb_color)
+    Dim r, g, b As Long
+    r = (rgb_color And &HFF0000) / &H10000
+    g = rgb_color And &HFF00&
+    b = (rgb_color And &HFF&) * &H10000
+    rgbToBgr = b + g + r
 End Function
 
 
 
-Sub perlProgressMsg(msg, Optional ByVal color_val As Integer)
-    Dim the_color
-    If (IsMissing(color_val)) Then color_val = color_purple
-    perlInterfaceDialog.progressMsg.caption = msg
-    perlInterfaceDialog.progressMsg.ForeColor = color_val
-    perlDisplay msg, color_val
+Sub perlEnd(result, Optional ByVal color_val)
+    perlStatusMsg result, color_val
+    perlInterfaceDialog.cancelButton.Enabled = False
 End Sub
 
 
+Function perlStart(pid As String, Optional title)
+    initPerlInterface "VBA perlStart(" + pid + ")"
+    
+    perl_pid = pid
+    perlInterfaceDialog.cancelButton.Enabled = True
+    If (Not IsMissing(title)) Then
+        perlInterfaceDialog.Caption = title
+    End If
+    
+    start_count = start_count + 1
+    perlStart = start_count
+End Function
 
-Sub perlStatusMsg(msg, Optional ByVal color_val As Integer)
-    Dim the_color
-    If (IsMissing(color_val)) Then color_val = color_blue
-    perlInterfaceDialog.statusMsg.caption = msg
-    perlInterfaceDialog.statusMsg.ForeColor = color_val
+
+
+
+Sub setTitle(title)
+    perlInterfaceDialog.Caption = title
 End Sub
 
 
-Sub perlDisplay(msg, Optional ByVal color_val As Integer)
+Sub perlStatusMsg(msg, Optional rgb_color)
+    If (IsMissing(rgb_color)) Then rgb_color = rgb_blue
+    perlInterfaceDialog.statusMsg.Caption = msg ' + " hex_rgb_color(" + intToHex6(rgb_color) + ")"
+    perlInterfaceDialog.statusMsg.ForeColor = rgbToBgr(rgb_color)
+    perlDisplay "Status: " + msg, rgb_color
+End Sub
+
+
+Sub perlProgressMsg(msg, Optional rgb_color As Long)
+    If (IsMissing(rgb_color)) Then rgb_color = rgb_cyan
+    perlInterfaceDialog.progressMsg.Caption = msg   ' + " hex_rgb_color(" + intToHex6(rgb_color) + ")"
+    perlInterfaceDialog.progressMsg.ForeColor = rgbToBgr(rgb_color)
+    perlDisplay "Progress: " + msg, rgb_color
+End Sub
+
+
+Sub perlDisplay(msg, Optional rgb_color)
     Dim the_html, height
-    the_html = "<font color='#" + color_val.ToString("x6") + "'>" + msg + "</font><br>"
-    Dim browser As WebBrowser_V1
+    If (IsMissing(rgb_color)) Then rgb_color = rgb_grey
+    
+    Dim hex_str
+    hex_str = intToHex6(rgb_color)
+    the_html = "<font color='#" + hex_str + "'>" + msg + "</font><br>" + vbNewLine
+    ' the_html = "<font color='#" + hex_str + "'>" + msg + " hex_rgb_color(" + intToHex6(rgb_color) + ")</font><br>" + vbNewLine
+    
+    Dim browser ' As WebBrowser_V1
     Set browser = perlInterfaceDialog.browser
     browser.Document.Write the_html
     height = browser.Document.Body.ScrollHeight
@@ -83,32 +101,34 @@ End Sub
 
 
 Sub initPerlInterface(Optional msg)
+
     perl_pid = ""
 
-    perlInterfaceDialog.statusMsg.caption = ""
-    perlInterfaceDialog.progressMsg.caption = ""
-
-    If Not IsMissing(msg) Then perlProgressMsg(msg)
+    perlInterfaceDialog.Caption = "Perl Interface"
+    perlInterfaceDialog.statusMsg.Caption = ""
+    perlInterfaceDialog.progressMsg.Caption = ""
 
     Dim the_style
-    Dim browser As WebBrowser_V1
+    Dim browser '  As WebBrowser_V1
     Set browser = perlInterfaceDialog.browser
+    
     browser.Navigate ("about:blank")
-    the_style = "<style> body { font-family: arial, helvetica; font-size:14px } </style>"
+    the_style = "<style> body { font-family: arial, helvetica; font-size:12px } </style>"
     browser.Document.Write (the_style)
 
-    perlDisplay "perlInterface started ...",color_red
-
-    If Not perlProgressMsg.Visible Then
-        perlProgressMsg.Show (vbModeless)
+    If (Not IsMissing(msg)) Then
+        perlProgressMsg msg
     End If
+    
+    perlDisplay "VBA initPerlInterface ...", rgb_blue
+        
+    If Not perlInterfaceDialog.Visible Then
+        perlInterfaceDialog.Show (vbModeless)
+    End If
+    
 End Sub
 
-
-
-
-
-
+ 
 
 ' Sub openGetBankInfoWindow()
 '

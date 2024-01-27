@@ -54,17 +54,7 @@ BEGIN
 
 		$xl_dirty
 
-		xlsGetValue
-		xlsSetValue
-		xlsSetNumberFormat
-		xlsSetJustification
-		xlsSetFillColor
-		xlsSetTextColor
-		xlsSetBold
-		xlsSetFormula
-		xlrc
-		xlsRecToDbRec
-		xlsDBFieldCols
+
 
 		$global_xl
 		$global_xl_started
