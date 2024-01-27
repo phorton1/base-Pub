@@ -122,11 +122,56 @@ Sub initPerlInterface(Optional msg)
     
     perlDisplay "VBA initPerlInterface ...", rgb_blue
         
-    If Not perlInterfaceDialog.Visible Then
+    If Not perlInterfaceDialog.visible Then
         perlInterfaceDialog.Show (vbModeless)
     End If
     
 End Sub
+
+
+
+
+Public Sub callPerlScript(script, Optional with_ui, Optional visible, Optional args)
+
+    If (IsMissing(with_ui)) Then with_ui = False
+    If (IsMissing(visible)) Then visible = False
+    If (IsMissing(args)) Then args = ""
+        
+    Dim cmd
+    cmd = "c:\perl\bin\perl.exe " + script + " " + args
+    
+    If (with_ui) Then
+        initPerlInterface (cmd)
+        perlStatusMsg "Starting ..."
+        perlProgressMsg "calling " + cmd
+    End If
+    
+    ' vbHide              0   Window is hidden and focus is passed to the hidden window.
+    ' vbNormalFocus       1   Window has focus and is restored to its original size and position.
+    ' vbMinimizedFocus    2   Window is displayed as an icon with focus.
+    ' vbMaximizedFocus    3   Window is maximized with focus.
+    ' vbNormalNoFocus     4   Window is restored to its most recent size and position. The currently active window remains active.
+    ' vbMinimizedNoFocus  6   Window is displayed as an icon. The currently active window remains active.
+    
+    ' Dim my_focus
+    ' my_focus = vbNormalFocus
+    ' If getBankInfoWindow.hideWindow.Value Then my_focus = vbMinimizedFocus
+
+    Dim how
+    how = vbHide
+    If (visible) Then how = vbNormalFocus
+    
+    Dim pid As String
+    ' pid = Shell("C:\WINDOWS\NOTEPAD.EXE", 1)
+    pid = Shell(cmd, how)
+    If (with_ui) Then
+        perlProgressMsg "script pid = " + pid
+    End If
+    
+    ' my_focus
+End Sub
+
+
 
  
 

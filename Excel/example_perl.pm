@@ -39,7 +39,7 @@ sub do_stuff
 		if ($TURN_OFF_SCREEN_UPDATING)
 		{
 			$xl->screenUpdating(0);
-			$xl->calculation(0);
+			$xl->calculations(0);
 		}
 
 		for (my $row=6; $row <= 10; $row++)
@@ -60,7 +60,7 @@ sub do_stuff
 		if ($TURN_OFF_SCREEN_UPDATING)
 		{
 			$xl->screenUpdating(1);
-			$xl->calculation(1);
+			$xl->calculations(1);
 		}
 	}
 

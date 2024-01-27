@@ -140,7 +140,7 @@ sub utilToBgrColor
 
 sub xlsRecToDbRec
 {
-	my ($dbh,$table,$sheet,$row) = @_;
+	my ($table,$sheet,$row) = @_;
 
 	my $col = 1;
 	my $rec = {};
@@ -150,7 +150,6 @@ sub xlsRecToDbRec
 		$rec->{$field} = xlsGetValue($sheet,$row,$col) || '';
 		$col++;
 	}
-
 	return $rec;
 }
 
