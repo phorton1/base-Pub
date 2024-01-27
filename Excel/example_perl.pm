@@ -9,6 +9,7 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
+use Win32::OLE;
 use Pub::Utils;
 use Pub::Excel::XL;
 

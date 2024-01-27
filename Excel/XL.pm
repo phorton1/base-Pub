@@ -58,9 +58,6 @@ our $xlCalculationManual 	= -4135;
 
 sub new
 {
-	require Win32::OLE;
-	import Win32::OLE qw(in);
-
 	my ($class,$visible_if_opened) = @_;
 	$visible_if_opened ||= 0;
 
@@ -88,7 +85,6 @@ sub new
 		error("Could not start Excel: ".Win32::OLE->LastError());
 		return;
 	}
-
 
 	return $this;
 }
