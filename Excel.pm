@@ -2,7 +2,30 @@
 #--------------------------------------------------------
 # Pub::Excel
 #--------------------------------------------------------
-# Client must include Win32::OLE as appropriate
+# Client must include Win32::OLE as appropriate.
+#
+# This module provides read/write acesss to Excel Workbooks and Worksheets
+# from Perl Scripts, including from Perl threads and HTTP Servers, and
+# can provide a standardized  mechanism for supporting a DosBox-lik UI in
+# Workbooks that import the PerlInterface VBA script and UserForm.
+#
+# The module works with Workbooks that are already opened in the MS Windows
+# UI by an instance of Excel, and by convention does NOT automatically
+# save modified workbooks that were already open when the script was invoked.
+#
+# Perl Scripts are called from Excel using the visual basic 'system'
+# command. Minimally, such a script uses a logfile for debugging when
+# run 'headless' from Excel.  More sophisticated spreadsheets include
+# the standard 'PerlInterface' VBA module and UserForm which provides
+# a callback UI, somewhat equivilant to a DosBox, for the Perl Script
+# to report Status and Progress, display messages warnings, and errors.
+#
+# COLORS
+#
+# We standardize on UTIL_COLOR_XXXX indexes, which are mapped to RGB
+# colors in Pub::Utils, and then converted to to BGR colors for Excel.
+# Excel also uses COLOR_INDEXES which we could map directly from
+# UTIL_COLOR indexes.
 
 package Pub::Excel;
 use strict;
@@ -26,16 +49,10 @@ BEGIN
 		$xlCalculationAutomatic
 		$xlCalculationManual
 
-		$XLS_COLOR_DEFAULT
-		$XLS_COLOR_BLACK
-		$XLS_COLOR_WHITE
-		$XLS_COLOR_RED
-		$XLS_COLOR_GREEN
-		$XLS_COLOR_BLUE
-		$XLS_COLOR_YELLOW
-
 		init_xl
 		open_xls
+
+		$xl_dirty
 
 		xlsGetValue
 		xlsSetValue
@@ -49,24 +66,22 @@ BEGIN
 		xlsRecToDbRec
 		xlsDBFieldCols
 
-		start_excel;
-		end_excel;
+		$global_xl
+		$global_xl_started
+		$global_xl_book
+		$global_xl_book_opened
 
+		start_excel
+		end_excel
+
+		xls_LOG
 		xls_display
-		xls_state_msg
-		xls_status_msg
-		xls_progress_msg
+		xls_warning
+		xls_error
 
-		perl_progress_msg
-		perl_state_msg
-		perl_status_msg
-		perl_display
-		perl_error
-
-		excel_progress_msg
-		excel_state_msg
-		excel_status_msg
+		excel_LOG
 		excel_display
+		excel_warning
 		excel_error
 	);
 };
@@ -79,13 +94,13 @@ our $XLS_JUST_RIGHT			= -4152;
 our $xlCalculationAutomatic 	= -4105;
 our $xlCalculationManual 	= -4135;
 
-our $XLS_COLOR_DEFAULT 	= 0;
-our $XLS_COLOR_BLACK 	= 1;
-our $XLS_COLOR_WHITE 	= 2;
-our $XLS_COLOR_RED 		= 3;
-our $XLS_COLOR_GREEN 	= 4;
-our $XLS_COLOR_BLUE 	= 5;
-our $XLS_COLOR_YELLOW 	= 6;
+# our $XLS_COLOR_INDEX_DEFAULT 	= 0;
+# our $XLS_COLOR_INDEX_BLACK 	= 1;
+# our $XLS_COLOR_INDEX_WHITE 	= 2;
+# our $XLS_COLOR_INDEX_RED 		= 3;
+# our $XLS_COLOR_INDEX_GREEN 	= 4;
+# our $XLS_COLOR_INDEX_BLUE 	= 5;
+# our $XLS_COLOR_INDEX_YELLOW 	= 6;
 
 
 our $global_xl;
@@ -95,22 +110,51 @@ our $global_xl_book;
 our $global_xl_book_opened;
 
 
+our $xl_dirty = 0;
 our $xl_output = 0;
 our $any_xl_errors = 0;
 
 
-# our $output_dir = "/junk/_banks";
+
+sub utilToBgrColor
+{
+	my ($util_color) = @_;
+	my $rgb = $utils_color_to_rgb->{$util_color};
+	# print sprintf "utilToBgrColor(0x%06x) = 0x%06x\n",$util_color,$rgb;
+	my $r = ($rgb & 0xff0000) >> 16;
+	my $g = ($rgb & 0x00ff00);
+	my $b = ($rgb & 0xff) << 16;
+	return $b | $g | $r;
+}
 
 
 
-my $shutting_down = 0;
-	# re-entrancy control
-	# number of new transactions added
-
-
-
-
-
+#------------------------------------------------------------
+# basic Excel from Perl API
+#------------------------------------------------------------
+# Minimally a script must include Win32:OLE and then can
+# call methods in this section to open a spreadsheet and
+# deal with it.  The XLS file is opened via these reoutines,
+# even if the script is called FROM the XLS file, in which
+# case 'Saving' any modified XLS is deferred to the Excel UI.
+# Or the script can be run from a DOSBox, with the XLS file
+# closed, and can open, modify it, and save it.
+#
+# For threaded access to a spreadsheet, for instance from an HTTP server,
+# you must "require 'OLE::Win32'" WITHIN THE THREAD on a per instance basis.
+# calls init_xl and open_xls with local variables. The interaction with
+# XLS does not change, if the XLS is open, then the Script SHALL defer
+# the saving to the Excel UI, but otherwise, it explicitly saves the xls.
+#
+# It is currently up to the script to determine if it has changed the
+# XLS file and if it wants to save it. That *may* change.
+#
+# For a standalone Perl Script, one can call init_xl with either
+# local globals or the $globals provided in this module for
+# convenience.  For scripts that use the 'standard' VB PerlInterface
+# Module, the 'start_excel() and end_excel() methods, in a subsequent
+# section, are called rather than init_xl() and open_xls() here, but
+# the xls_acccessor() routines are still used.
 
 
 sub init_xl
@@ -200,42 +244,48 @@ sub xlsSetValue
 	$special ||= 0;
 	$val = "'".$val if $special == 1;
     $sheet->Cells($row, $col)->{Value} = $val;
+	$xl_dirty = 1;
 }
 
 sub xlsSetNumberFormat
 {
     my ($sheet,$row,$col,$format) = @_;
     $sheet->Cells($row, $col)->{NumberFormat} = $format;
+	$xl_dirty = 1;
 }
 
 sub xlsSetJustification
 {
     my ($sheet,$row,$col,$just) = @_;
     $sheet->Cells($row, $col)->{HorizontalAlignment} = $just;
+	$xl_dirty = 1;
 }
 
 
 sub xlsSetFillColor
-	# Takes a HEX_COLOR
+	# Interior->{color} takes a BGR_COLOR
 {
-    my ($sheet,$row,$col,$hex_color) = @_;
-    $sheet->Cells($row, $col)->{Interior}->{color} = $hex_color;
+    my ($sheet,$row,$col,$util_color) = @_;
+    $sheet->Cells($row, $col)->{Interior}->{color} = utilToBgrColor($util_color);
+	$xl_dirty = 1;
 }
 
 
 sub xlsSetTextColor
-	# takes a XLS_COLOR index
+	# Font->{color} takes a BGR_COLOR
+	# Could also use an XLS_COLOR index with Font->{ColorIndex}
 {
-    my ($sheet,$row,$col,$color_index) = @_;
-    $sheet->Cells($row, $col)->{Font}->{ColorIndex} = $color_index;
+    my ($sheet,$row,$col,$util_color) = @_;
+    $sheet->Cells($row, $col)->{Font}->{color} = utilToBgrColor($util_color);
+	$xl_dirty = 1;
 }
 
 
 sub xlsSetBold
-	# takes a XLS_COLOR index
 {
     my ($sheet,$row,$col,$bold) = @_;
     $sheet->Cells($row, $col)->{Font}->{Bold} = $bold ? 1 : 0;
+	$xl_dirty = 1;
 }
 
 
@@ -245,6 +295,7 @@ sub xlsSetFormula
 	my $rc = xlrc($row,$col);
 	# display(0,0,"row($row,$col) range($rc)");
 	$sheet->Range($rc)->{Formula} = $formula;
+	$xl_dirty = 1;
 }
 
 sub xlrc
@@ -273,6 +324,7 @@ sub xlsRecToDbRec
 }
 
 
+
 sub xlsDBFieldCols
 {
 	my ($table) = @_;
@@ -293,93 +345,37 @@ sub xlsDBFieldCols
 #---------------------------------------
 # pure Excel display routines
 #---------------------------------------
-# Display messages in Dialog Box in Spreadsheet.
-# $xl_output is 0 if start_excel() was unable to
-# initiate contact with the dialog box.
-#
-# These methods are generally not directly called by
-# Perl Client Code, but are EXPORTED for testing.
 
 
-sub xls_progress_msg
+
+sub xls_status
 {
-	my ($msg,$color) = @_;
+	my ($msg,$util_color) = @_;
 	return if !$xl_output;
-	$color ||= "black";
-	$global_xl->Run("perlProgressMsg","$msg\n",$color);
+	$util_color ||= $UTILS_COLOR_BLACK;
+	my $rgb = $utils_color_to_rgb->{$util_color};
+	# printf "xls_status($util_color,0x%06x,$msg)\n",$rgb;
+	$global_xl->Run("perlStatusMsg","$msg",$rgb);
 }
 
-sub xls_state_msg
+sub xls_progress
 {
-	my ($msg,$color) = @_;
+	my ($msg,$util_color) = @_;
 	return if !$xl_output;
-	$color ||= "black";
-	$global_xl->Run("perlStateMsg","$msg\n",$color);
-}
-
-sub xls_status_msg
-{
-	my ($msg,$color) = @_;
-	return if !$xl_output;
-	$color ||= "black";
-	$global_xl->Run("perlStatusMsg","$msg\n",$color);
+	$util_color ||= $UTILS_COLOR_BLACK;
+	my $rgb = $utils_color_to_rgb->{$util_color};
+	# printf "xls_progress($util_color,0x%06x,$msg)\n",$rgb;
+	$global_xl->Run("perlProgressMsg","$msg",$rgb);
 }
 
 sub xls_display
 {
-	my ($msg,$color) = @_;
+	my ($msg,$util_color) = @_;
 	return if !$xl_output;
-	$color ||= "black";
-	$global_xl->Run("perlDisplay","$msg\n",$color);
-}
-
-
-
-#---------------------------------------
-# Perl display routines called from Excel
-#---------------------------------------
-# I'm not sure exactly what these are, or why they are here.
-
-sub perl_progress_msg
-{
-	my ($class,$msg,$color) = @_;
-	$color ||= "black";
-	excel_progress_msg($msg,$color);
-}
-
-
-sub perl_state_msg
-{
-	my ($class,$msg,$color) = @_;
-	$color ||= "black";
-	excel_state_msg($msg,$color);
-		# doubled (engine_display() called)
-		# in Scripted::Engine::state_msg()
-}
-
-
-sub perl_status_msg
-{
-	my ($class,$msg,$color) = @_;
-	$color ||= "black";
-	excel_status_msg($msg,$color);
-}
-
-
-sub perl_display
-{
-	my ($class,$msg,$color) = @_;
-	$color ||= "black";
-	excel_display($msg,$color);
-}
-
-
-sub perl_error
-{
-	my ($class,$msg) = @_;
-	excel_state_msg("ERROR: $msg","red");
-	excel_display("ERROR: $msg","red");
-	$any_xl_errors++;
+	$util_color ||= $UTILS_COLOR_BLACK;
+	my $rgb = $utils_color_to_rgb->{$util_color};
+	# printf "xls_display($util_color,0x%06x,$msg)\n",$rgb;
+	$global_xl->Run("perlDisplay","$msg",$rgb);
 }
 
 
@@ -389,63 +385,60 @@ sub perl_error
 #---------------------------------------
 # These are used from Perl Code to display messages in a
 # Dos Box, and/or write them to the Log file, and/or display
-# them, if possible, in the Excel Dialog.#
-# Also call error(), LOG(), display() or warning()
-# if !$REDIRECT_DISPLAY_TO_EXCEL which would double them
+# them, if possible, in the Excel Dialog. They call the standard
+# Pub::Utils LOG(), display() error and warning() methods.
+
+sub excel_status
+{
+	my ($msg,$util_color) = @_;
+	display(0,0,"EXCEL_STATUS: $msg",1,$util_color);
+	xls_status($msg,$util_color);
+}
+
+sub excel_progress
+{
+	my ($msg,$util_color) = @_;
+	display(0,0,"EXCEL_PROGRESS(: $msg",1,$util_color);
+	xls_progress($msg,$util_color);
+}
 
 
-sub excel_progress_msg
+
+sub excel_LOG
 	# perlProgressMsg() also calls perlDisplay() for these
 {
-	my ($msg,$color,$level) = @_;
-	$level ||= 0;
-	$color ||= "purple";
-	LOG(-1,$msg,$level+1);
-	xls_progress_msg($msg,$color);
-}
-
-
-sub excel_state_msg
-{
-	my ($msg,$color,$level) = @_;
-	$level ||= 0;
-	$color ||= "blue";
-	LOG(0,$msg,$level+1);
-	xls_state_msg($msg,$color);
-	xls_display($msg,$color);
-		# doubled here
-}
-
-
-sub excel_status_msg
-{
-	my ($msg,$color,$level) = @_;
-	$level ||= 0;
-	$color ||= "black";
-	display(0,0,$msg,$level+1);
-	xls_status_msg($msg,$color);
+	my ($indent,$msg,$call_level) = @_;
+	$call_level ||= 0;
+	LOG($indent,$msg,$call_level+1);
+	xls_display($msg,$UTILS_COLOR_BLUE);
 }
 
 
 sub excel_display
 {
-	my ($msg,$color,$level) = @_;
-	$level ||= 0;
-	$color ||= "black";
-	display(0,0,$msg,$level+1);
+	my ($level,$indent,$msg,$call_level,$color) = @_;
+	$call_level ||= 0;
+	$color ||= $UTILS_COLOR_BLACK;
+	display($level,$indent,$msg,$call_level+1,$color);
 	xls_display($msg,$color);
 }
 
 
+sub excel_warning
+{
+	my ($level,$indent,$msg,$call_level) = @_;
+	$call_level ||= 0;
+	warning($level,$indent,$msg,$call_level+1);
+	xls_display("WARNING: $msg",$UTILS_COLOR_YELLOW);
+}
+
 
 sub excel_error
 {
-	my ($msg,$level) = @_;
-	$level ||= 0;
-	error($msg,$level+1);
-	$msg = "ERROR: $msg";
-	xls_state_msg($msg,'red');
-	xls_display($msg,'red');
+	my ($msg,$call_level) = @_;
+	$call_level ||= 0;
+	error($msg,$call_level+1);
+	xls_display("ERROR: $msg",$UTILS_COLOR_RED);
 	$any_xl_errors = 1;
 }
 
@@ -460,25 +453,25 @@ sub excel_error
 
 sub end_excel
 {
-	my ($state_result,$state_color) = @_;
+	my ($status_msg,$status_color) = @_;
 
-	$state_result ||= 'Done.';
-	$state_color ||= 'black';
+	$status_msg ||= 'Done.';
+	$status_color ||= $UTILS_COLOR_BLACK;
 
-	LOG(0,"end_excel($any_xl_errors,$state_result,$state_color) called");
+	LOG(0,"end_excel($any_xl_errors,$status_msg,$status_color) called");
 
-	my $progress_color = "green";
+	my $progress_color = $UTILS_COLOR_GREEN;
 	my $progress_result = "Finished with no errors";
 	if ($any_xl_errors)
 	{
-		$progress_color = "red";
+		$progress_color = $UTILS_COLOR_RED;
 		$progress_result = "Finished with ERRORS !!";
 		warning(0,0,"end_excel returning 'ERROR(s)!!");
 	}
-	excel_progress_msg($progress_result,$progress_color);
+	excel_progress($progress_result,$progress_color);
 
-	$global_xl->Run("perlEnd",$state_result,$state_color) if $global_xl;
-		# calls perlStateMsg()
+	my $rgb = $utils_color_to_rgb->{$status_color};
+	$global_xl->Run("perlEnd",$status_msg,$rgb) if $global_xl;
 
 	$global_xl_book = undef;
 	$global_xl->Quit() if $global_xl && $global_xl_started;
@@ -497,7 +490,7 @@ sub start_excel
 
 	if (!$global_xl)
 	{
-		perl_error("Could not start Excel: ".Win32::OLE->LastError());
+		error("Could not start Excel: ".Win32::OLE->LastError());
 		return;
 	}
 
@@ -526,16 +519,13 @@ sub start_excel
 
 	# from here on out we don't close budget or excel
 
-	$xl_output = $global_xl_started->Run("perlStart","$$");
+	$xl_output = $global_xl->Run("perlStart","$$");
 		# calls perlStateMsg()
 
 	LOG(1,"perlStart($$) returned "._def($xl_output));
 	LOG(1,"start_excel() returning 1");
 	return 1;
 }
-
-
-
 
 
 

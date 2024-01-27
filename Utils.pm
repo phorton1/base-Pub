@@ -124,6 +124,8 @@ BEGIN
 		$UTILS_COLOR_LIGHT_MAGENTA
 		$UTILS_COLOR_YELLOW
 		$UTILS_COLOR_WHITE
+
+		$utils_color_to_rgb
 	);
 
 
@@ -203,6 +205,7 @@ our $UTILS_COLOR_LIGHT_MAGENTA    = 0x0D;
 our $UTILS_COLOR_YELLOW           = 0x0E;
 our $UTILS_COLOR_WHITE            = 0x0F;
 
+
 # mapping from $UTILS_COLORS to ansi_color constants
 # and backwards for clients (i.e. console/buddy) who want
 # to display ansi colors in windows apps
@@ -243,6 +246,26 @@ our $utils_color_to_ansi = {
 	$UTILS_COLOR_YELLOW        => $ansi_color_yellow,
 	$UTILS_COLOR_WHITE         => $ansi_color_white,
 };
+
+our $utils_color_to_rgb = {
+	$UTILS_COLOR_BLACK         => 0x000000,
+	$UTILS_COLOR_BLUE          => 0x000080,
+	$UTILS_COLOR_GREEN         => 0x008000,
+	$UTILS_COLOR_CYAN          => 0x008080,
+	$UTILS_COLOR_RED           => 0x800000,
+	$UTILS_COLOR_MAGENTA       => 0x800080,
+	$UTILS_COLOR_BROWN         => 0x000000,
+	$UTILS_COLOR_LIGHT_GRAY    => 0xCCCCCC,
+	$UTILS_COLOR_GRAY          => 0x444444,
+	$UTILS_COLOR_LIGHT_BLUE    => 0x8888FF,
+	$UTILS_COLOR_LIGHT_GREEN   => 0x88FF88,
+	$UTILS_COLOR_LIGHT_CYAN    => 0x88FFFF,
+	$UTILS_COLOR_LIGHT_RED     => 0xFF8888,
+	$UTILS_COLOR_LIGHT_MAGENTA => 0xFF88FF,
+	$UTILS_COLOR_YELLOW        => 0xFFFF88,
+	$UTILS_COLOR_WHITE         => 0xFFFFFF,
+};
+
 
 our $ansi_color_to_utils = {
 	$ansi_color_black 			=> $UTILS_COLOR_BLACK,
