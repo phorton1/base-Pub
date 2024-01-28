@@ -140,15 +140,18 @@ sub utilToBgrColor
 
 sub xlsRecToDbRec
 {
-	my ($table,$sheet,$row) = @_;
+	my ($table,$sheet,$row,$skip_end) = @_;
+	$skip_end ||= 0;
 
 	my $col = 1;
 	my $rec = {};
 	my $fields = get_table_fields($table);
+	my $last_col = scalar(@$fields) - $skip_end;
 	for my $field (@$fields)
 	{
 		$rec->{$field} = xlsGetValue($sheet,$row,$col) || '';
 		$col++;
+		last if $col > $last_col;
 	}
 	return $rec;
 }
