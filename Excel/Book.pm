@@ -106,6 +106,7 @@ sub close
 		my $needs_save = $this->{workbook}->{saved} ? 0 : 1;
 		display($dbg_book,0,"close() opened($this->{opened}) needs_save($needs_save)");
 		$this->{workbook}->Save() if $this->{opened} && $needs_save;
+		$this->{workbook}->Close() if $this->{opened};
 	}
 	$this->{workbook} = undef;
 	$this->{xl} = undef;

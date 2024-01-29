@@ -56,12 +56,31 @@ our $xlCalculationAutomatic 	= -4105;
 our $xlCalculationManual 	= -4135;
 
 
+# The API to Excel and Workbooks is complicated.
+#
+# A given Workbook may ALREADY BE OPEN in the Windows UI.
+# If there is no Excel running, you need to start Excel in order to open a Workbook.
+# If Excel is already running, you might want to create another one.
+# Controlling the visibiliity of a Workbook is best done on the Excel object.
+#	Excel can be started invisible.
+#	A Workbook *could* be made invisible by setting its Window invisible in its Excel.
+#	but a visible Excel will open a Workbook visibily, and thus 'flash' if it is henceforth
+#   made invisible.
+#
+# This goes to READONLY and utilizing the SAVED, or the UNSAVED data.
+# If you use an open Excel with an open Workbook you read and write to the UNSAVED data.
+#
+# So, it all depends on what you want to do, how you want the SS to appear,
+# and gets even more complicated with scripts that want to access multiple
+# Workbooks.
+
+
 sub new
 {
 	my ($class,$visible_if_opened) = @_;
 	$visible_if_opened ||= 0;
 
-	display($dbg_xl,0,"XL::new()");
+	display($dbg_xl,0,"XL::new($visible_if_opened)");
 	my $this = {
 		started => 0,
 		opened  => 0,
