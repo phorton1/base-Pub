@@ -9,8 +9,8 @@
 #
 # init_server_utils($requires_wifi,$pid_file)
 #
-#	For linix fully qualified name of $pid_file must be provided.
-#   This method will first daemonize the process by ensuring that
+#	For linix fully qualified name of $pid_file may be provided.
+#   If so, this method will daemonize the process by ensuring that
 #   STDOUT, STDIN, and STDERR are properly redirected, writing the
 #   PID file, and forking.
 #
@@ -59,7 +59,7 @@ sub initServerUtils
 	LOG(-1,"initServerUtils($requires_wifi,$pid_file");
 
 	getServerIP() if $requires_wifi;
-	start_unix_service($pid_file) if $AS_SERVICE && !is_win();
+	start_unix_service($pid_file) if !is_win() && $pid_file && $AS_SERVICE;
 
 	display($dbg_su,0,"initServerUtils() returning");
 }
@@ -67,7 +67,7 @@ sub initServerUtils
 
 
 #--------------------------------------
-# daemonize for unix servers
+# daemonize for unix forked services
 #--------------------------------------
 
 sub myDie
@@ -149,7 +149,7 @@ sub start_unix_service
 }
 
 
-sub finish_unix_service
+sub unused_finish_unix_service
 {
 	my ($pid_file) = @_;
     LOG(-1,"finish_unix_service($pid_file)");
