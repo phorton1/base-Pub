@@ -61,6 +61,8 @@ sub new
 		$params->{SSL_CERT_FILE} ||= '';	# public certificate
 		$params->{SSL_KEY_FILE}  ||= '';	# private key
 		$params->{SSL_CA_FILE}   ||= '';	# public CA certificate
+		$IO::Socket::SSL::DEBUG = $params->{DEBUG_SSL}
+			if $params->{DEBUG_SSL};
 	}
 
 	# if ($USE_SSL)

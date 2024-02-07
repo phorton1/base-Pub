@@ -80,7 +80,7 @@ sub new
 	#	SSL_CERT_FILE	public certificate required if SSL
 	#	SSL_KEY_FILE	private key required if SSL
 	#	SSL_CA_FILE		optional CA public certificate causes server to validate client certs
-	#	DEBUG			sets global IO::Socket::SSL debugging level for convenience
+	#	DEBUG_SSL		sets global IO::Socket::SSL debugging level for convenience
 	#					and turns on debugging verifyCallback (in Packet.pm)
 {
 	my ($class,$params) = @_;
@@ -98,7 +98,7 @@ sub start
 {
     my ($this) = @_;
 	display($dbg_server,0,"ServerBase::start()");
-	$IO::Socket::SSL::DEBUG = $this->{DEBUG} if $this->{DEBUG};
+	$IO::Socket::SSL::DEBUG = $this->{DEBUG_SSL} if $this->{DEBUG_SSL};
 	$server_thread = threads->create(\&serverThread,$this);
 	$server_thread->detach();
 	display($dbg_server,0,"ServerBase::start() returning $this");
@@ -220,7 +220,7 @@ sub sessionThread
 			SSL_ca_file => $this->{SSL_CA_FILE},
 			SSL_client_ca_file => $this->{SSL_CA_FILE},
 			SSL_verify_mode => $this->{SSL_CA_FILE} ? SSL_VERIFY_PEER  : SSL_VERIFY_NONE,
-			SSL_verify_callback => $this->{DEBUG} ? \&verifyCallback : '',
+			SSL_verify_callback => $this->{DEBUG_SSL} ? \&verifyCallback : '',
 		);
 
 		if (!$ok)

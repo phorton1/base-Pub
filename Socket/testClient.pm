@@ -88,7 +88,7 @@ if ($USE_SSL)
 	$test_params->{SSL_CA_FILE} = $SSL_CA_FILE;
 	$test_params->{SSL_CERT_FILE} = $SSL_CERT_FILE;
 	$test_params->{SSL_KEY_FILE}  = $SSL_KEY_FILE;
-	$test_params->{DEBUG} = $DEBUG_SSL;
+	$test_params->{DEBUG_SSL} = $DEBUG_SSL;
 }
 
 
@@ -99,7 +99,7 @@ sub connectServer
 {
 	my ($prog_params) = @_;
 	display_hash($dbg_client,0,"connect()",$prog_params);
-	$IO::Socket::SSL::DEBUG = $prog_params->{DEBUG} if $prog_params->{DEBUG};
+	$IO::Socket::SSL::DEBUG = $prog_params->{DEBUG_SSL} if $prog_params->{DEBUG_SSL};
 
 	#-------------------------------------------------------------
 	# move prog_params to socket params and create the socket
@@ -117,7 +117,7 @@ sub connectServer
 			SSL_ca_file => $prog_params->{SSL_CA_FILE},
 			SSL_cert_file => $prog_params->{SSL_CERT_FILE},
 			SSL_key_file => $prog_params->{SSL_KEY_FILE},
-			SSL_verify_callback => $prog_params->{DEBUG} ? \&verifyCallback : '',
+			SSL_verify_callback => $prog_params->{DEBUG_SSL} ? \&verifyCallback : '',
 		);
 	}
 

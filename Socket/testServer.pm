@@ -40,7 +40,7 @@ sub new
 
 	if ($USE_SSL)
 	{
-		$params->{DEBUG} = $DEBUG_SSL;
+		$params->{DEBUG_SSL} = $DEBUG_SSL;
 		$params->{SSL_CERT_FILE} = $SSL_CERT_FILE;
 		$params->{SSL_KEY_FILE}  = $SSL_KEY_FILE;
 		$params->{SSL_CA_FILE} = $SSL_CA_FILE;
