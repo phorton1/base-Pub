@@ -11,8 +11,8 @@
 # and then, if using SSL, upgrades the socket to SSL during
 # the sessionThread.
 #
-# As a server, it always SENDS a public key to the client which,
-# by default, is verfied against a CA (certificate authority)
+# As a server, it always SENDS a public cert to the client which,
+# by default, is verfied against a CA (certificate authority) cert
 # on the client. This is the typical use of SSL to authenticate
 # SERVERS to which a client attaches.
 #
@@ -24,7 +24,7 @@
 # list of hostnames.
 #
 # On the other hand, in my typical usage, I am trying to protect the
-# SERVER from unknown clients. This is done by passing SSL_VERIFY_PEER
+# SERVER from unknown clients. This is done by passing SSL_VERIFY_PEER to
 # the the socket, in which case the server verifies the client's certificate
 # against the server's CA, which is an explicit parameter as well.
 #
