@@ -315,7 +315,7 @@ sub initUtils
 	$AS_SERVICE = $as_service || 0;
 	for my $arg (@ARGV)
 	{
-		$AS_SERVICE = 0 if $arg eq 'NO_SERVICE';
+		$AS_SERVICE = 0 if $arg =~ /NO_SERVICE/i;
 	}
 
 	$CONSOLE = is_win() && !$AS_SERVICE ?
@@ -353,7 +353,7 @@ sub setStandardTempDir
 	#    logfiles per instance, or PID files about children to kill/delete.
 {
 	my ($app_name) = @_;
-	$temp_dir = $Cava::Packager::PACKAGED ?
+	$temp_dir = is_win() && $Cava::Packager::PACKAGED ?
 		filenameFromWin($ENV{USERPROFILE})."/AppData/Local/Temp" :
 		"/base_data/temp";
 	$temp_dir .= "/$app_name" if $app_name;
@@ -364,7 +364,7 @@ sub setStandardTempDir
 sub setStandardDataDir
 {
 	my ($app_name) = @_;
-	$data_dir = $Cava::Packager::PACKAGED ?
+	$data_dir = is_win() && $Cava::Packager::PACKAGED ?
 		filenameFromWin($ENV{USERPROFILE})."/Documents" :
 		"/base_data/data";
 	$data_dir .= "/$app_name" if $app_name;
