@@ -301,7 +301,9 @@ sub serverThread
 sub sessionThread
 {
     my ($this,$connect_num,$client_socket,$peer_ip,$peer_port) = @_;
-    display($dbg_server+1,-2,"SESSION THREAD($connect_num) WITH PID($$)");
+	$peer_ip ||= '';
+	$peer_port ||= '';
+    display($dbg_server+1,-2,"SESSION THREAD($connect_num) FROM $peer_ip:$peer_port WITH PID($$)");
 
 	if ($this->{SSL})
 	{
