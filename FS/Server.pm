@@ -81,7 +81,7 @@ sub new
 	$params->{PORT} 		 = getPref('PORT') || ($params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT);
 	$params->{HOST}			 = getPref('HOST') || '0.0.0.0';
 
-	$params->{DEBUG_SSL} 	 = getPref('DBG_SSL') || 0;
+	$params->{DEBUG_SSL} 	 = getPref('DEBUG_SSL') || 0;
 	$params->{SSL_CERT_FILE} = getPref('SSL_CERT_FILE') || '';	# required public certificate
 	$params->{SSL_KEY_FILE}  = getPref('SSL_KEY_FILE') || '';	# required private key
 	$params->{SSL_CA_FILE}   = getPref('SSL_CA_FILE') || '';	# optional public CA certificate
