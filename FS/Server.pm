@@ -9,6 +9,10 @@
 #
 # Note that I modified Win32::Console.pm to NOT close itself
 # on thread/fork descruction.
+#
+# To use SSL, your application must call Pub::Prefs::initPrefs()
+# specifying a prefs file that contains the SSL preferences.
+
 
 package Pub::FS::Server;
 use strict;
@@ -18,8 +22,10 @@ use threads::shared;
 use Time::HiRes qw( sleep );
 use IO::Select;
 use IO::Socket::INET;
+use IO::Socket::SSL;
 use Time::HiRes qw(sleep);
 use Pub::Utils;
+use Pub::Prefs;
 use Pub::FS::FileInfo;
 use Pub::FS::ServerSession;
 
@@ -69,8 +75,24 @@ sub new
 {
 	my ($class,$params) = @_;
 	$params ||= {};
-	$params->{PORT} = $DEFAULT_PORT if !defined($params->{PORT});
-	$params->{HOST} ||= $DEFAULT_HOST;
+
+	$params->{SSL} 			 = getPref('SSL') || 0;
+
+	$params->{PORT} 		 = getPref('PORT') || ($params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT);
+	$params->{HOST}			 = getPref('HOST') || '0.0.0.0';
+
+	$params->{DEBUG_SSL} 	 = getPref('DBG_SSL') || 0;
+	$params->{SSL_CERT_FILE} = getPref('SSL_CERT_FILE') || '';	# required public certificate
+	$params->{SSL_KEY_FILE}  = getPref('SSL_KEY_FILE') || '';	# required private key
+	$params->{SSL_CA_FILE}   = getPref('SSL_CA_FILE') || '';	# optional public CA certificate
+		# if SSL_CA_FILE is provided, the Server will validate client
+		# certificates versus the CA
+
+	$IO::Socket::SSL::DEBUG = $params->{DEBUG_SSL}
+		if $params->{SSL} && $params->{DEBUG_SSL};
+
+	display_hash($dbg_server,0,"Server::new()",$params);
+
 	my $this = shared_clone($params);
 	$this->{running} = 0;
 	$this->{stopping} = 0;
@@ -280,6 +302,34 @@ sub sessionThread
 {
     my ($this,$connect_num,$client_socket,$peer_ip,$peer_port) = @_;
     display($dbg_server+1,-2,"SESSION THREAD($connect_num) WITH PID($$)");
+
+	if ($this->{SSL})
+	{
+		display($dbg_server,1,"starting SSL");
+
+		# Upgrading to SSL requires SSL_CERT_FILE and SSL_KEY_FILE.
+		# if SSL_CA_FILE is provided, the server will use SSL_VERIFY_PEER
+		# to verify the client certificate agains the CA file.
+
+		my $ok = IO::Socket::SSL->start_SSL($client_socket,
+			SSL_server => 1,
+			SSL_cert_file => $this->{SSL_CERT_FILE},
+			SSL_key_file => $this->{SSL_KEY_FILE},
+			SSL_ca_file => $this->{SSL_CA_FILE},
+			SSL_client_ca_file => $this->{SSL_CA_FILE},
+			SSL_verify_mode => $this->{SSL_CA_FILE} ? SSL_VERIFY_PEER  : SSL_VERIFY_NONE,
+			SSL_verify_callback => $this->{DEBUG_SSL} ? \&verifySSLCallback : '',
+		);
+
+		if (!$ok)
+		{
+			error("Could not start SSL socket: ".IO::Socket::SSL::errstr());
+			$client_socket->close();
+			$this->dec_running();
+			return;
+		}
+		display($dbg_server,1,"SSL STARTED");
+	}
 
 	$active_connections->{$connect_num} = 1;
 

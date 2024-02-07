@@ -59,6 +59,7 @@ BEGIN {
 
 		show_params
 
+		verifySSLCallback
 	);
 }
 
@@ -893,6 +894,39 @@ sub doCommand
 	return $rslt;
 
 }	# Session::doCommand()
+
+
+
+#---------------------------------------
+# optional ssl debugging callback
+#---------------------------------------
+
+
+sub verifySSLCallback
+	# 1. a true/false value that indicates what OpenSSL thinks of the certificate,
+	# 2. a C-style memory address of the certificate store,
+	# 3. a string containing the certificate's issuer attributes and owner attributes, and
+	# 4. a string containing any errors encountered (0 if no errors).
+	# 5. a C-style memory address of the peer's own certificate (convertible to PEM form with Net::SSLeay::PEM_get_string_X509()).
+	# 6. The depth of the certificate in the chain. Depth 0 is the leaf certificate.
+{
+	my ($open_ssl_thinks,
+		$ca_store,
+		$attribs,
+		$errors,
+		$peer_cert,
+		$depth) = @_;
+
+	display(0,0,"verifyCallback()");
+	display(0,1,"open_ssl_thinks ="._def($open_ssl_thinks));
+	display(0,1,"ca_store        ="._def($ca_store));
+	display(0,1,"attribs         ="._def($attribs));
+	display(0,1,"errors          ="._def($errors));
+	display(0,1,"peer_cert       ="._def($peer_cert));
+	display(0,1,"depth           ="._def($depth));
+
+	return $open_ssl_thinks;
+}
 
 
 1;

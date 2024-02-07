@@ -29,6 +29,7 @@ BEGIN {
 		dbgPacket
 
 		$DEFAULT_PORT
+		$DEFAULT_SSL_PORT
 		$DEFAULT_HOST
 		$DEFAULT_TIMEOUT
 	),
@@ -36,6 +37,7 @@ BEGIN {
 }
 
 our $DEFAULT_PORT = 5872;
+our $DEFAULT_SSL_PORT = 5873;
 our $DEFAULT_HOST = "localhost";
 our $DEFAULT_TIMEOUT = 15;
 
@@ -103,10 +105,25 @@ sub sendPacket
 		if !$sock;
 
 	$packet =~ s/\s+$//g;
-    if (!$sock->send($packet."\r\n"))
-    {
-        $this->{SOCK} = undef;
-        return error("$this->{NAME} could not write to socket $sock",1,1);
+
+	if (0)	# OLD WAY
+	{
+		if (!$sock->send($packet."\r\n"))
+		{
+			$this->{SOCK} = undef;
+			return error("$this->{NAME} could not write to socket $sock",1,1);
+		}
+	}
+	else	# NEW WAY REQUIRED FOR SSL, works for regular sockets
+	{
+		my $full_packet = $packet."\r\n";
+		my $len = length($full_packet);
+		my $bytes = syswrite($sock,$full_packet);
+		if ($bytes != $len)
+		{
+			$this->{SOCK} = undef;
+			return error("$this->{NAME} could only write($bytes/$len) bytes to socket $sock",1,1);
+		}
 	}
 
 	$sock->flush();

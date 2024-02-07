@@ -17,12 +17,13 @@ use warnings;
 use threads;
 use threads::shared;
 use IO::Socket::INET;
+use IO::Socket::SSL;
 use Pub::Utils;
 use Pub::FS::FileInfo;
 use Pub::FS::SocketSession;
 use base qw(Pub::FS::SocketSession);
 
-
+our $dbg_cs = 0;
 our $dbg_connect = 0;
 
 my $CONNECT_TIMEOUT = 2;
@@ -38,15 +39,41 @@ BEGIN {
 };
 
 
+# my $USE_SSL = 1;
+# my $SSL_CERT_DIR = "/dat/private/ssl/esp32";
+	# test code only, hardwired SSL
+
 
 sub new
 {
 	my ($class, $params) = @_;
 	$params ||= {};
+
+	$params->{SSL} ||= 0;
 	$params->{HOST} ||= $DEFAULT_HOST;
-	$params->{PORT} ||= $DEFAULT_PORT;
+	$params->{PORT} ||= $params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
 	$params->{IS_CLIENT} = 1;
+
+	if ($params->{SSL})
+	{
+		$params->{DEBUG_SSL} ||= 0;
+		$params->{SSL_CERT_FILE} ||= '';	# public certificate
+		$params->{SSL_KEY_FILE}  ||= '';	# private key
+		$params->{SSL_CA_FILE}   ||= '';	# public CA certificate
+	}
+
+	# if ($USE_SSL)
+	# 	# test code only, hardwired SSL
+	# {
+	# 	$params->{SSL} = 1;
+	# 	$params->{DEBUG_SSL} ||= 0;
+	# 	$params->{SSL_CERT_FILE} = "$SSL_CERT_DIR/myIOT.crt";
+	# 	$params->{SSL_KEY_FILE}  = "$SSL_CERT_DIR/myIOT.key";
+	# 	$params->{SSL_CA_FILE}   = "$SSL_CERT_DIR/_myESP32_CA.crt";
+	# }
+
+	display_hash($dbg_cs,0,"ClientSession::new()",$params);
 
 	my $this = $class->SUPER::new($params);
 	$this->{SERVER_ID} = '';
@@ -90,11 +117,25 @@ sub connect
 
 	display($dbg_connect+1,-1,"$this->{NAME} connecting to $host:$port");
 
-    $this->{SOCK} = IO::Socket::INET->new(
+	my @params = (
 		PeerAddr => "$host:$port",
         PeerPort => "http($port)",
         Proto    => 'tcp',
 		Timeout  => $CONNECT_TIMEOUT );  # $DEFAULT_TIMEOUT );
+
+	if ($this->{SSL})
+	{
+		push @params,(
+			SSL_ca_file => $this->{SSL_CA_FILE},
+			SSL_cert_file => $this->{SSL_CERT_FILE},
+			SSL_key_file => $this->{SSL_KEY_FILE},
+			SSL_verify_callback => $this->{DEBUG_SSL} ? \&verifySSLCallback : '',
+		);
+	}
+
+    $this->{SOCK} =  $this->{SSL} ?
+		IO::Socket::SSL->new(@params) :
+		IO::Socket::INET->new(@params);
 
     if (!$this->{SOCK})
     {
@@ -104,7 +145,7 @@ sub connect
     {
 		my $rcv_buf_size = 10240;
 		$this->{SOCK}->sockopt(SO_RCVBUF, $rcv_buf_size);
- 		display($dbg_connect,-1,"$this->{NAME} CONNECTED to PORT $port");
+ 		display($dbg_connect,-1,"$this->{NAME} CONNECTED to ".($this->{SSL} ? 'SSL ' : '')."PORT $port");
 		my $err = $this->sendPacket($PROTOCOL_HELLO);
 		if (!$err)
 		{
