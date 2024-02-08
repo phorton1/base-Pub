@@ -72,26 +72,20 @@ my $active_connections = shared_clone({});
 #-------------------------------------------------
 
 sub new
+	#	SEND_EXIT 	 	= whether to send an EXIT on shutdown
+	#	SSL			 	= 1 if using SSL
+	#	PORT  		 	= if not provided will default to $DEFAULT_SSL_PORT if SSL or $DEFAULT_PORT
+	#	DEBUG_SSL 	 	= 1..3 are known levels
+	#	SSL_CERT_FILE 	= required if SSL - served public certificate
+	#	SSL_KEY_FILE}  	= required if SSL - private key
+	#	SSL_CA_FILE     = optional if SSL - CA public cert that must authorize client's cert
 {
 	my ($class,$params) = @_;
 	$params ||= {};
-
-	$params->{SSL} 			 = getPref('SSL') || 0;
-
-	$params->{PORT} 		 = getPref('PORT') || ($params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT);
-	$params->{HOST}			 = getPref('HOST') || '0.0.0.0';
-
-	$params->{DEBUG_SSL} 	 = getPref('DEBUG_SSL') || 0;
-	$params->{SSL_CERT_FILE} = getPref('SSL_CERT_FILE') || '';	# required public certificate
-	$params->{SSL_KEY_FILE}  = getPref('SSL_KEY_FILE') || '';	# required private key
-	$params->{SSL_CA_FILE}   = getPref('SSL_CA_FILE') || '';	# optional public CA certificate
-		# if SSL_CA_FILE is provided, the Server will validate client
-		# certificates versus the CA
+	display_hash($dbg_server,0,"Server::new()",$params);
 
 	$IO::Socket::SSL::DEBUG = $params->{DEBUG_SSL}
 		if $params->{SSL} && $params->{DEBUG_SSL};
-
-	display_hash($dbg_server,0,"Server::new()",$params);
 
 	my $this = shared_clone($params);
 	$this->{running} = 0;

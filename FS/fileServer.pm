@@ -20,16 +20,17 @@ use threads::shared;
 use Pub::FS::Server;
 use Pub::FS::Session;
 use Pub::FS::Server;
+use Pub::FS::ServerSession;
 use Pub::Utils;
 use Pub::Prefs;
 use Pub::ServerUtils;
+use Pub::PortForwarder;
 use base qw(Pub::FS::Server);
 use sigtrap 'handler', \&onSignal, qw(normal-signals);
 
 
-my $ALLOW_SSL = 1;
-
 my $file_server;
+my $port_forwarder;
 
 
 sub onSignal
@@ -44,11 +45,35 @@ sub onSignal
 sub new
 {
 	my ($class,$params) = @_;
+
 	$params ||= {};
-	$params->{SEND_EXIT} = 1;
+	$params->{SEND_EXIT} 	 = 1;
+	$params->{SSL} 			 = getPref('SSL') || 0;
+	$params->{PORT} 		 = getPref('PORT') || ($params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT);
+	$params->{DEBUG_SSL} 	 = getPref('DEBUG_SSL') || 0;
+	$params->{SSL_CERT_FILE} = getPref('SSL_CERT_FILE');	# required public certificate
+	$params->{SSL_KEY_FILE}  = getPref('SSL_KEY_FILE');		# required private key
+	$params->{SSL_CA_FILE}   = getPref('SSL_CA_FILE');		# optional public CA certificate
+
 	my $this = $class->SUPER::new($params);
 	return if !$this;
     bless $this,$class;
+
+	if (getPref('FWD_PORT'))
+	{
+		my $fwd_params = {};
+		$fwd_params->{PORT}		      = $params->{PORT};
+		$fwd_params->{FWD_PORT} 	  = getPref('FWD_PORT');
+		$fwd_params->{FWD_USER} 	  = getPref('FWD_USER');
+		$fwd_params->{FWD_SERVER} 	  = getPref('FWD_SERVER');
+		$fwd_params->{FWD_SSH_PORT}   = getPref('FWD_SSH_PORT');
+		$fwd_params->{FWD_KEYFILE}    = getPref('FWD_KEYFILE');
+		$fwd_params->{IS_FILE_SERVER} = 1;
+
+		$port_forwarder = Pub::PortForwarder->new($fwd_params);
+		Pub::PortForwarder::start();
+	}
+
 	return $this;
 }
 
@@ -114,8 +139,7 @@ Pub::ServerUtils::initServerUtils(1,"$temp_dir/fileServer.pid");
 
 # prefs needed for SSL parameters
 
-Pub::Prefs::initPrefs("$data_dir/fileServer.prefs")
-	if $ALLOW_SSL;
+Pub::Prefs::initPrefs("$data_dir/fileServer.prefs");
 
 # create the fileServer
 

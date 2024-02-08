@@ -26,7 +26,7 @@ use base qw(Pub::FS::SocketSession);
 our $dbg_cs = 0;
 our $dbg_connect = 0;
 
-my $CONNECT_TIMEOUT = 2;
+my $DEFAULT_CONNECT_TIMEOUT = 14;
 
 
 BEGIN {
@@ -39,11 +39,6 @@ BEGIN {
 };
 
 
-# my $USE_SSL = 1;
-# my $SSL_CERT_DIR = "/dat/private/ssl/esp32";
-	# test code only, hardwired SSL
-
-
 sub new
 {
 	my ($class, $params) = @_;
@@ -53,6 +48,7 @@ sub new
 	$params->{HOST} ||= $DEFAULT_HOST;
 	$params->{PORT} ||= $params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
+	$params->{TIMEOUT} ||= $DEFAULT_CONNECT_TIMEOUT;
 	$params->{IS_CLIENT} = 1;
 
 	if ($params->{SSL})
@@ -64,16 +60,6 @@ sub new
 		$IO::Socket::SSL::DEBUG = $params->{DEBUG_SSL}
 			if $params->{DEBUG_SSL};
 	}
-
-	# if ($USE_SSL)
-	# 	# test code only, hardwired SSL
-	# {
-	# 	$params->{SSL} = 1;
-	# 	$params->{DEBUG_SSL} ||= 0;
-	# 	$params->{SSL_CERT_FILE} = "$SSL_CERT_DIR/myIOT.crt";
-	# 	$params->{SSL_KEY_FILE}  = "$SSL_CERT_DIR/myIOT.key";
-	# 	$params->{SSL_CA_FILE}   = "$SSL_CERT_DIR/_myESP32_CA.crt";
-	# }
 
 	display_hash($dbg_cs,0,"ClientSession::new()",$params);
 
@@ -123,7 +109,7 @@ sub connect
 		PeerAddr => "$host:$port",
         PeerPort => "http($port)",
         Proto    => 'tcp',
-		Timeout  => $CONNECT_TIMEOUT );  # $DEFAULT_TIMEOUT );
+		Timeout  => $this->{TIMEOUT} );
 
 	if ($this->{SSL})
 	{
