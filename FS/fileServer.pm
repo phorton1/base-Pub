@@ -60,13 +60,14 @@ sub new
 # I am standardizing on /base_data/data as the location of persistent configuration files
 # I need to try restricting the rights on these directories and files
 #
+# base_data/_ssl
+#	phortonCA.crt
+#   fileServer.crt
+#	fileServer.key
+#   phorton.net.crt
+#	phorton.net.key
+#
 # base_data/data
-#	ssl/
-#		phortonCA.crt
-#   	fileServer.crt
-#		fileServer.key
-#   	phorton.net.crt
-#		phorton.net.key
 #	fileServer/
 #		fileServer.prefs
 #	myIOTServer/
@@ -79,13 +80,14 @@ sub new
 #		gitUI.ini
 #
 # base_data/temp
+#	fileServer.log - the OLD fileServer (6801) log file
 #	artisan/
 #		artisan.pid (unix only)
 #		artisan.log
 #		semi persistant caching of artisan state
 #	fileServer/
 #		fileServer.pid (unix only)
-#		fileServer.log
+#		fileServer.log (new - 5872/3 logfile)
 #	myIOTServer/
 #		myIOTServer.pid (unix only)
 #		myIOTServer.log
