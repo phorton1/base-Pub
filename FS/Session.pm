@@ -296,7 +296,7 @@ sub _delete
 # _chmod() and _chown
 #-----------------------------------------------------
 
-sub _chmod
+sub _chmodOne
 {
 	my ($this,$dir,$mode,$entry) = @_;
 	my $path = makePath($dir,$entry);
@@ -306,7 +306,7 @@ sub _chmod
 	return '';
 }
 
-sub _chown
+sub _chownOne
 {
 	my ($this,$dir,$owner_group,$entry) = @_;
     my ($user,$group) = split(/:/,$owner_group);
@@ -317,6 +317,19 @@ sub _chown
     return error("Could not chown($uid:$gid,$path)")
 		if !chown($uid,$gid,$path);
 	return '';
+}
+
+
+sub _chmod
+{
+	my ($this,$dir,$mode,$entries) = @_;
+	return $this->doFlatEntryList('_chmod',\&chmodOne,$dir,$mode,$entries);
+}
+
+sub _chown
+{
+	my ($this,$dir,$owner_group,$entries) = @_;
+	return $this->doFlatEntryList('_chown',\&chownOne,$dir,$owner_group,$entries);
 }
 
 
@@ -336,7 +349,7 @@ sub doFlatEntryList
 	my $rslt;
 	if (!ref($entries))
 	{
-		$rslt = &$callback($this,$dir,'',$entries);
+		$rslt = &$callback($this,$dir,$param,$entries);
 	}
 	else
 	{
@@ -962,11 +975,11 @@ sub doCommand
 	}
 	elsif ($command eq $PROTOCOL_CHMOD)				# $dir,	NNN, $entries_or_filename
 	{
-		$rslt = $this->doFlatEntryList('_chmod',\&_chmod,$param1,$param2,$param3);
+		$rslt = $this->_chmod($param1,$param2,$param3);
 	}
 	elsif ($command eq $PROTOCOL_CHOWN)				# $dir,	owner:group, $entries_or_filename
 	{
-		$rslt = $this->doFlatEntryList('_chown',\&_chown,$param1,$param2,$param3);
+		$rslt = $this->_chown($param1,$param2,$param3);
 	}
 
 	else
