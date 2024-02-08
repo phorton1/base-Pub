@@ -357,7 +357,7 @@ sub setStandardTempDir
 		filenameFromWin($ENV{USERPROFILE})."/AppData/Local/Temp" :
 		"/base_data/temp";
 	$temp_dir .= "/$app_name" if $app_name;
-	my_mkdir $temp_dir if !-d $temp_dir;
+	my_mkdir($temp_dir) if !-d $temp_dir;
 }
 
 
@@ -368,7 +368,7 @@ sub setStandardDataDir
 		filenameFromWin($ENV{USERPROFILE})."/Documents" :
 		"/base_data/data";
 	$data_dir .= "/$app_name" if $app_name;
-	my_mkdir $data_dir if !-d $data_dir;
+	my_mkdir($data_dir) if !-d $data_dir;
 }
 
 
