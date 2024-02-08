@@ -140,7 +140,7 @@ sub connect
 			my $packet;
 			$err = $this->getPacket(\$packet,1);
 	        $err = "$this->{NAME} unexpected response from server: $packet"
-				if !$err && $packet !~ /^$PROTOCOL_WASSUP\tis_win\(\d)\)\t(.*)$/;
+				if !$err && $packet !~ /^$PROTOCOL_WASSUP\tis_win\((\d)\)\t(.*)$/;
 			if (!$err)
 			{
 				$this->{unix} = !$1;
