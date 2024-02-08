@@ -39,6 +39,9 @@ depend on the packet type.
 - CONTINUE
 - OK
 
+- CHMOD			dir NNN	\[single_filename | (FLAT_ENTRY_LIST)]
+- CHOWN			dir owner:group	\[single_filename | (FLAT_ENTRY_LIST)]
+
 
 The delimiter for fields in packet lines
 is a tab "\t", with the exception of the single line ERROR packet
@@ -369,3 +372,11 @@ An optional param is added to the MKDIR command.
 This parameter is only set when MKDIR is called from
 a session-like PUT command. It is called (like FILE and
 BASE64) and returns OK or an error.
+
+
+## Unix Only Commands
+
+CHMOD and CHOWN work off a single file, or abuse the ENTRY_LIST
+for a single directory.  In any case, they work on a FLAT_ENTRY_LIST
+in the current directory.  If recursion is needed for these, then
+new protocol and UI for CHMOD_FLAT and CHOWN_FLAT should be added.

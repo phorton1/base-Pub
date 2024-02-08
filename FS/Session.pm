@@ -57,6 +57,9 @@ BEGIN {
 	    $PROTOCOL_CONTINUE
 	    $PROTOCOL_OK
 
+		$PROTOCOL_CHMOD
+		$PROTOCOL_CHOWN
+
 		show_params
 
 		verifySSLCallback
@@ -84,7 +87,13 @@ our $PROTOCOL_BASE64	= "BASE64";
 our $PROTOCOL_CONTINUE  = "CONTINUE";
 our $PROTOCOL_OK        = "OK";
 
+our $PROTOCOL_CHMOD  	= "CHMOD";
+our $PROTOCOL_CHOWN  	= "CHOWN";
 
+my $MODE_DIR = '750';
+my $MODE_EXE = '750';
+my $MODE_FILE = '640';
+my $EXE_RE = '\.(pm|pl|cgi)$';	# |^.*\/(prh_deny|prh_daily|prh_monitor|fileServer)$';
 
 
 #------------------------------------------------
@@ -279,6 +288,76 @@ sub _delete
 	$rslt ||= $this->_list($dir);
 	return $rslt;
 }
+
+
+
+
+#-----------------------------------------------------
+# _chmod() and _chown
+#-----------------------------------------------------
+
+sub _chmod
+{
+	my ($this,$dir,$mode,$entry) = @_;
+	my $path = makePath($dir,$entry);
+	display($dbg_commands,0,"$this->{NAME} _chmod($mode,$path)");
+    return error("Could not chmod($mode,$path)")
+		if !chmod(oct($mode),$path);
+	return '';
+}
+
+sub _chown
+{
+	my ($this,$dir,$owner_group,$entry) = @_;
+    my ($user,$group) = split(/:/,$owner_group);
+    my $uid = getpwnam($user);
+    my $gid = getgrnam($group);
+	my $path = makePath($dir,$entry);
+	display($dbg_commands,0,"$this->{NAME} _chown($owner_group==$uid:$gid,$path)");
+    return error("Could not chown($uid:$gid,$path)")
+		if !chown($uid,$gid,$path);
+	return '';
+}
+
+
+sub doFlatEntryList
+	# only used for chmod and chown unix commands
+	# but we don't bother to check caller ...
+{
+	my ($this,
+		$command,
+		$callback,
+		$dir,
+		$param,
+		$entries) = @_;
+
+	display($dbg_commands,0,"$this->{NAME} doFlatEntryList($command,$dir,$param)");
+
+	my $rslt;
+	if (!ref($entries))
+	{
+		$rslt = &$callback($this,$dir,'',$entries);
+	}
+	else
+	{
+		for my $entry  (sort {uc($a) cmp uc($b)} keys %$entries)
+		{
+			return $PROTOCOL_ABORTED if
+				$this->{progress} &&
+				$this->{progress}->aborted();
+			sleep($TEST_DELAY) if $TEST_DELAY;
+
+			$rslt = &$callback($this,$dir,$param,$entry);
+			last if $rslt;
+		}
+	}
+
+	$rslt ||= $this->_list($dir);
+	return $rslt;
+}
+
+
+
 
 
 #------------------------------------------------------
@@ -737,6 +816,8 @@ sub recurseFxn
 	{
 		my $entry_info = $entries->{$entry};
 		display($dbg_commands+3,1,"entry=$entry is_dir=$entry_info->{is_dir}");
+
+
 		if ($entry_info->{is_dir})
 		{
 			my $dir_path = makePath($dir,$entry);
@@ -879,6 +960,15 @@ sub doCommand
 	{
 		$rslt = $this->_base64($param1, $param2, $param3);
 	}
+	elsif ($command eq $PROTOCOL_CHMOD)				# $dir,	NNN, $entries_or_filename
+	{
+		$rslt = $this->doFlatEntryList('_chmod',\&_chmod,$param1,$param2,$param3);
+	}
+	elsif ($command eq $PROTOCOL_CHOWN)				# $dir,	owner:group, $entries_or_filename
+	{
+		$rslt = $this->doFlatEntryList('_chown',\&_chown,$param1,$param2,$param3);
+	}
+
 	else
 	{
 		$rslt = error("$this->{NAME} unsupported command: $command",0,1);
