@@ -16,7 +16,7 @@ or the *verb*.  The *lowercase words* are *parameters* that
 depend on the packet type.
 
 - HELLO
-- WASSUP		SERVER_ID
+- WASSUP		is_win(0/1) SERVER_ID
 - EXIT
 - ENABLED 		- msg
 - DISABLED 		- msg

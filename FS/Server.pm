@@ -351,7 +351,9 @@ sub sessionThread
 
 	# sendPacket reports and returns an error on failure
 
-	$packet = "$PROTOCOL_WASSUP\t$session->{SERVER_ID}";
+	my $is_win = "is_win(".(is_win()?1:0).")";
+
+	$packet = "$PROTOCOL_WASSUP\t$is_win\t$session->{SERVER_ID}";
 	if ($ok && $session->sendPacket($packet,1))
 	{
         error("COULD NOT SEND $PROTOCOL_WASSUP");
