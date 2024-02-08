@@ -57,12 +57,57 @@ sub new
 #----------------------------------------
 # main
 #----------------------------------------
+# I am standardizing on /base_data/data as the location of persistent configuration files
+# I need to try restricting the rights on these directories and files
+#
+# base_data/data
+#	ssl/
+#		phortonCA.crt
+#   	fileServer.crt
+#		fileServer.key
+#   	phorton.net.crt
+#		phorton.net.key
+#	fileServer/
+#		fileServer.prefs
+#	myIOTServer/
+#		myIOTServer.prefs
+#		users.txt
+#	buddy/  (windows only)
+#		fileClient.prefs
+#		fileClient.ini
+#	gitUI/  (windows only)
+#		gitUI.ini
+#
+# base_data/temp
+#	artisan/
+#		artisan.pid (unix only)
+#		artisan.log
+#		semi persistant caching of artisan state
+#	fileServer/
+#		fileServer.pid (unix only)
+#		fileServer.log
+#	myIOTServer/
+#		myIOTServer.pid (unix only)
+#		myIOTServer.log
+#	gitUI/
+#		cache of github repo json requests
+#	Rhapsody/
+#		google translate built-in cache
+#		inventory.log
 
+
+setStandardTempDir('fileServer');
+	# /base_data/temp
+	# or Cava Packaged $ENV{USERPROFILE}."/AppData/Local/Temp"
 setStandardDataDir('fileServer');
+	# /base_data/data
+	# or Cava Packaged ENV{USERPROFILE}."/Documents
+
+# $logfile = "$temp_dir/fileServer.log";
 
 Pub::Utils::initUtils(1);
 	# AS_SERVICE
-Pub::ServerUtils::initServerUtils(1,"$data_dir/fileServer.pid");
+Pub::ServerUtils::initServerUtils(1,"$temp_dir/fileServer.pid");
 	# needs_wifi, unix PID file
 
 # prefs needed for SSL parameters
