@@ -122,7 +122,7 @@ sub new
     $this->{size}   = $size;
     $this->{ts} 	= $ts;
     $this->{mode}   = $mode;
-    $this->{user}   = $owner;
+    $this->{owner}  = $owner;
     $this->{group}  = $group;
 
     return $this;
