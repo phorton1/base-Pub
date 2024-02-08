@@ -9,6 +9,10 @@
 # The doCommand() method returns FS::FileInfo objects,
 # an ERROR or one of the ABORT, ABORTED, CONTINUE, or OK
 # messges.
+#
+# TODO: need to set default permissions when creating
+# new files on unix according to dir and file RE
+
 
 package Pub::FS::Session;
 use strict;
@@ -295,6 +299,7 @@ sub _delete
 #-----------------------------------------------------
 # _chmod() and _chown
 #-----------------------------------------------------
+# The server has to effectively run as root for chown to work.
 
 sub _chmodOne
 {
