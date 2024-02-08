@@ -323,13 +323,13 @@ sub _chownOne
 sub _chmod
 {
 	my ($this,$dir,$mode,$entries) = @_;
-	return $this->doFlatEntryList('_chmod',\&chmodOne,$dir,$mode,$entries);
+	return $this->doFlatEntryList('_chmod',\&_chmodOne,$dir,$mode,$entries);
 }
 
 sub _chown
 {
 	my ($this,$dir,$owner_group,$entries) = @_;
-	return $this->doFlatEntryList('_chown',\&chownOne,$dir,$owner_group,$entries);
+	return $this->doFlatEntryList('_chown',\&_chownOne,$dir,$owner_group,$entries);
 }
 
 

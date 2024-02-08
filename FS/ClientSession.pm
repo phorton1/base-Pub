@@ -280,6 +280,8 @@ sub waitTerminalPacket
 	my $is_put = $is_command eq $PROTOCOL_PUT ? 1 : 0;
 	my $is_file = $is_command eq $PROTOCOL_FILE ? 1 : 0;
 	my $is_delete = $is_command eq $PROTOCOL_DELETE ? 1 : 0;
+	my $is_chmod = $is_command eq $PROTOCOL_CHMOD ? 1 : 0;
+	my $is_chown = $is_command eq $PROTOCOL_CHOWN ? 1 : 0;
 
 	display($dbg_commands,0,"$this->{NAME} waitTerminalPacket($is_command)",
 		0,$UTILS_COLOR_LIGHT_CYAN);
@@ -324,7 +326,7 @@ sub waitTerminalPacket
 
 		# terminal conditions by command type
 
-		last if $is_delete;
+		last if $is_delete || $is_chmod || $is_chown;
 			# PROGRESS is the only continuation for DELETE
 		last if $is_put && $rslt =~ /^($PROTOCOL_OK|$PROTOCOL_ERROR|$PROTOCOL_ABORTED)/;
 			# end of PUT protocol
@@ -362,6 +364,87 @@ sub waitTerminalPacket
 		0,$UTILS_COLOR_LIGHT_CYAN);
 	return $rslt;
 }
+
+
+
+#---------------------------------------------
+# _chmod() and _chown()
+#---------------------------------------------
+
+sub _chmod
+{
+	my ($this,
+		$dir,				# MUST BE FULLY QUALIFIED
+		$mode,
+		$entries) = @_;		# single_filename or valid hash of sub-entries
+
+	display($dbg_commands,0,"$this->{NAME} _chmod($dir,$mode,$entries)");
+
+    my $command = "$PROTOCOL_CHMOD\t$dir\t$mode";
+
+	if (!ref($entries))
+	{
+		$command .= "\t$entries";	# single filename version
+	}
+	else	# full version
+	{
+		$command .= "\r";
+		for my $entry (sort keys %$entries)
+		{
+			my $info = $entries->{$entry};
+			my $text = $info->toText();
+			display($dbg_commands+1,1,"entry=$text");
+			$command .= "$text\r";
+		}
+	}
+
+	$this->incInProtocol();
+	my $rslt = $this->sendPacket($command);
+	$rslt ||= $this->waitTerminalPacket($PROTOCOL_CHMOD);
+
+	$rslt = textToDirInfo($rslt)
+		if $rslt !~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORT)/;
+	$this->decInProtocol();
+	return $rslt;
+}
+
+sub _chown
+{
+	my ($this,
+		$dir,				# MUST BE FULLY QUALIFIED
+		$owner_group,
+		$entries) = @_;		# single_filename or valid hash of sub-entries
+
+	display($dbg_commands,0,"$this->{NAME} _chown($dir,$owner_group,$entries)");
+
+    my $command = "$PROTOCOL_CHOWN\t$dir\t$owner_group";
+
+	if (!ref($entries))
+	{
+		$command .= "\t$entries";	# single filename version
+	}
+	else	# full version
+	{
+		$command .= "\r";
+		for my $entry (sort keys %$entries)
+		{
+			my $info = $entries->{$entry};
+			my $text = $info->toText();
+			display($dbg_commands+1,1,"entry=$text");
+			$command .= "$text\r";
+		}
+	}
+
+	$this->incInProtocol();
+	my $rslt = $this->sendPacket($command);
+	$rslt ||= $this->waitTerminalPacket($PROTOCOL_CHOWN);
+
+	$rslt = textToDirInfo($rslt)
+		if $rslt !~ /^($PROTOCOL_ERROR|$PROTOCOL_ABORT)/;
+	$this->decInProtocol();
+	return $rslt;
+}
+
 
 
 
