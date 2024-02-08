@@ -108,9 +108,23 @@ sub new
 		pad2($time_parts[1]).':'.
 		pad2($time_parts[0]);
 
-	display($dbg_info+1,1,"stats=$ts,$size");
+
+    my ($mode,$owner,$group) = ('','','');
+	if (!is_win())
+	{
+		$mode = sprintf("%03o",$in_mode);
+		$mode = substr($mode,length($mode)-3);
+        $owner = getpwuid($uid);
+        $group = getgrgid($gid);
+    }
+
+	display($dbg_info+1,1,"stats=$size,$mode,$owner,$group,$ts");
     $this->{size}   = $size;
     $this->{ts} 	= $ts;
+    $this->{mode}   = $mode;
+    $this->{user}   = $owner;
+    $this->{group}  = $group;
+
     return $this;
 }
 
@@ -132,7 +146,10 @@ sub fromText
     my $this = shared_clone({
 		size   => defined($parts[0]) ? $parts[0] : '',
 		ts     => $parts[1] || '',
-		entry  => $parts[2] || '',
+		mode   => $parts[2] || '',
+		owner  => $parts[3] || '',
+		group  => $parts[4] || '',
+		entry  => $parts[5] || '',
 		is_dir => 0,
 	});
 
@@ -147,7 +164,6 @@ sub fromText
 	return error("bad FS::FileInfo timestamp($this->{ts}): $text",$call_level)
 		if $this->{ts} !~ /^[\s\d\-\:]+$/;
 
-
 	$this->{entries} = shared_clone({}) if $this->{is_dir};
 	display($dbg_info+1,0,"fromText=".toText($this,1));
 	bless $this,$class;
@@ -160,7 +176,7 @@ sub toText
     my ($this,$quiet_dbg) = @_;
     my $entry = $this->{entry};
 	$entry .= "/" if $this->{is_dir} && $entry ne '/';
-	my $text = "$this->{size}\t$this->{ts}\t$entry";
+	my $text = "$this->{size}\t$this->{ts}\t$this->{mode}\t$this->{owner}\t$this->{group}\t$entry";
     display($dbg_text+1,0,"toText()=$text")
 		if !$quiet_dbg;
     return $text;
