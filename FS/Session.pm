@@ -31,6 +31,7 @@ our $dbg_commands:shared = 0;
 	# -1 = show command header and return results
 	# -2 = show recursive operation details
 	# -3 = show gruesome recursive details
+my $dbg_unix = 0;
 
 
 BEGIN {
@@ -162,10 +163,14 @@ sub show_params
 sub set_new_unix_stuff
 {
 	my ($path,$mode,$uid,$gid) = @_;
-	return if !chmod(oct($mode),$path);
+	display($dbg_unix,0,"set_new_unix_stuff($path,$mode,$uid,$gid)");
+	return !error("Could not chmod($mode,$path)")
+		if !chmod(oct($mode),$path);
     # my $uid = getpwnam($user);
     # my $gid = getgrnam($group);
-	return if !chown($uid,$gid,$path);
+	return !error("Could not chown($uid,$gid,$path)")
+		if !chown($uid,$gid,$path);
+	return 1;
 }
 
 sub set_new_unix_file_stuff
@@ -537,7 +542,7 @@ sub finishFile
 	if (!$rslt && $this->{is_local_unix})
 	{
 		$rslt = error("$this->{NAME} finishFile() Could not set_new_unix_file_stuff($this->{file_name},$this->{file_ts})")
-			if !$this->set_new_unix_file_stuff($this->{filename});
+			if !$this->set_new_unix_file_stuff($this->{file_name});
 	}
 
 	$this->closeFile() if $rslt;
