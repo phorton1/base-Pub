@@ -30,7 +30,7 @@ use Pub::FS::FileInfo;
 use Pub::FS::ServerSession;
 
 
-our $dbg_server:shared =  -1;
+our $dbg_server:shared = 0;
 	# 0 for main server startup
 	# -1 for forking/threading details
 	# -2 null reads
@@ -78,7 +78,7 @@ sub new
 	#	DEBUG_SSL 	 	= 1..3 are known levels
 	#	SSL_CERT_FILE 	= required if SSL - served public certificate
 	#	SSL_KEY_FILE}  	= required if SSL - private key
-	#	SSL_CA_FILE     = optional if SSL - CA public cert that must authorize client's cert
+	#	SSL_CA_FILE     = RECOMMENDED if SSL - CA public cert that must authorize client's cert
 {
 	my ($class,$params) = @_;
 	$params ||= {};
@@ -301,11 +301,13 @@ sub sessionThread
 
 	if ($this->{SSL})
 	{
-		display($dbg_server,1,"starting SSL");
+		my $dbg_ssl = $this->{DEBUG_SSL} ? 0 : 1;
+		display($dbg_server + $dbg_ssl,1,"starting SSL");
 
 		# Upgrading to SSL requires SSL_CERT_FILE and SSL_KEY_FILE.
 		# if SSL_CA_FILE is provided, the server will use SSL_VERIFY_PEER
 		# to verify the client certificate agains the CA file.
+		# This is HIGHLY RECOMMENDED for any public facing servers.
 
 		my $ok = IO::Socket::SSL->start_SSL($client_socket,
 			SSL_server => 1,
@@ -324,7 +326,7 @@ sub sessionThread
 			$this->dec_running();
 			return;
 		}
-		display($dbg_server,1,"SSL STARTED");
+		display($dbg_server + $dbg_ssl,1,"SSL STARTED");
 	}
 
 	$active_connections->{$connect_num} = 1;
@@ -343,10 +345,24 @@ sub sessionThread
         error("EMPTY LOGIN");
 		$ok = 0;
 	}
-	elsif ($packet !~ /^$PROTOCOL_HELLO/)
+	elsif ($packet eq $PROTOCOL_PING)
+	{
+		display($dbg_server+1,0,$PROTOCOL_PING);
+		$session->sendPacket($PROTOCOL_PING." ".$PROTOCOL_OK);
+		sleep(1);
+		goto PING_EXIT;
+	}
+	elsif ($packet !~ /^$PROTOCOL_HELLO (.*)$/)
 	{
         error("BAD LOGIN '$packet'");
 		$ok = 0;
+	}
+	else
+	{
+		my $client_id = $1;
+		$client_id =~ s/\s+$//;
+		$session->{CLIENT_ID} = $client_id;
+		LOG(-1,"CONNECTION($connect_num) $session->{NAME} FROM $client_id\@$peer_ip:$peer_port");
 	}
 
 	# sendPacket reports and returns an error on failure
@@ -427,6 +443,8 @@ sub sessionThread
 		$session->sendPacket($PROTOCOL_EXIT);
 		sleep(0.2);
 	}
+
+PING_EXIT:
 
 	delete $active_connections->{$connect_num};
 

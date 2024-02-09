@@ -15,7 +15,8 @@ The first *word* is sometimes referred to as the packet *type*
 or the *verb*.  The *lowercase words* are *parameters* that
 depend on the packet type.
 
-- HELLO
+- PING
+- HELLO			CLIENT_ID
 - WASSUP		is_win(0/1) SERVER_ID
 - EXIT
 - ENABLED 		- msg

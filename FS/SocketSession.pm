@@ -19,6 +19,7 @@ use base qw(Pub::FS::Session);
 
 
 our $dbg_packets:shared =  0;
+our $DEBUG_PING = 0;
 
 
 BEGIN {
@@ -97,8 +98,9 @@ sub sendPacket
 {
     my ($this,$packet) = @_;
 
+	my $is_ping = $packet =~ /^$PROTOCOL_PING/;
 	display($dbg_packets,-1,"$this->{NAME} --> ".dbgPacket($dbg_packets,$packet),1)
-		if $dbg_packets <= 0;
+		if (!$is_ping || $DEBUG_PING) && $dbg_packets <= 0;
 
     my $sock = $this->{SOCK};
 	return error("$this->{NAME} no socket in sendPacket",1,1)
@@ -194,8 +196,9 @@ sub getPacket
 		return error("$this->{NAME} empty response from peer",1,1);
 	}
 
+	my $is_ping = $$ppacket =~ /^$PROTOCOL_PING/;
 	display($dbg_packets,-1,"$this->{NAME} <-- ".dbgPacket($dbg_packets,$$ppacket),1)
-		if $dbg_packets <= 0;
+		if (!$is_ping || $DEBUG_PING) && $dbg_packets <= 0;
 
 	return '';
 

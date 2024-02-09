@@ -54,9 +54,9 @@ sub new
 	if ($params->{SSL})
 	{
 		$params->{DEBUG_SSL} ||= 0;
-		$params->{SSL_CERT_FILE} ||= '';	# public certificate
-		$params->{SSL_KEY_FILE}  ||= '';	# private key
-		$params->{SSL_CA_FILE}   ||= '';	# public CA certificate
+		$params->{SSL_CERT_FILE} ||= '';	# required public certificate
+		$params->{SSL_KEY_FILE}  ||= '';	# required private key
+		$params->{SSL_CA_FILE}   ||= '';	# optional public CA certificate
 		$IO::Socket::SSL::DEBUG = $params->{DEBUG_SSL}
 			if $params->{DEBUG_SSL};
 	}
@@ -114,6 +114,15 @@ sub connect
 	if ($this->{SSL})
 	{
 		push @params,(
+
+			SSL_verify_mode => $this->{SSL_CA_FILE} ? SSL_VERIFY_PEER  : SSL_VERIFY_NONE,
+				# VERIFY_NONE on a Client still requires some kind of
+				# certificate from the Server ... so they are exchanged,
+				# but we do not verify the server's cert versus our CA.
+				# This makes sense, and can be considered optional for
+				# my typical fileClient, because in truth I care more
+				# about protecting the Server than the Client.
+
 			SSL_ca_file => $this->{SSL_CA_FILE},
 			SSL_cert_file => $this->{SSL_CERT_FILE},
 			SSL_key_file => $this->{SSL_KEY_FILE},
@@ -134,7 +143,7 @@ sub connect
 		my $rcv_buf_size = 10240;
 		$this->{SOCK}->sockopt(SO_RCVBUF, $rcv_buf_size);
  		display($dbg_connect,-1,"$this->{NAME} CONNECTED to ".($this->{SSL} ? 'SSL ' : '')."PORT $port");
-		my $err = $this->sendPacket($PROTOCOL_HELLO);
+		my $err = $this->sendPacket($PROTOCOL_HELLO." ".getMachineId());
 		if (!$err)
 		{
 			my $packet;

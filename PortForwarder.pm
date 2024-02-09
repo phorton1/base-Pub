@@ -11,6 +11,15 @@
 # Requires substantial external setup on a server somewhere.
 # Does not use SSH passwords; uses a key file only.
 # May need to be run from command line to enter password first time.
+#
+# Ping is implemented as sending a somewhat standard single line
+# requst to the server, typically of the form:
+#
+#	GET /PING HTTP/1.1
+#
+# Any servers that need to stay alive using ping must respond
+# to the request line they pass in.
+
 
 package Pub::PortForwarder;
 use strict;
@@ -21,16 +30,16 @@ use Pub::Utils;
 use Pub::Prefs;
 use LWP::UserAgent;
 use IPC::Open3;
-use IO::Socket::SSL qw(SSL_VERIFY_NONE);
+use IO::Socket::SSL;
 use Symbol qw(gensym);
 use POSIX "sys_wait_h";
 
+my $DEBUG_PING_SSL = 0;
 
 
 my $dbg_fwd = 0;		# -1 for pid, details
-
 my $dbg_kill = 0;
-my $dbg_ping = -1;		# ping failures are hard to thoroughly test
+my $dbg_ping = 1;		# ping failures are hard to thoroughly test
 
 
 # These parameters are generally useful, but available
@@ -42,7 +51,7 @@ our $FWD_TIMEOUT = 30;
 	# STATE_STARTING ports timeout after this many seconds
 our $FWD_CHECK_INTERVAL = 15;	   # 60;
 	# check pid and/or ping STATE_SUCCESS ports every this many seconds
-our $FWD_PING_TIMEOUT = 0;	# 10;
+our $FWD_PING_TIMEOUT = 10;
 	# how long to wait for ping response
 	# set to zero to disable ping testing
 	# must be significantly smaller than FWD_CHECK_INTERVAL
@@ -100,7 +109,8 @@ my $ssh_stderr = gensym();
 
 
 # on Windows I have a plethora of ssh.exe's to chose from
-# the default by path is C:\MinGW\msys\1.0\bin OpenSSL 1.0.0 29 Mar 2010 which does not support the -E (logfile) option
+# the default by path is C:\MinGW\msys\1.0\bin\ssh
+# OpenSSL 1.0.0 29 Mar 2010 which does not support the -E (logfile) option
 #
 # C:\MinGW\msys\1.0\bin 						OpenSSL 1.0.0 29 Mar 2010
 # C:\Windows\System32\OpenSSH					OpenSSH_for_Windows_8.1p1, LibreSSL 3.0.2
@@ -122,8 +132,15 @@ sub new
 	#	FWD_SERVER			= host to forward to
 	#	FWD_SSH_PORT		= SSH port on host
 	#	FWD_KEYFILE			= keyfile for SSH
-	#	IS_FILE_SERVER		= 1 for different ping (probably to become a callback)
 	#	WIN_SSH_PATH		= path to ssh.exe if is_win()
+	#	PING_REQUEST		= optional "GET /PING HTTP/1.1" or similar
+	#
+	# Plus if SSL, to do a standard HTTP Ping:
+	#	SSL
+	#	SSL_CERT_FILE
+	#	SSL_KEY_FILE}
+	#	SSL_CA_FILE}
+	#	DEBUG_SSL}
 {
 	my ($class,$params) = @_;
 
@@ -131,6 +148,7 @@ sub new
 
 	$params->{FWD_SSH_PORT} ||= $DEFAULT_SSH_PORT;
 	$params->{WIN_SSH_PATH} ||= $DEFAULT_WIN_SSH_PATH;
+	$params->{PING_REQUEST} ||= '';
 
 	my $this = shared_clone($params);
 
@@ -251,12 +269,12 @@ sub threadBody
 
 				# If the process appears to be running, try a ping
 
-				elsif ($FWD_PING_TIMEOUT)
+				elsif ($fwd->{PING_REQUEST} && $FWD_PING_TIMEOUT)
 				{
 					return if $stopping;
-					$fwd->doPing();
+					$fwd->stopSelf("PING FAILED",$FWD_START_TIME_PING_FAIL)
+						if !$fwd->doPing();
 				}
-
 				return;
 			}
 		}
@@ -410,97 +428,86 @@ sub killRemotePort
 }
 
 
-
-
-
-
-# use My::FS::Session;
-
-
 sub doPing
+	# Do a ping, synchronously, using user supplied
+	# PING_REQUEST and SSL params if provided.
+	# Returns 1 or 0.
 {
 	my ($this) = @_;
-	display($dbg_ping,0,"FWD::doPing($this->{IS_FILE_SERVER},$this->{PORT} to $this->{FWD_PORT})");
-	if ($this->{IS_FILE_SERVER})
+	my $line = '';
+	my $host = $this->{FWD_SERVER};
+    my $port = $this->{FWD_PORT};
+	my $host_port = "$host:$port";
+	display($dbg_ping,0,"doPing($host_port)");
+
+	$this->{in_ping} = 1;
+	my $save_debug = $IO::Socket::SSL::DEBUG;
+
+	my @params = (
+		PeerAddr => $host_port,
+        PeerPort => "http($port)",
+        Proto    => 'tcp',
+		Timeout  => $FWD_PING_TIMEOUT );
+
+	if ($this->{SSL})
 	{
-		# minimal framework to do a ping has to get through
-		# 	$line = My::FS::Session::file_decrypt($line);
-        # 	my $user = My::FS::Session::validateHelloPacket($line);
-		# with a user called "PING"
+		# turn off SSL debugging
+		# turn offf SSL verifying
+		# but still send cert
+		# note that we cannot turn off server SSL debugging
+		# which is in another thread ...
 
-		# I believe the initial connect timeout does not work ...
-		# will try it with a stopped server
-
-		display($dbg_ping+1,0,"opening file_server socket to $this->{FWD_SERVER}:$this->{FWD_PORT}");
-
-		my $sock = IO::Socket::INET->new(
-			PeerAddr => "$this->{FWD_SERVER}:$this->{FWD_PORT}",
-			PeerPort => "http($this->{FWD_PORT})",
-			Proto    => 'tcp',
-			Timeout  => $FWD_PING_TIMEOUT,
-			Blocking => 0);
-		if ($sock)
-		{
-			my $line = '';
-			display($dbg_ping+1,0,"sending encrypted packet to $this->{FWD_SERVER}:$this->{FWD_PORT}");
-
-			my $hello_packet = My::FS::Session::helloPacket("PING");
-			my $encrypted = My::FS::Session::file_encrypt($hello_packet)."\n";
-			if ($sock->send($encrypted))
-			{
-				$sock->flush();
-				display($dbg_ping+1,0,"getting line from $this->{FWD_SERVER}:$this->{FWD_PORT}");
-
-				my $timeout = time();
-				while (!$line && time() < $timeout + $FWD_PING_TIMEOUT)
-				{
-					$line = <$sock> || '';
-					sleep(1) if !$line;
-				}
-
-				$sock->close();
-				undef($sock);
-
-				$line = My::FS::Session::file_decrypt($line);
-				display($dbg_ping+1,0,"got line from $this->{FWD_SERVER}:$this->{FWD_PORT}: "._def($line));
-			}
-			else
-			{
-				error("Could not send encrypted packet to $this->{FWD_SERVER}:$this->{FWD_PORT}")
-
-			}
-			if (defined($line) && $line =~ /PING_OK/)
-			{
-				display($dbg_ping,0,"FWD($this->{PORT} to $this->{FWD_PORT}) FILE_SERVER_PING OK");
-				return;
-			}
-		}
-		else
-		{
-			error("Could not open socket to $this->{FWD_SERVER}:$this->{FWD_PORT}")
-		}
-		$this->stopSelf("FILE_SERVER_PING FAILED",$FWD_START_TIME_PING_FAIL);
+		$IO::Socket::SSL::DEBUG = $DEBUG_PING_SSL;
+		push @params, (
+			SSL_cert_file => $this->{SSL_CERT_FILE},
+			SSL_key_file => $this->{SSL_KEY_FILE},
+			# SSL_ca_file => $this->{SSL_CA_FILE},
+			# SSL_verify_mode => $this->{SSL_CA_FILE} ? SSL_VERIFY_PEER  : SSL_VERIFY_NONE,
+			SSL_verify_mode => SSL_VERIFY_NONE,
+		);
 	}
-	else	# PING our own HTTPS Server
+
+    my $sock = $this->{SSL} ?
+		IO::Socket::SSL->new(@params) :
+		IO::Socket::INET->new(@params);
+
+    if (!$sock)
+    {
+        error("doPing() could not connect to $host_port");
+		goto END_PING;
+    }
+
+	my $packet = $this->{PING_REQUEST}."\r\n";
+	my $len = length($packet);
+	my $bytes = syswrite($sock,$packet);
+	if ($bytes != $len)
 	{
-		my $url = "https://$this->{FWD_SERVER}:$this->{FWD_PORT}/PING";
-		display($dbg_ping,0,"FWD($this->{PORT} to $this->{FWD_PORT}) PING request=$url");
-		my $ua = LWP::UserAgent->new(
-			timeout => $FWD_PING_TIMEOUT,
-			ssl_opts => {
-				verify_hostname => 0,
-				SSL_verify_mode => SSL_VERIFY_NONE }
-			);
-		my $response = $ua->get($url);
-		if ($response->is_success)
-		{
-			display($dbg_ping,0,"FWD($this->{PORT} to $this->{FWD_PORT}) PING OK");
-		}
-		else
-		{
-			$this->stopSelf("PING FAILED",$FWD_START_TIME_PING_FAIL);
-		}
+		$this->{in_ping} = 0;
+        error("doPing() could only write($bytes/$len) bytes to $host_port");
+		$sock->close();
+		goto END_PING;
 	}
+
+	$sock->flush();
+	display($dbg_ping+1,0,"getting line from $host_port");
+	$line = <$sock> || '';
+	$line =~ s/\s+$//;
+	$sock->close();
+
+	# The reply *should* contain 'OK'
+	# But we accept any response from the server
+
+	display($dbg_ping,0,"doPing($host_port) got $line");
+
+END_PING:
+
+	undef $sock;
+
+	$IO::Socket::SSL::DEBUG = $save_debug
+		if $this->{SSL};
+
+	$this->{in_ping} = 0;
+	return $line;
 }
 
 

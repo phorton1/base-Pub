@@ -44,9 +44,9 @@ sub onSignal
 
 sub new
 {
-	my ($class,$params) = @_;
+	my ($class) = @_;
 
-	$params ||= {};
+	my $params = {};
 	$params->{SEND_EXIT} 	 = 1;
 	$params->{SSL} 			 = getPref('SSL') || 0;
 	$params->{PORT} 		 = getPref('PORT') || ($params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT);
@@ -61,16 +61,17 @@ sub new
 
 	if (getPref('FWD_PORT'))
 	{
-		my $fwd_params = {};
-		$fwd_params->{PORT}		      = $params->{PORT};
-		$fwd_params->{FWD_PORT} 	  = getPref('FWD_PORT');
-		$fwd_params->{FWD_USER} 	  = getPref('FWD_USER');
-		$fwd_params->{FWD_SERVER} 	  = getPref('FWD_SERVER');
-		$fwd_params->{FWD_SSH_PORT}   = getPref('FWD_SSH_PORT');
-		$fwd_params->{FWD_KEYFILE}    = getPref('FWD_KEYFILE');
-		$fwd_params->{IS_FILE_SERVER} = 1;
+		# the PortForwarder takes the SSL parameters from preferences
+		# so that it can do a standard HTTP PING
 
-		$port_forwarder = Pub::PortForwarder->new($fwd_params);
+		$params->{FWD_PORT} 	  = getPref('FWD_PORT');
+		$params->{FWD_USER} 	  = getPref('FWD_USER');
+		$params->{FWD_SERVER} 	  = getPref('FWD_SERVER');
+		$params->{FWD_SSH_PORT}   = getPref('FWD_SSH_PORT');
+		$params->{FWD_KEYFILE}    = getPref('FWD_KEYFILE');
+		$params->{PING_REQUEST}	  = $PROTOCOL_PING;
+
+		$port_forwarder = Pub::PortForwarder->new($params);
 		Pub::PortForwarder::start();
 	}
 

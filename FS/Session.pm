@@ -39,6 +39,7 @@ BEGIN {
 	our @EXPORT = qw (
 		$dbg_commands
 
+		$PROTOCOL_PING
 		$PROTOCOL_HELLO
         $PROTOCOL_WASSUP
         $PROTOCOL_EXIT
@@ -69,6 +70,7 @@ BEGIN {
 
 # Protocol Verbs
 
+our $PROTOCOL_PING		= "PING";
 our $PROTOCOL_HELLO		= "HELLO";
 our $PROTOCOL_WASSUP 	= "WASSUP";
 our $PROTOCOL_EXIT		= "EXIT";
