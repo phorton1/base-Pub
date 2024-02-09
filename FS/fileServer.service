@@ -1,0 +1,69 @@
+# fileSeerver.service
+#
+# Note that this service file may be used on the Miami WebServer as well
+# as on all my rPis.
+#
+# This file is a "systemd unit" file describing a service to be started,
+# in this case, my "File Server" service.  It is assumed that you can
+# already run "./fileServer.pm NO_SERVICE" from a command line in the
+# /base/Pub/FS directory, which means that you have already:
+#
+# (0) Installed GIT on the rPI (and probably authorized it to get at my private repos)
+# (1) Created /base as pi:pi 0750
+# (2) Cloned /base/Pub from github
+# (4) Installed any necessary Perl Modules (see /zip/_rPi/_setup/rpiSetup.docx)
+# (5) used "sudo mousepad /etc/environment", or some other method to edit
+#     /etc/environment and add PERLLIB="/base" (and/or PERLLIB="/base:/base/MBE"
+#	  for phnet, or "/base:/base/apps/artisan" for Artisan) ahd rebooted.
+# (6) Created /base_data as pi:pi 0750
+# (7) Created /base_data/temp as pi:pi 0750
+#
+# And been able to "hit" the server with the windows based fileClient program.
+# on the default port 5872.  Note that the ownership of Perl but that by convention,
+# all these directories and files are normally owned by pi:pi (or phnet:phnet).
+#
+# Once you can run it as a service, it will create a PIDFile in
+#
+#		/base_data/temp/fileServere/fileServer.pid
+#
+# INSTALLATION:
+#
+# To install this file on a new linux (fedora) machine, copy it to the
+# /usr/lib/systemd/system/ directory
+#
+#   > cd /base/Pub/FS
+#   > sudo cp fileServer.service /usr/lib/systsemd/system
+#
+# and run:
+#
+#   > sudo systemctl enable fileServer.service
+#
+# and then
+#
+#   > sudo systemctl start fileServer
+#
+# This will create a symbolic link from
+#
+# /etc/systemd/system/multi-user.target.wants/fileServer.service
+#
+# to the file in /usr/lib/systemd/system directory, and enable the service
+# on startup.  Thereafter you should be able to start and stop the service
+# from Webmin Bootup/Shutdown, and/or from any web pages I build to do the,
+# or via sudo systemctl start/restart/stop fileServer and it should
+# be running on a freshly booted machine.
+#
+# If you modify this file you need to stop the service, recopy this file to
+# /usr/lib/systemd/system, and run "sudo systemctl daemon-reload", and then
+# restart the service.
+
+[Unit]
+Description=my newer fileServer service
+
+[Service]
+Type=forking
+PIDFile=/base_data/temp/fileServer/fileServer.pid
+ExecStart=/base/Pub/FS/fileServer.pm
+ExecStop=kill -KILL $(cat /base_data/temp/fileServer/fileServer.pid)
+
+[Install]
+WantedBy=multi-user.target
