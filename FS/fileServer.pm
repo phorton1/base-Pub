@@ -131,7 +131,7 @@ setStandardDataDir('fileServer');
 	# /base_data/data
 	# or Cava Packaged ENV{USERPROFILE}."/Documents
 
-# $logfile = "$temp_dir/fileServer.log";
+$logfile = "$temp_dir/fileServer.log";
 
 Pub::Utils::initUtils(1);
 	# AS_SERVICE
