@@ -35,6 +35,8 @@ use Wx::Event qw(
 	EVT_AUINOTEBOOK_PAGE_CHANGING
 	EVT_AUINOTEBOOK_PAGE_CHANGED );
 use JSON;
+use JSON::backportPP;
+	# required for Cava Packager to pickup the module
 use Error qw(:try);
 use Pub::Utils;
 use Pub::WX::Resources;
