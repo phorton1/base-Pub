@@ -8,9 +8,6 @@
 # You can check ref(), or better yet, call isValidInfo() which
 # specifically checks FS::Pub::FileInfo objects, to tell the
 # difference.
-#
-# BIG TODO: need to add mode, user, and group ... with names
-#     through all the back and forths.
 
 
 package Pub::FS::FileInfo;

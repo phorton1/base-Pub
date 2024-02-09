@@ -9,10 +9,6 @@
 # The doCommand() method returns FS::FileInfo objects,
 # an ERROR or one of the ABORT, ABORTED, CONTINUE, or OK
 # messges.
-#
-# TODO: need to set default permissions when creating
-# new files on unix according to dir and file RE
-
 
 package Pub::FS::Session;
 use strict;
@@ -94,10 +90,11 @@ our $PROTOCOL_OK        = "OK";
 our $PROTOCOL_CHMOD  	= "CHMOD";
 our $PROTOCOL_CHOWN  	= "CHOWN";
 
-my $MODE_DIR = '750';
-my $MODE_EXE = '750';
-my $MODE_FILE = '640';
-my $EXE_RE = '\.(pm|pl|cgi)$';	# |^.*\/(prh_deny|prh_daily|prh_monitor|fileServer)$';
+
+my $DEFAULT_MODE_DIR = '750';
+my $DEFAULT_MODE_EXE = '750';
+my $DEFAULT_MODE_FILE = '640';
+my $DEFAULT_EXE_RE = '\.(pm|pl|cgi)$';	# |^.*\/(prh_deny|prh_daily|prh_monitor|fileServer)$';
 
 
 #------------------------------------------------
@@ -109,11 +106,23 @@ sub new
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
 	$params->{NAME} ||= 'Session';
+
+	$params->{MODE_DIR}  ||= $DEFAULT_MODE_DIR;
+	$params->{MODE_EXE}  ||= $DEFAULT_MODE_EXE;
+	$params->{MODE_FILE} ||= $DEFAULT_MODE_FILE;
+	$params->{EXE_RE}    ||= $DEFAULT_EXE_RE;
+
+	$params->{is_local_unix} = 1 if !is_win();
+		# the only time this runs !is_win() is as a server
+		# this drives whether the local file system sets
+		# default permissions on new objects.
+
 	my $this = { %$params };
 	$this->{SERVER_ID} = getMachineId();
 	bless $this,$class;
 	return $this;
 }
+
 
 sub MACHINE_ID
 {
@@ -147,6 +156,92 @@ sub show_params
 	$param2 = ref($param2) if ref($param2);
 	return "$what $command($param1,$param2,$param3)";
 }
+
+
+
+sub set_new_unix_stuff
+{
+	my ($path,$mode,$uid,$gid) = @_;
+	return if !chmod(oct($mode),$path);
+    # my $uid = getpwnam($user);
+    # my $gid = getgrnam($group);
+	return if !chown($uid,$gid,$path);
+}
+
+sub set_new_unix_file_stuff
+{
+	my ($this,$path) = @_;
+	my @parts = split(/\//,$path);
+	my $leaf = pop @parts;
+	my $dir = join('/',@parts);
+
+	my ($dev,$ino,$in_mode,$nlink,$uid,$gid,$rdev,$size,
+		$atime,$mtime,$ctime,$blksize,$blocks) = stat($dir);
+
+	my $mode = $leaf =~ /$this->{EXE_RE}/ ?
+		$this->{MODE_EXE} : $this->{MODE_FILE};
+	$uid ||= 0;
+	$gid ||= 0;
+
+	return set_new_unix_stuff($path,$mode,$uid,$gid);
+}
+
+
+sub make_dir
+	# make all dirs needed in a path
+	# copied from Pub::Utils::my_mkdir
+	# on unix, sets owner::group according to last created leaf
+{
+	my ($this,$path,$skip_leaf) = @_;
+	if ($path !~ /^(\/|[A-Z]:)/i)
+	{
+		error("unqualified path($path) in make_dir");
+		return 0;
+	}
+
+	my @parts = split(/\//,$path);
+	pop @parts if $skip_leaf;
+	return 1 if !@parts;
+	shift @parts if !$parts[0];
+	return 1 if !@parts;
+
+	my $dir = $parts[0] =~ /^[A-Z]:$/i ? shift @parts : '';
+	return 1 if !@parts;
+
+	my $last_uid = 0;	# root
+	my $last_gid = 0;	# root
+
+	while (@parts)
+	{
+		$dir .= "/".shift @parts;
+		if (-d $dir)
+		{
+			if ($this->{is_local_unix})
+			{
+				my ($dev,$ino,$in_mode,$nlink,$uid,$gid,$rdev,$size,
+					$atime,$mtime,$ctime,$blksize,$blocks) = stat($dir);
+				$last_uid = $uid;
+				$last_gid = $gid;
+			}
+		}
+		else
+		{
+			display($dbg_commands,0,"making directory $dir");
+			mkdir $dir;
+			if (!-d $dir)
+			{
+				error("Could not create sub_dir($dir)  for path($path)");
+				return 0;
+			}
+
+			return 0 if $this->{is_local_unix} &&
+				!set_new_unix_stuff($dir,$this->{MODE_DIR},$last_uid,$last_gid)
+		}
+	}
+
+	return 1;
+}
+
 
 
 #------------------------------------------------------
@@ -202,9 +297,10 @@ sub _mkdir
 			if -e $path;
 	}
 	return error("Could not _mkdir $path: $!",0,1)
-		if !mkdir($path);
+		if !$this->make_dir($path,0);
 	return error("Could not setTimestap on $path in _mkdir: $!")
 		if !setTimestamp($path,$ts);
+
 	return $PROTOCOL_OK
 		if $may_exist;
 	return $this->_list(pathOf($path));
@@ -438,6 +534,12 @@ sub finishFile
 		$rslt = error("$this->{NAME} finishFile() Could not setTimestamp($this->{file_name},$this->{file_ts})");
 	}
 
+	if (!$rslt && $this->{is_local_unix})
+	{
+		$rslt = error("$this->{NAME} finishFile() Could not set_new_unix_file_stuff($this->{file_name},$this->{file_ts})")
+			if !$this->set_new_unix_file_stuff($this->{filename});
+	}
+
 	$this->closeFile() if $rslt;
 	$rslt ||= $PROTOCOL_OK;
 	return $rslt;
@@ -461,8 +563,7 @@ sub _file
 	return error("$this->{NAME} _file File($full_name) too big($size) for disk($free)")
 		if $size > $free;
 	return error("$this->{NAME} _file Could not make subdirectories($full_name)")
-		if !my_mkdir($full_name,1,$dbg_commands);
-			# probably not needed now that PUT protocol includes MKDIR
+		if !$this->make_dir($full_name,1);
 
 	my $pid = $$;
 	my $tid = threads->tid();
