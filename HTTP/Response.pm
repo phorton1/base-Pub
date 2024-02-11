@@ -24,6 +24,12 @@ BEGIN
 {
  	use Exporter qw( import );
 	our @EXPORT = qw (
+
+		http_ok
+		http_error
+		json_error
+		json_response
+
 		$RESPONSE_HANDLED
     );
 }
@@ -34,6 +40,32 @@ our $RESPONSE_HANDLED = 'RESPONSE_HANDLED';
 
 
 my $dbg_resp = 1;
+
+
+
+sub http_ok
+{
+    my ($request,$msg) = @_;
+    return Pub::HTTP::Response->new($request,200,'text/plain',$msg);
+}
+sub http_error
+{
+    my ($request,$msg) = @_;
+    return Pub::HTTP::Response->new($request,404,'text/plain',$msg);
+}
+
+
+sub json_error
+{
+    my ($request,$msg) = @_;
+    return Pub::HTTP::Response->new($request,200,'application/json',{error => $msg});
+}
+sub json_response
+{
+    my ($request,$data) = @_;
+    return Pub::HTTP::Response->new($request,200,'application/json',$data);
+}
+
 
 
 sub dbg
@@ -53,11 +85,6 @@ sub dbg
 
 
 
-sub newFromJson
-{
-    my ($class,$request,$data) = @_;
-    return $class->new($request,200,'application/json',$data);
-}
 
 
 sub new

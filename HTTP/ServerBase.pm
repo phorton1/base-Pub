@@ -39,6 +39,7 @@
 # 	DEFAULT_HEADERS => {},
 #
 #	DOCUMENT_ROOT =>$base_dir,
+#	DEFAULT_LOCATION => '/index.html'	# used for / requests
 #   ALLOW_GET_EXTENSIONS_RE => 'html|js|css|jpg|png|ico',
 #	ALLOW_SCRIPT_EXTENSIONS_RE => '',
 #		allows scripts to be executed from the HTTP Server
@@ -487,6 +488,12 @@ sub clientRequest
 		my $method = $request->{method} || '';
 		my $uri = $request->{uri} || '';
 
+		if ($uri eq '/' && $this->{DEFAULT_LOCATION})
+		{
+			$uri = $this->{DEFAULT_LOCATION};
+			$request->{uri} = $uri;
+		}
+
 		# detect pings, and log/debug the request
 
 		my $is_ping = $method eq 'PING' || ($method =~ /get/i && $uri eq "/PING") ? 1 : 0;
@@ -542,8 +549,7 @@ sub clientRequest
 			if (!$response)
 			{
 				$this->dbg(0,1,"WARNING: no response from handle_request($request_num) $request->{method} $request->{uri} $dbg_from");
-				$response = Pub::HTTP::Response->new($request,404,"text/plain",
-					"ERROR(404)\n\nThe uri($request->{uri}) was not found on this server");
+				$response = http_error($request,"ERROR(404)\n\nThe uri($request->{uri}) was not found on this server");
 			}
 		}
 
@@ -668,41 +674,6 @@ sub checkAuthorization
 }
 
 
-#-----------------------------
-# local "my" _getMimeType()
-#-----------------------------
-
-sub _getMimeType
-{
-	my ($filename) = @_;
-	$filename = lc($filename);
-	if ($filename =~ /^.*\.(.*?)$/)
-	{
-		my $ext = $1;
-		return 'application/msword' if ($ext eq 'doc');
-		return 'application/pdf' if ($ext eq 'pdf');
-		return 'application/vnd.ms-excel' if ($ext eq 'xls');
-		return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if $ext eq 'xlsx';
-		return 'application/x-tar' if ($ext eq 'tar');
-		return 'application/zip ' if ($ext eq 'zip');
-		#return 'audio/mpeg' if ($ext eq 'mp3');
-		return 'image/x-icon' if ($ext eq 'ico');
-		return 'image/bmp' if ($ext eq 'bmp');
-		return 'image/gif ' if ($ext eq 'gif');
-		return 'image/jpeg' if ($ext =~ /^(jpeg|jpg|jpe)$/);
-		return 'image/png' if ($ext eq 'png');
-		return 'image/tiff' if ($ext =~ /^(tif|tiff)$/);
-		return 'text/plain' if ($ext =~ /^(txt|asc|log)$/);
-		return 'text/html' if ($ext =~ /^(html|htm)$/);
-		return 'text/rtf' if ($ext eq 'rtf');
-		#return 'video/mpeg' if ($ext =~ /^(mpg|mpeg|mpe)$/);
-		#return 'video/x-msvideo' if ($ext eq 'avi');
-		return 'text/javascript' if $ext eq 'js';
-		return 'text/css' if $ext eq 'css';
-	}
-}
-
-
 
 #----------------------------------
 # base class handle_request
@@ -777,7 +748,7 @@ sub handle_request
     # subject to client's ALLOW_GET_EXTENSIONS_RE
 	# $uri =~ /.*\.(html|htm|js|css|jpg|gif|png|ico|pdf|txt)$/)
 
-	my $mime_type = _getMimeType($uri);
+	my $mime_type = myMimeType($uri);
 
 	if ($mime_type &&
         $method eq 'GET' &&
@@ -786,7 +757,7 @@ sub handle_request
 	{
 		$this->dbg(2,0,"getting $filename");
 		my $text = getTextFile($filename,1);
-		$text = processBody($text,$request) if $uri =~ /\.html$/;
+		$text = processBody($text,$request,$this,$doc_root) if $uri =~ /\.html$/;
 		return Pub::HTTP::Response->new($request,200,$mime_type,$text);
 	}
 

@@ -68,6 +68,12 @@ sub get_content_length
 }
 
 
+sub get_content_type
+{
+    my ($this) = @_;
+    my $content_type = $this->{headers}->{'content-type'} || '';
+    return $content_type;
+}
 
 
 1;

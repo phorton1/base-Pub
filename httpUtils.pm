@@ -473,21 +473,6 @@ sub indent
 }
 
 
-sub myMimeType
-{
-	my ($fn_or_ext) = @_;
-	$fn_or_ext = $1 if $fn_or_ext =~ /\.(.+)$/;
-	return
-		$fn_or_ext eq 'js'  ? 'text/javascript' :
-		$fn_or_ext eq 'css' ? 'text/css' :
-		$fn_or_ext eq 'jpg' ? 'image/jpeg' :
-		$fn_or_ext eq 'ico' ? 'image/x-icon' :
-		$fn_or_ext eq 'gif' ? 'image/gif' :
-		$fn_or_ext eq 'png' ? 'image/png' :
-		$fn_or_ext eq 'html' ? 'text/html' :
-		$fn_or_ext eq 'json' ? 'application/json' :
-		'text/plain';
-}
 
 
 

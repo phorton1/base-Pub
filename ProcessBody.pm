@@ -63,6 +63,7 @@ sub processBodyFileMulti
 {
     my ($filename,$main_rec,$this) = @_;
 	display($dbg_pb,0,"processBodyFileMulti($filename) called");
+	my $dir = pathOf($filename);
 
 	my $in_body = getTextFile($filename);
 	if (!$in_body)
@@ -103,13 +104,13 @@ sub processBodyFileMulti
 		}
 	}
 
-	my $body = processBody($header_part,$main_rec,$this,$filename);
+	my $body = processBody($header_part,$main_rec,$this,$dir,$filename);
 
 	my $rec_num = 0;
 	for my $rec (@{$main_rec->{recs}})
 	{
 		$rec->{_rec_num} = $rec_num++;
-		$body .= processBody($body_part,$rec,$this,$filename);
+		$body .= processBody($body_part,$rec,$this,$dir,$filename);
 	}
 	$body .= $footer_part;
 	return $body;
@@ -122,13 +123,14 @@ sub processBodyFile
 {
     my ($filename,$rec,$this) = @_;
 	display($dbg_pb,0,"processBodyFile($filename) called");
+	my $dir = pathOf($filename);
 	my $body = getTextFile($filename);
 	if (!$body)
     {
         error("No body in $filename");
         return;
     }
-	my $result = processBody($body,$rec,$this,$filename);
+	my $result = processBody($body,$rec,$this,$dir,$filename);
 	display($dbg_pb,0,"processBodyFile() returning ".length($result)." bytes");
 	return $result;
 
@@ -193,12 +195,12 @@ sub processBody
     # so some care must be taken to not overuse the space
     # or make assumptions about the undefined value of things.
 {
-    my ($in_body,$rec,$this,$dbg_filename) = @_;
+    my ($in_body,$rec,$this,$dir,$filename) = @_;
     my @body_lines = split(/\n/,$in_body);
 
-	$dbg_filename ||= 'body';
+	$filename ||= 'body';
 
-    display($dbg_pb,0,"processBody() called with ".length($in_body)." bytes == ".scalar(@body_lines)." lines");
+    display($dbg_pb,0,"processBody($dir) called with ".length($in_body)." bytes == ".scalar(@body_lines)." lines");
 
     my $body = "";
     my @if_value;
@@ -207,7 +209,7 @@ sub processBody
     my %file_included;
     my $include_level = 0;
     my @line_nums = (0);
-    my @include_names = ($dbg_filename);
+    my @include_names = ($filename);
     my @line_buffers = (\@body_lines);
 
     my $for_level = 0;
@@ -508,7 +510,7 @@ sub processBody
 
         if ($line =~ /<include\s+(.*)>/)
         {
-            my $filename = $1;
+            my $filename = makePath($dir,$1);
             if ($file_included{$filename})
             {
                 error("Include file loop - already loaded $filename at $include_file($line_num)");
@@ -555,7 +557,7 @@ sub processBody
             $line =~ s/###HERE###/$val/;
 			my $showval = substr($val,0,60);
 			$showval =~ s/\n/ /g;
-            display(_clip $dbg_pb,1+$include_level+$if_level,"substituting '$expr' with '$showval'");
+            display($dbg_pb,1+$include_level+$if_level,"substituting '$expr' with '$showval'");
         }
 
         # do squigly bracket expression substitutions
@@ -585,7 +587,7 @@ sub processBody
             }
             $val = "" if (!defined($val));
             $line =~ s/###HERE###/$val/;
-            display(_clip $dbg_pb,1+$include_level+$if_level,"substituting '$expr' with '$val'");
+            display($dbg_pb,1+$include_level+$if_level,"substituting '$expr' with '$val'");
         }
 
         $body .= $line."\n";

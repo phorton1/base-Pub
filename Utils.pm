@@ -10,8 +10,9 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
-sub is_win { return $^O eq "MSWin32" }
+sub is_win { return $^O eq "MSWin32" ? 1 : 0 }
 use Cwd;
+use JSON;
 use Date::Calc;
 use MIME::Base64;
 use Time::Local;
@@ -25,6 +26,7 @@ use if is_win, 'Win32::Process';
 
 
 our $debug_level = 0;
+my $dbg_json = 1;
 
 # storage only global variables set elsewhere
 
@@ -112,8 +114,12 @@ BEGIN
 
 		diskFree
 		getMachineId
-
 		getTopWindowId
+
+		url_decode
+		my_encode_json
+		my_decode_json
+		myMimeType
 
 		$DISPLAY_COLOR_NONE
         $DISPLAY_COLOR_LOG
@@ -1376,6 +1382,168 @@ sub getTopWindowId
 }
 
 
+
+
+
+sub my_decode_json
+{
+	my ($json) = @_;
+	my $data = '';
+	try
+	{
+		$data = decode_json($json);
+	}
+	catch Error with
+	{
+		my $ex = shift;   # the exception object
+		error("Could not decode json: $ex");
+	};
+	return $data;
+}
+
+
+# sub my_encode_json
+# {
+# 	my ($data) = @_;
+# 	my $json = '';
+# 	try
+# 	{
+# 		$json = encode_json($data);
+# 	}
+# 	catch Error with
+# 	{
+# 		my $ex = shift;   # the exception object
+# 		error("Could not encode json: $ex");
+# 	};
+# 	return $json;
+# }
+
+
+
+sub my_encode_json
+	# return my json representation of an object
+{
+	my ($obj) = @_;
+	my $response = '';
+
+	display($dbg_json,0,"json obj=$obj ref=".ref($obj),1);
+
+	if ($obj =~ /ARRAY/)
+	{
+		for my $ele (@$obj)
+		{
+			$response .= "," if (length($response));
+			$response .= my_encode_json($ele)."\n";
+		}
+		return "[". $response . "]";
+	}
+
+	if ($obj =~ /HASH/)
+	{
+		for my $k (keys(%$obj))
+		{
+			my $val = $$obj{$k};
+			$val = '' if (!defined($val));
+
+			display($dbg_json,1,"json hash($k) = $val = ".ref($val),1);
+
+			if (ref($val))
+			{
+				display($dbg_json,0,"json recursing");
+				$val = my_encode_json($val);
+			}
+			else
+			{
+				# convert high ascii characters (é = 0xe9 = 233 decimal)
+				# to &#decimal; html encoding.  jquery clients must use
+				# obj.html(s) and NOT obj.text(s) to get it to work
+				#
+				# this is pretty close to what Utils::escape_tag() does,
+				# except that it escapes \ to \x5c and does not escape
+				# double quotes.
+
+			    $val =~ s/([^\x20-\x7f])/"&#".ord($1).";"/eg;
+
+				# escape quotes and backalashes
+
+				$val =~ s/\\/\\\\/g;
+				$val =~ s/"/\\"/g;
+				$val = '"'.$val.'"'
+					if $val ne '0' &&
+					   $val !~ /^(true|false)$/ &&
+					   $val !~ /^[1-9]\d*$/;
+
+					# don't quote boolean or 'real' integer values
+					#	that are either 0 or dont start with 0
+					# true/false are provided in perl by specifically
+					# using the strings 'true' and 'false'
+			}
+
+			$response .= ',' if (length($response));
+			$response .= '"'.$k.'":'.$val."\n";
+		}
+
+		return '{' . $response . '}';
+	}
+
+	display($dbg_json+1,0,"returning quoted string constant '$obj'",1);
+
+	# don't forget to escape it here as well.
+
+    $obj =~ s/([^\x20-\x7f])/"&#".ord($1).";"/eg;
+	return "\"$obj\"";
+}
+
+
+sub url_decode
+{
+	my ($p) = @_;
+	display(9,0,"decode[$p]",1);
+	$p =~ s/\+/ /g;
+	$p =~ s/%(..)/pack("c",hex($1))/ge;
+	display(9,1,"=decoded[$p]",1);
+	return $p;
+}
+
+
+sub myMimeType
+{
+	my ($filename) = @_;
+	$filename = lc($filename);
+	if ($filename =~ /\.(.+)$/)
+	{
+		my $ext = $1;
+		return
+			$ext eq 'js'  				? 'text/javascript' :
+			$ext eq 'css' 				? 'text/css' :
+			$ext =~ /^(jpeg|jpg|jpe)$/ 	? 'image/jpeg' :
+			$ext eq 'ico' 				? 'image/x-icon' :
+			$ext eq 'gif' 				? 'image/gif' :
+			$ext eq 'png' 				? 'image/png' :
+			$ext =~ /^(html|htm)$/ 		? 'text/html' :
+			$ext eq 'json' 				? 'application/json' :
+
+			$ext =~ /^(txt|asc|log)$/ 	? 'text/plain' :
+
+			$ext eq 'doc'				? 'application/msword' :
+			$ext eq 'pdf'               ? 'application/pdf' :
+			$ext eq 'xls'               ? 'application/vnd.ms-excel' :
+			$ext eq 'xlsx'              ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
+			$ext eq 'tar'               ? 'application/x-tar' :
+			$ext eq 'zip'               ? 'application/zip' :
+
+
+			$ext eq 'mp3'				? 'audio/mpeg' :
+			$ext eq 'ico'				? 'image/x-icon' :
+			$ext eq 'bmp'				? 'image/bmp' :
+			$ext =~ /^(tif|tiff)$/		? 'image/tiff' :
+			$ext eq 'rtf'				? 'text/rtf' :
+			$ext =~ /^(mpg|mpeg|mpe)$/	? 'video/mpeg' :
+			$ext eq 'avi'				? 'video/x-msvideo' :
+			'text/plain';
+	}
+	return 'text/plain';
+}
 
 
 1;
