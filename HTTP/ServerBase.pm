@@ -751,9 +751,6 @@ sub handle_request
 
 	my $mime_type = myMimeType($uri);
 
-	display(0,0,"mime_type($uri) = $mime_type");
-
-
 	if ($mime_type &&
         $method eq 'GET' &&
         $this->{ALLOW_GET_EXTENSIONS_RE} &&
