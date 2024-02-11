@@ -2,7 +2,7 @@
 #------------------------------------------------------
 # Pub::WX::Window
 #------------------------------------------------------
-# add-in base class for windows that are added to My::Notbooks
+# add-in base class for windows that are added to Pub::WX::Notbooks
 #
 # It's easy to create a new window that corresponds to a command.
 # Just add the id's to the resources in the range for window-commands
