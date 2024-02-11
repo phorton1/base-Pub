@@ -12,6 +12,7 @@ use threads;
 use threads::shared;
 sub is_win { return $^O eq "MSWin32" }
 use Cwd;
+use Date::Calc;
 use MIME::Base64;
 use Time::Local;
 use Time::HiRes qw(sleep time);
@@ -24,6 +25,10 @@ use if is_win, 'Win32::Process';
 
 
 our $debug_level = 0;
+
+# storage only global variables set elsewhere
+
+our $login_name = '';
 
 
 BEGIN
@@ -56,6 +61,7 @@ BEGIN
 		$temp_dir
         $data_dir
         $logfile
+		$login_name
 
 		setAppFrame
 		getAppFrame
@@ -67,6 +73,7 @@ BEGIN
     	display_hash
 		display_bytes
 		display_rect
+		setOutputListener
 
 		_def
 		_lim
@@ -78,10 +85,12 @@ BEGIN
 		CapFirst
 		prettyBytes
 
+		@monthName
 		now
 		today
 		gmtToLocalTime
 		timeToStr
+		datePlusDays
 
         makePath
 		pathOf
@@ -96,7 +105,10 @@ BEGIN
 		encode64
         decode64
         mergeHash
+		hash_to_line
+		hash_from_line
 		filterPrintable
+		parseParamStr
 
 		diskFree
 		getMachineId
@@ -180,7 +192,6 @@ my $WITH_PROCESS_INFO = 1;
 my $PAD_FILENAMES = 30;
 my $USE_ANSI_COLORS = is_win() ? 0 : 1;
 	# by default, we use ANSI colors on linux
-
 
 # THESE COLOR CONSTANTS JUST HAPPEN TO MATCH WINDOWS
 # low order nibble of $attr = foreground color
@@ -285,9 +296,6 @@ our $ansi_color_to_utils = {
 	$ansi_color_yellow			=> $UTILS_COLOR_YELLOW,
 	$ansi_color_white			=> $UTILS_COLOR_WHITE,
 };
-
-
-
 
 our $DISPLAY_COLOR_NONE 	= $UTILS_COLOR_LIGHT_GRAY;
 our $DISPLAY_COLOR_LOG  	= $UTILS_COLOR_WHITE;
@@ -423,6 +431,8 @@ sub waitSTDOUTSemaphore
 {
 
 	return $STD_OUT_SEM->wait($SEMAPHORE_TIMEOUT) if $STD_OUT_SEM;
+	return 1;
+
 	if (!$local_sem)
 	{
 		$local_sem++;
@@ -446,7 +456,7 @@ sub waitSTDOUTSemaphore
 sub releaseSTDOUTSemaphore
 {
 	$STD_OUT_SEM->release() if $STD_OUT_SEM;
-	$local_sem--;
+	# $local_sem--;
 }
 
 
@@ -454,6 +464,15 @@ sub releaseSTDOUTSemaphore
 #--------------------------------------------
 # _output
 #--------------------------------------------
+
+my $output_listener;
+
+
+sub setOutputListener
+{
+	$output_listener = shift;
+}
+
 
 
 sub get_indent
@@ -506,16 +525,20 @@ sub _output
     $call_level ||= 0;
     my ($indent,$file,$line,$tree) = get_indent($call_level+1);
 
+	my $dt = $WITH_TIMESTAMPS ? now(1) : '';
+	my $dt_padded = $WITH_TIMESTAMPS  ? pad($dt." ",20) : '';
+
 	my $tid = threads->tid();
-	my $proc_info = $WITH_PROCESS_INFO ? pad("($$,$tid)",10) : '';
-	my $dt = $WITH_TIMESTAMPS ? pad(now(1)." ",20) : '';
-	my $file_part = pad("$file\[$line\]",$PAD_FILENAMES);
+	my $proc_info = $WITH_PROCESS_INFO ? "($$,$tid)" : '';
+	my $proc_info_padded = $WITH_PROCESS_INFO ? pad($proc_info,10) : '';
+
+	my $file_part = "$file\[$line\]";
 
     $indent = 1-$indent_level if $indent_level < 0;
 	$indent_level = 0 if $indent_level < 0;
 
 	my $fill = pad("",($indent+$indent_level) * $CHARS_PER_INDENT);
-	my $full_message = $dt.$proc_info.$file_part;
+	my $full_message = $dt_padded.$proc_info_padded.pad($file_part,$PAD_FILENAMES);
 	my $header_len = length($full_message);
 	$full_message .= $fill.$msg;
 
@@ -570,6 +593,14 @@ sub _output
 
 		$CONSOLE->Flush() if $CONSOLE;
 		# sleep(0.1) if $WITH_SEMAPHORES;
+	}
+
+	# calling the output listener we detect for failures
+	# and return up thru the call chain ....
+
+	if ($output_listener)
+	{
+		return if !$output_listener->onUtilsOutput($full_message,$color);
 	}
 
 	releaseSTDOUTSemaphore() if $got_sem;
@@ -817,6 +848,21 @@ sub prettyBytes
 # Dates and Times
 #----------------------------------------
 
+our @monthName = (
+    "January",
+    "Februrary",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December" );
+
+
 sub today
     # returns the current local time in the
     # format hh::mm:ss
@@ -890,6 +936,18 @@ sub timeToStr
 		pad2($time_parts[0]);
 	return $ts;
 }
+
+
+sub datePlusDays
+{
+    my ($dte,$days) = @_;
+    return $dte if ($dte !~ /(\d\d\d\d)-(\d\d)-(\d\d)/);
+    my ($year,$month,$day) = Date::Calc::Add_Delta_Days($1,$2,$3,$days);
+	$day = "0".$day if (length($day) < 2);
+	$month = "0".$month if (length($month) < 2);
+    return "$year-$month-$day";
+}
+
 
 
 #----------------------------------------------------------
@@ -1124,6 +1182,77 @@ sub mergeHash
 		$$h1{$k} = $$h2{$k};
 	}
 	return $h1;
+}
+
+
+
+sub hash_to_line
+	# RETURN $line INCLUDES \n
+{
+    my ($hash,$fields) = @_;
+    my $line = "";
+	my $started = 0;
+    for my $field (@$fields)
+    {
+        $line .= "\t" if $started;
+		$started = 1;
+        my $val = $hash->{$field};
+        $val = "" if (!defined($val));
+        $line .= $val;
+    }
+    return $line."\n";
+}
+
+
+sub hash_from_line
+    # inflate a record from a tab delimited record
+    # using the passed in field array.
+	# removes trailing whitespace
+{
+    my ($line,$fields) = @_;
+	$line =~ s/\s*$//;
+	# display(0,0,"hash from line($line)");
+	# display(0,1,"fields(".join(',',@$fields).")");
+
+    my $hash = {};
+    my @vals = split(/\t/,$line);
+    for (my $i=0; $i<@$fields; $i++)
+    {
+        my $field = $fields->[$i];
+		error("undefined field [$i]") if !defined($field);
+        my $val = $vals[$i];
+        $val = "" if !defined($val);
+        $hash->{$field} = $val;
+    }
+    return $hash;
+}
+
+
+sub parseParamStr
+{
+	my ($buffer,$debug_level,$who,$delim) = @_;
+
+	$buffer = '' if !defined($buffer);
+	$delim ||= '&';
+	$who ||= '';
+	$debug_level = 5 if !defined($debug_level);
+
+	my $retval = {};
+	my @pairs = split(/$delim/,$buffer);
+	foreach my $pair (@pairs)
+	{
+		next if !defined($pair);
+		my ($p1,$p2) = split(/=/,$pair);
+		next if !defined($p1) || !defined($p2);
+		$p2 =~ s/\s*$//;	# remove trailing spaces
+		$p1 =~ tr/+/ /;
+		$p1 =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C",hex($1))/eg;
+		$p2 =~ tr/+/ /;
+		$p2 =~ s/%([a-fA-F0-9][a-fA-F0-9])/pack("C",hex($1))/eg;
+		$retval->{$p1} = $p2;
+        display($debug_level,1,$who."params($p1)=$p2")
+	}
+	return $retval;
 }
 
 
