@@ -32,6 +32,10 @@ my $dbg_json = 1;
 
 our $login_name = '';
 
+# common constants
+
+our $SSDP_PORT  = 1900;
+our $SSDP_GROUP = '239.255.255.250';
 
 BEGIN
 {
@@ -120,6 +124,9 @@ BEGIN
 		my_encode_json
 		my_decode_json
 		myMimeType
+
+		$SSDP_PORT
+        $SSDP_GROUP
 
 		$DISPLAY_COLOR_NONE
         $DISPLAY_COLOR_LOG
@@ -1510,38 +1517,36 @@ sub myMimeType
 {
 	my ($filename) = @_;
 	$filename = lc($filename);
-	if ($filename =~ /\.(.+)$/)
-	{
-		my $ext = $1;
-		return
-			$ext eq 'js'  				? 'text/javascript' :
-			$ext eq 'css' 				? 'text/css' :
-			$ext =~ /^(jpeg|jpg|jpe)$/ 	? 'image/jpeg' :
-			$ext eq 'ico' 				? 'image/x-icon' :
-			$ext eq 'gif' 				? 'image/gif' :
-			$ext eq 'png' 				? 'image/png' :
-			$ext =~ /^(html|htm)$/ 		? 'text/html' :
-			$ext eq 'json' 				? 'application/json' :
+	my @parts = split(/\./,$filename);
+	my $ext = pop(@parts);
+	return
+		$ext eq 'js'  				? 'text/javascript' :
+		$ext eq 'css' 				? 'text/css' :
+		$ext =~ /^(jpeg|jpg|jpe)$/ 	? 'image/jpeg' :
+		$ext eq 'ico' 				? 'image/x-icon' :
+		$ext eq 'gif' 				? 'image/gif' :
+		$ext eq 'png' 				? 'image/png' :
+		$ext =~ /^(html|htm)$/ 		? 'text/html' :
+		$ext eq 'json' 				? 'application/json' :
 
-			$ext =~ /^(txt|asc|log)$/ 	? 'text/plain' :
+		$ext =~ /^(txt|asc|log)$/ 	? 'text/plain' :
 
-			$ext eq 'doc'				? 'application/msword' :
-			$ext eq 'pdf'               ? 'application/pdf' :
-			$ext eq 'xls'               ? 'application/vnd.ms-excel' :
-			$ext eq 'xlsx'              ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
-			$ext eq 'tar'               ? 'application/x-tar' :
-			$ext eq 'zip'               ? 'application/zip' :
+		$ext eq 'doc'				? 'application/msword' :
+		$ext eq 'pdf'               ? 'application/pdf' :
+		$ext eq 'xls'               ? 'application/vnd.ms-excel' :
+		$ext eq 'xlsx'              ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
+		$ext eq 'tar'               ? 'application/x-tar' :
+		$ext eq 'zip'               ? 'application/zip' :
 
 
-			$ext eq 'mp3'				? 'audio/mpeg' :
-			$ext eq 'ico'				? 'image/x-icon' :
-			$ext eq 'bmp'				? 'image/bmp' :
-			$ext =~ /^(tif|tiff)$/		? 'image/tiff' :
-			$ext eq 'rtf'				? 'text/rtf' :
-			$ext =~ /^(mpg|mpeg|mpe)$/	? 'video/mpeg' :
-			$ext eq 'avi'				? 'video/x-msvideo' :
-			'text/plain';
-	}
+		$ext eq 'mp3'				? 'audio/mpeg' :
+		$ext eq 'ico'				? 'image/x-icon' :
+		$ext eq 'bmp'				? 'image/bmp' :
+		$ext =~ /^(tif|tiff)$/		? 'image/tiff' :
+		$ext eq 'rtf'				? 'text/rtf' :
+		$ext =~ /^(mpg|mpeg|mpe)$/	? 'video/mpeg' :
+		$ext eq 'avi'				? 'video/x-msvideo' :
+		'text/plain';
 	return 'text/plain';
 }
 

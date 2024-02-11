@@ -125,10 +125,10 @@ sub new
 
 
 setStandardTempDir('fileServer');
-	# /base_data/temp
+	# /base_data/temp/fileServer
 	# or Cava Packaged $ENV{USERPROFILE}."/AppData/Local/Temp"
 setStandardDataDir('fileServer');
-	# /base_data/data
+	# /base_data/data/fileServer
 	# or Cava Packaged ENV{USERPROFILE}."/Documents
 
 $logfile = "$temp_dir/fileServer.log";

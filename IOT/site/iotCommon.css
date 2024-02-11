@@ -1,0 +1,91 @@
+@charset "UTF-8";
+
+.hidden {
+    display:none;
+}
+.shown {
+    display:block;
+}
+
+/* change the color of bootstrap my "nav-links"
+ * so they are blue with a cyan text on hover */
+
+.my_nav_link
+{
+    color: #ffffff;
+}
+
+.my_nav_link:hover
+{
+    color: #00eeee;
+}
+
+/* Add a 'my_switch' class that doubles the size of the
+ * bootstrap switches. I copied these three chunks from
+ * bootstrap.css, doubled all the 'em' constants, added
+ * a 2em height, doubled the viewbox sizes from -4 -4 8 8,
+ * and the radii from 3 to 6.  I won't claim to understand
+ * how it works. Commented items are not size related. */
+
+/* margin-left: -5em; */
+
+.my_switch.form-switch .my_switch.form-check-input
+{
+    height:2em;
+    width: 4em;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-8 -8 16 16'%3e%3ccircle r='6' fill='rgba%280, 0, 0, 0.25%29'/%3e%3c/svg%3e");
+    /* background-position: left center */;
+    border-radius: 4em;
+    /* transition: background-position 0.15s ease-in-out; */
+}
+
+.my_switch.form-switch .my_switch.form-check-input:focus
+{
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-8 -8 16 16'%3e%3ccircle r='6' fill='%2386b7fe'/%3e%3c/svg%3e");
+}
+
+.my_switch.form-switch .my_switch.form-check-input:checked
+{
+    /* background-position: right center; */
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-8 -8 16 16'%3e%3ccircle r='6' fill='%23fff'/%3e%3c/svg%3e");
+}
+
+.my_spinner_div
+{
+    padding:0;
+    width:9rem;
+}
+.my_spinner_btn
+{
+    padding:0;
+    padding-bottom:0.25rem;
+    width:1rem;
+    height:1.75rem;
+    font-weight:800;
+}
+.my_spinner_input
+{
+    padding:0;
+    padding-left:0.5rem;
+    height:1.75rem;
+}
+
+
+
+/* chart stuff
+
+.ct-series-a .ct-line,
+.ct-series-a .ct-point
+{
+    stroke: blue;
+    stroke-width: 2px;
+}
+
+.ct-series-b .ct-line,
+.ct-series-b .ct-point
+{
+    stroke: green;
+    stroke-width: 2px;
+}
+
+*/

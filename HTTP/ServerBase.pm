@@ -75,6 +75,7 @@ use IO::Socket::SSL;
 use IO::Select;
 use Time::HiRes qw(sleep time);
 use Pub::Utils;
+use Pub::Crypt;
 use Pub::Users;
 use Pub::ProcessBody;
 use Pub::DebugMem;
@@ -630,7 +631,7 @@ sub checkAuthorization
     if ($credentials)
     {
         $credentials =~ s/^\s*basic\s+//i;
-        my $decoded = decode_base64($credentials);
+        my $decoded = decode64($credentials);
         my ($uid,$pass) = split(/:/,$decoded,2);
         $this->dbg(1,1,"checking credentials($uid:_pass_)=$credentials");
 
@@ -750,10 +751,13 @@ sub handle_request
 
 	my $mime_type = myMimeType($uri);
 
+	display(0,0,"mime_type($uri) = $mime_type");
+
+
 	if ($mime_type &&
         $method eq 'GET' &&
         $this->{ALLOW_GET_EXTENSIONS_RE} &&
-		$uri =~ /.*\.($this->{ALLOW_GET_EXTENSIONS_RE})$/)
+		$uri =~ /($this->{ALLOW_GET_EXTENSIONS_RE})/)
 	{
 		$this->dbg(2,0,"getting $filename");
 		my $text = getTextFile($filename,1);

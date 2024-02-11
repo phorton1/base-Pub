@@ -41,8 +41,8 @@ sub init_crypt
 	my ($crypt_file) = @_;
 	display($dbg_crypt,0,"init_crypt($crypt_file)");
 	my $text = getTextFile($crypt_file) || '';
-	$text =~ s/^\s+|\s$//gs;
-	error("No private_key in init_crypt()") if !$text;
+	$text =~ s/^\s+|\s$//g;
+	error("No private_key in init_crypt($crypt_file)") if !$text;
 	$private_key = $text;
 }
 
