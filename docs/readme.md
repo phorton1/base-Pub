@@ -122,7 +122,7 @@ SSDPScan.pm - currently used in Buddy.  I have to think about
 	As with fileServer.pm, at this time I am the only person
 	able to acces MY SSL secured myIOT Server.  The difference
 	with myIOT is that it gets hit from a browser, which requires
-	domain name validation.  I am going to try *.phorton.net to
+	domain name validation.  I am going to try * to
 	allow one certificate to be used with any of my applications.
 
 
