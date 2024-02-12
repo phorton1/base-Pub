@@ -176,7 +176,7 @@ sub add
 	display($dbg_device+1,1,"checking LOCATION($rec->{LOCATION}) type($type) version($version) ip($rec->{ip}) port($rec->{port}) uuid($uuid)");
 
 	my $skip_iot_types = getPref("SKIP_IOT_TYPES");
-	if ($type =~ /$skip_iot_types/)
+	if ($skip_iot_types && $type =~ /$skip_iot_types/)
 	{
 		warning($dbg_device+1,0,"SKIPPING IOT TYPE type($type) version($version) ip($rec->{ip}) port($rec->{port}) uuid($uuid)");
 		return;

@@ -133,10 +133,10 @@ sub new
 	#	FWD_SSH_PORT		= SSH port on host
 	#	FWD_KEYFILE			= keyfile for SSH
 	#	WIN_SSH_PATH		= path to ssh.exe if is_win()
-	#	PING_REQUEST		= optional "GET /PING HTTP/1.1" or similar
+	#	FWD_PING_REQUEST	= optional "GET /PING HTTP/1.1" or similar
 	#
 	# Plus if SSL, to do a standard HTTP Ping:
-	#	SSL
+	#	SSLP
 	#	SSL_CERT_FILE
 	#	SSL_KEY_FILE}
 	#	SSL_CA_FILE}
@@ -148,7 +148,13 @@ sub new
 
 	$params->{FWD_SSH_PORT} ||= $DEFAULT_SSH_PORT;
 	$params->{WIN_SSH_PATH} ||= $DEFAULT_WIN_SSH_PATH;
-	$params->{PING_REQUEST} ||= '';
+	$params->{FWD_PING_REQUEST} ||= '';
+
+	if (!$params->{SSL})
+	{
+		error("attempt to forward non-SSL port($params->{PORT})");
+		return;
+	}
 
 	my $this = shared_clone($params);
 
@@ -174,27 +180,37 @@ sub new
 
 sub start
 {
-	display($dbg_fwd,0,"PortForwarder starting thread");
-	$pf_thread = threads->create(\&portForwardThread);
-	$pf_thread->detach();
-    display($dbg_fwd,0,"PortForwarder::start() returning 1");
+	if ($pf_thread)
+	{
+		display($dbg_fwd,0,"PortForwarder thread already started");
+	}
+	else
+	{
+		display($dbg_fwd,0,"PortForwarder starting thread");
+		$pf_thread = threads->create(\&portForwardThread);
+		$pf_thread->detach();
+	}
+	display($dbg_fwd,0,"PortForwarder::start() returning 1");
 	return 1;
 }
 
 
 sub stop
 {
-	$stopping = 1;
-	for my $fwd (values %$forwards)
+	if (!$stopping)
 	{
-		if ($fwd->{pid})
+		$stopping = 1;
+		for my $fwd (values %$forwards)
 		{
-			LOG(-1,"Killing fwd($fwd->{PORT} to $fwd->{FWD_PORT} pid=$fwd->{pid}");
-			kill 9, $fwd->{pid};
-			undef $fwd;
+			if ($fwd->{pid})
+			{
+				LOG(-1,"Killing fwd($fwd->{PORT} to $fwd->{FWD_PORT} pid=$fwd->{pid}");
+				kill 9, $fwd->{pid};
+				undef $fwd;
+			}
 		}
+		$forwards = {};
 	}
-	$forwards = {};
 
 	if ($thread_running)
 	{
@@ -207,7 +223,6 @@ sub stop
 		}
 		LOG(-1,"PortforwardeThread ".($thread_running?"NOT STOPPED!!":"STOPPED"));
 	}
-	$stopping = 0;
 }
 
 
@@ -269,7 +284,7 @@ sub threadBody
 
 				# If the process appears to be running, try a ping
 
-				elsif ($fwd->{PING_REQUEST} && $FWD_PING_TIMEOUT)
+				elsif ($fwd->{FWD_PING_REQUEST} && $FWD_PING_TIMEOUT)
 				{
 					return if $stopping;
 					$fwd->stopSelf("PING FAILED",$FWD_START_TIME_PING_FAIL)
@@ -430,7 +445,7 @@ sub killRemotePort
 
 sub doPing
 	# Do a ping, synchronously, using user supplied
-	# PING_REQUEST and SSL params if provided.
+	# FWD_PING_REQUEST and SSL params if provided.
 	# Returns 1 or 0.
 {
 	my ($this) = @_;
@@ -477,7 +492,7 @@ sub doPing
 		goto END_PING;
     }
 
-	my $packet = $this->{PING_REQUEST}."\r\n";
+	my $packet = $this->{FWD_PING_REQUEST}."\r\n";
 	my $len = length($packet);
 	my $bytes = syswrite($sock,$packet);
 	if ($bytes != $len)

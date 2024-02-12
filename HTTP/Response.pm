@@ -78,7 +78,7 @@ sub dbg
 
 	my $server = $this->{server};
 	my $dbg_level = $this->{extra_debug};
-	$dbg_level += $dbg_resp + $level - $server->{DEBUG_RESPONSE};
+	$dbg_level += $dbg_resp + $level - $server->{HTTP_DEBUG_RESPONSE};
 	display($dbg_level,$indent,$msg,$call_level+1,$color)
 		if $debug_level >= $dbg_level;
 }
@@ -138,7 +138,7 @@ sub new
     $this->{headers} = shared_clone({});
 
 
-    mergeHash($this->{headers},$server->{default_headers});
+    mergeHash($this->{headers},$server->{HTTP_DEFAULT_HEADERS});
 
     $this->{headers}->{'content-type'} = "$content_type";
         # charsets not implemented
@@ -148,7 +148,7 @@ sub new
     if ($code == 401)
     {
         $this->{headers}->{'WWW-Authenticate'} =
-            "Basic realm=\"$server->{AUTH_REALM}\"";
+            "Basic realm=\"$server->{HTTP_AUTH_REALM}\"";
     }
 
     # Handle File Response {filename} by setting up
@@ -197,7 +197,7 @@ sub new
 
         if ($zipit &&
             $content_type ne 'application/zip' &&
-            $server->{USE_GZIP_RESPONSES})
+            $server->{HTTP_USE_GZIP_RESPONSES})
         {
             $this->dbg(2,1,"new() zipping content_length=".length($content));
             my $zipped = '';

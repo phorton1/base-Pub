@@ -1,6 +1,9 @@
 #-------------------------------------------------
 # Pub::FS::Server
 #--------------------------------------------------
+# Currently limited to a single instance due to many globals
+# and use of prefs.
+#
 # The Server Creates a socket and listens for connections.
 # For each connection it accepts it creates a Session by
 # calling createSession. By default, the base class uses
@@ -8,10 +11,10 @@
 # changes in the local file system.
 #
 # Note that I modified Win32::Console.pm to NOT close itself
-# on thread/fork descruction.
+# on thread/fork destruction.
 #
 # To use SSL, your application must call Pub::Prefs::initPrefs()
-# specifying a prefs file that contains the SSL preferences.
+# specifying a prefs file that contains the FS_SSL preferences.
 
 
 package Pub::FS::Server;
@@ -26,7 +29,9 @@ use IO::Socket::SSL;
 use Time::HiRes qw(sleep);
 use Pub::Utils;
 use Pub::Prefs;
+use Pub::PortForwarder;
 use Pub::FS::FileInfo;
+use Pub::FS::SocketSession;
 use Pub::FS::ServerSession;
 
 
@@ -63,6 +68,8 @@ my $notify_all:shared = shared_clone({});
 	# each message has a list of connections that have sent it
 	# and the main server thread reaps the ones that done.
 my $active_connections = shared_clone({});
+my $port_forwarder;
+
 
 
 
@@ -72,21 +79,47 @@ my $active_connections = shared_clone({});
 #-------------------------------------------------
 
 sub new
-	#	SEND_EXIT 	 	= whether to send an EXIT on shutdown
-	#	SSL			 	= 1 if using SSL
-	#	PORT  		 	= if not provided will default to $DEFAULT_SSL_PORT if SSL or $DEFAULT_PORT
-	#	DEBUG_SSL 	 	= 1..3 are known levels
-	#	SSL_CERT_FILE 	= required if SSL - served public certificate
-	#	SSL_KEY_FILE}  	= required if SSL - private key
-	#	SSL_CA_FILE     = RECOMMENDED if SSL - CA public cert that must authorize client's cert
+	# Params provided to the ctor will pre-empt preferences.
 {
 	my ($class,$params) = @_;
 	$params ||= {};
+
+	# see docs/prefs.md for list of parameters
+
+	getObjectPref($params,'FS_SSL',0);
+	getObjectPref($params,'FS_PORT',$params->{FS_SSL} ? $FS_DEFAULT_SSL_PORT : $FS_DEFAULT_PORT);
+	getObjectPref($params,'FS_HOST',undef);
+
+	getObjectPref($params,'FS_DEBUG_SSL',0);
+	getObjectPref($params,'FS_SSL_CERT_FILE',undef,!$params->{FS_SSL});
+	getObjectPref($params,'FS_SSL_KEY_FILE',undef,!$params->{FS_SSL});
+
+	getObjectPref($params,'FS_FWD_PORT',undef);
+	getObjectPref($params,'FS_FWD_USER',undef,!$params->{FS_FWD_PORT});
+	getObjectPref($params,'FS_FWD_SERVER',undef,!$params->{FS_FWD_PORT});
+	getObjectPref($params,'FS_FWD_SSH_PORT',undef,!$params->{FS_FWD_PORT});
+	getObjectPref($params,'FS_FWD_KEYFILE',undef,!$params->{FS_FWD_PORT});
+
+	getObjectPref($params,'FS_DEBUG_PING',undef);
+	getObjectPref($params,'FS_FWD_DEBUG_PING',undef,!$params->{FS_FWD_PORT});
+
+	# hardwired portForwarder and FS::ServerSession parameters:
+
+	$params->{FS_FWD_PING_REQUEST} = $PROTOCOL_PING if $params->{FS_FWD_PORT};
+	$params->{SEND_EXIT} = 1;
+		# whether to send an EXIT on shutdown
+
+	# IO::Socket:SSL::DEBUG gets set to the highest
+	# value specified by any packages:
+
+	if ($params->{FS_SSL})
+	{
+		my $cur = $IO::Socket::SSL::DEBUG || 0;
+		my $set = $params->{FS_DEBUG_SSL} || 0;
+		$IO::Socket::SSL::DEBUG = $set if $set > $cur;
+	}
+
 	display_hash($dbg_server,0,"Server::new()",$params);
-
-	$IO::Socket::SSL::DEBUG = $params->{DEBUG_SSL}
-		if $params->{SSL} && $params->{DEBUG_SSL};
-
 	my $this = shared_clone($params);
 	$this->{running} = 0;
 	$this->{stopping} = 0;
@@ -129,9 +162,13 @@ sub stop
     my $TIMEOUT = 5;
     my $time = time();
     $this->{stopping} = 1;
+
+	Pub::PortForwarder::stop() if $port_forwarder;
+	$port_forwarder = undef;
+
     while ($this->{running} && time() < $time + $TIMEOUT)
     {
-        display($dbg_server,0,"waiting for FS::Server on port($this->{PORT}) to stop");
+        display($dbg_server,0,"waiting for FS::Server on port($this->{FS_PORT}) to stop");
         sleep(0.2);
     }
     if ($this->{running})
@@ -148,7 +185,7 @@ sub stop
 sub start
 {
     my ($this) = @_;
-    display($dbg_server,0,ref($this)." STARTING on port($this->{PORT})");
+    display($dbg_server,0,ref($this)." STARTING on port($this->{FS_PORT})");
     $this->inc_running();
     $server_thread = threads->create(\&serverThread,$this);
     $server_thread->detach();
@@ -178,7 +215,8 @@ sub serverThread
     display($dbg_server+1,-2,"serverThread started with PID($$)");
 
     my $server_socket = IO::Socket::INET->new(
-        LocalPort => $this->{PORT},
+        LocalPort => $this->{FS_PORT},
+		LocalHost => $this->{FS_HOST},
         Type => SOCK_STREAM,
         Reuse => 1,
         Listen => 10);
@@ -190,11 +228,26 @@ sub serverThread
         return;
     }
 
-	if (!$this->{PORT})
+	if (!$this->{FS_PORT})
 	{
 		$ACTUAL_SERVER_PORT = $server_socket->sockport();
-		$this->{PORT} = $ACTUAL_SERVER_PORT;
+		$this->{FS_PORT} = $ACTUAL_SERVER_PORT;
 		warning($dbg_server,0,"SERVER STARTED ON ACTUAL_PORT($ACTUAL_SERVER_PORT)");
+	}
+
+	# forward the Port if asked to
+	# Pub::ForwardPort start() is re-entrant
+
+	if ($this->{FS_FWD_PORT})
+	{
+		# the PortForwarder needs the SSL parameters from preferences
+		# so that it can do a standard HTTP PING.
+		# Here we duplicate the FS parameters, removing the FS_ prefix
+		# so that portForwder can use them.
+
+		my $fwd_params = copyParamsWithout($this,"FS_");
+		$port_forwarder = Pub::PortForwarder->new($fwd_params);
+		Pub::PortForwarder::start() if $port_forwarder;
 	}
 
     # loop accepting connectons from clients
@@ -280,8 +333,6 @@ sub serverThread
 
     $server_socket->close();
     LOG(0,"serverThread STOPPED");
-    $this->dec_running();
-
 	$this->{running} = 0;
 
 }   # serverThread()
@@ -299,9 +350,9 @@ sub sessionThread
 	$peer_port ||= '';
     display($dbg_server+1,-2,"SESSION THREAD($connect_num) FROM $peer_ip:$peer_port WITH PID($$)");
 
-	if ($this->{SSL})
+	if ($this->{FS_SSL})
 	{
-		my $dbg_ssl = $this->{DEBUG_SSL} ? 0 : 1;
+		my $dbg_ssl = $this->{FS_DEBUG_SSL} ? 0 : 1;
 		display($dbg_server + $dbg_ssl,1,"starting SSL");
 
 		# Upgrading to SSL requires SSL_CERT_FILE and SSL_KEY_FILE.
@@ -311,12 +362,12 @@ sub sessionThread
 
 		my $ok = IO::Socket::SSL->start_SSL($client_socket,
 			SSL_server => 1,
-			SSL_cert_file => $this->{SSL_CERT_FILE},
-			SSL_key_file => $this->{SSL_KEY_FILE},
-			SSL_ca_file => $this->{SSL_CA_FILE},
-			SSL_client_ca_file => $this->{SSL_CA_FILE},
-			SSL_verify_mode => $this->{SSL_CA_FILE} ? SSL_VERIFY_PEER  : SSL_VERIFY_NONE,
-			SSL_verify_callback => $this->{DEBUG_SSL} ? \&verifySSLCallback : '',
+			SSL_cert_file 		=> $this->{FS_SSL_CERT_FILE},
+			SSL_key_file 		=> $this->{FS_SSL_KEY_FILE},
+			SSL_ca_file 		=> $this->{FS_SSL_CA_FILE},
+			SSL_client_ca_file 	=> $this->{FS_SSL_CA_FILE},
+			SSL_verify_mode 	=> $this->{FS_SSL_CA_FILE} ? SSL_VERIFY_PEER  : SSL_VERIFY_NONE,
+			SSL_verify_callback => $this->{FS_DEBUG_SSL} ? \&verifySSLCallback : '',
 		);
 
 		if (!$ok)

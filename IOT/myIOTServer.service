@@ -2,29 +2,23 @@
 #
 # This file is a "systemd unit" file describing a service to be started,
 # in this case, my "myIOTServer" service.  It is assumed that you can
-# already run Server.pm from a command line in the /base/My/IOT directory:
+# already run Server.pm from a command line from the source directory
 #
 #       perl ./myIOTServer.pm NO_SERVICE
 #
-# which means that you have already:
+# which means that you have already gotten Pub::FS::Server running,
+# and upgraded it to SSL by copying /base_data/fileServer/fileServer.prefs
+# and the /base_data/_ssl foldeer.
 #
-# (0) Set environment variables and modified config (/etc/ssh/ssh_config) as needed.
-# (1) Created the /base, /base/My, and /base_data/temp and /base_data/data
-# (2) Copied the contents of /base/My upto the remote machine
-# (3) Marked the perl *.pm files as executable (chmod 755)
-# (4) Installed any necessary Perl Modules (Date::Calc and Crypt::RC4, etc)
-# (5) Copied the /base_data/ssl amd /base_data/myIOTServer directories
-# (7) Marked the /base_data/ssl/myiot_user_ssh_key 600 and .pub 640
-#
-# and been able to "hit" the server with with https://phorton.net:7802/index.html
-# Also see /zip/_rPi/_setup/rPi_Setup.docx file
+# For myIOTServer, in addition, you copy the /base/data/fileServer/fileServer.prefs
+# file, which contains the defaults for all systems at this time.
 #
 # INSTALLATION:
 #
 # To install this file on a new linux (fedora) machine, copy it to the
 # /usr/lib/systemd/system/ directory
 #
-#   > cd /base/My/IOT
+#   > cd /bass/apps/IOT
 #   > sudo cp myIOTServer.service /usr/lib/systsemd/system
 #
 # and run:
@@ -41,14 +35,12 @@
 #
 # to the file in /usr/lib/systemd/system directory, and enable the service
 # on startup.  Thereafter you should be able to start and stop the service
-# from Webmin Bootup/Shutdown, and/or from any web pages I build to do the,
-# or via sudo systemctl start/restart/stop myIOTServer and it should be
+# via sudo systemctl start/restart/stop myIOTServer and it should be
 # running on a freshly booted machine.
-#
 #
 # If you modify this file you need to stop the service, recopy this file to
 # /usr/lib/systemd/system, and run "sudo systemctl daemon-reload", and then
-# restart the artisan service.
+# restart the service.
 #
 # Note that we added the auto-restart to this service, but it is not
 # currently in the fileServer (or mbe masterServer) service files
@@ -65,7 +57,6 @@ ExecStop=kill -KILL $(cat /base_data/temp/myIOTServer/myIOTServer.pid)
 Restart=on-failure
 RestartSec=60s
 User=pi
-
 
 [Install]
 # WantedBy=multi-user.target

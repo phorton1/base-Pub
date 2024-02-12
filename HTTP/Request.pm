@@ -33,7 +33,7 @@ sub dbg
 
 	my $server = $this->{server};
 	my $dbg_level = $this->{extra_debug};
-	$dbg_level += $dbg_req + $level - $server->{DEBUG_REQUEST};
+	$dbg_level += $dbg_req + $level - $server->{HTTP_DEBUG_REQUEST};
 	display($dbg_level,$indent,$msg,$call_level+1,$color)
 		if $debug_level >= $dbg_level;
 }
@@ -52,7 +52,7 @@ sub new
     my ($class,$server,$params) = @_;
 
 	display_hash(0,0,"Pub::Requst->new()",$params)
-		if $server->{DEBUG_REQUEST} >= 5;
+		if $server->{HTTP_DEBUG_REQUEST} >= 5;
 
     my $this = $class->SUPER::new($server);
 	bless $this,$class;
@@ -149,8 +149,8 @@ sub read_headers
 	$this->{uri} = $2;
 	$this->{http_version} = $3;
 
-	my $quiet_re = $server->{DEBUG_QUIET_RE};
-	my $loud_re = $server->{DEBUG_LOUD_RE};
+	my $quiet_re = $server->{HTTP_DEBUG_QUIET_RE};
+	my $loud_re = $server->{HTTP_DEBUG_LOUD_RE};
 	$this->{extra_debug} += 2 if $quiet_re && $this->{uri} =~ /$quiet_re/;
 	$this->{extra_debug} -= 2 if $loud_re && $this->{uri} =~ /$loud_re/;
 

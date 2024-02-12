@@ -18,19 +18,14 @@ use warnings;
 use threads;
 use threads::shared;
 use Pub::FS::Server;
-use Pub::FS::Session;
-use Pub::FS::Server;
-use Pub::FS::ServerSession;
 use Pub::Utils;
 use Pub::Prefs;
 use Pub::ServerUtils;
-use Pub::PortForwarder;
 use base qw(Pub::FS::Server);
 use sigtrap 'handler', \&onSignal, qw(normal-signals);
 
 
 my $file_server;
-my $port_forwarder;
 
 
 sub onSignal
@@ -45,36 +40,9 @@ sub onSignal
 sub new
 {
 	my ($class) = @_;
-
-	my $params = {};
-	$params->{SEND_EXIT} 	 = 1;
-	$params->{SSL} 			 = getPref('SSL') || 0;
-	$params->{PORT} 		 = getPref('PORT') || ($params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT);
-	$params->{DEBUG_SSL} 	 = getPref('DEBUG_SSL') || 0;
-	$params->{SSL_CERT_FILE} = getPref('SSL_CERT_FILE');	# required public certificate
-	$params->{SSL_KEY_FILE}  = getPref('SSL_KEY_FILE');		# required private key
-	$params->{SSL_CA_FILE}   = getPref('SSL_CA_FILE');		# optional public CA certificate
-
-	my $this = $class->SUPER::new($params);
+	my $this = $class->SUPER::new();
 	return if !$this;
     bless $this,$class;
-
-	if (getPref('FWD_PORT'))
-	{
-		# the PortForwarder takes the SSL parameters from preferences
-		# so that it can do a standard HTTP PING
-
-		$params->{FWD_PORT} 	  = getPref('FWD_PORT');
-		$params->{FWD_USER} 	  = getPref('FWD_USER');
-		$params->{FWD_SERVER} 	  = getPref('FWD_SERVER');
-		$params->{FWD_SSH_PORT}   = getPref('FWD_SSH_PORT');
-		$params->{FWD_KEYFILE}    = getPref('FWD_KEYFILE');
-		$params->{PING_REQUEST}	  = $PROTOCOL_PING;
-
-		$port_forwarder = Pub::PortForwarder->new($params);
-		Pub::PortForwarder::start();
-	}
-
 	return $this;
 }
 
@@ -83,53 +51,13 @@ sub new
 #----------------------------------------
 # main
 #----------------------------------------
-# I am standardizing on /base_data/data as the location of persistent configuration files
-# I need to try restricting the rights on these directories and files
-#
-# base_data/_ssl
-#	phortonCA.crt
-#   fileServer.crt
-#	fileServer.key
-#   phorton.net.crt
-#	phorton.net.key
-#
-# base_data/data
-#	fileServer/
-#		fileServer.prefs
-#	myIOTServer/
-#		myIOTServer.prefs
-#		users.txt
-#	buddy/  (windows only)
-#		fileClient.prefs
-#		fileClient.ini
-#	gitUI/  (windows only)
-#		gitUI.ini
-#
-# base_data/temp
-#	fileServer.log - the OLD fileServer (6801) log file
-#	artisan/
-#		artisan.pid (unix only)
-#		artisan.log
-#		semi persistant caching of artisan state
-#	fileServer/
-#		fileServer.pid (unix only)
-#		fileServer.log (new - 5872/3 logfile)
-#	myIOTServer/
-#		myIOTServer.pid (unix only)
-#		myIOTServer.log
-#	gitUI/
-#		cache of github repo json requests
-#	Rhapsody/
-#		google translate built-in cache
-#		inventory.log
-
 
 setStandardTempDir('fileServer');
 	# /base_data/temp/fileServer
-	# or Cava Packaged $ENV{USERPROFILE}."/AppData/Local/Temp"
+	# or Cava Packaged $ENV{USERPROFILE}."/AppData/Local/Temp/fileServer"
 setStandardDataDir('fileServer');
 	# /base_data/data/fileServer
-	# or Cava Packaged ENV{USERPROFILE}."/Documents
+	# or Cava Packaged ENV{USERPROFILE}."/Documents/fileServer"
 
 $logfile = "$temp_dir/fileServer.log";
 

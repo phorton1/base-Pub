@@ -29,18 +29,18 @@ BEGIN {
 		$dbg_packets
 		dbgPacket
 
-		$DEFAULT_PORT
-		$DEFAULT_SSL_PORT
-		$DEFAULT_HOST
-		$DEFAULT_TIMEOUT
+		$FS_DEFAULT_PORT
+		$FS_DEFAULT_SSL_PORT
+		$FS_DEFAULT_HOST
+		$FS_DEFAULT_TIMEOUT
 	),
 	@Pub::FS::Session::EXPORT );
 }
 
-our $DEFAULT_PORT = 5872;
-our $DEFAULT_SSL_PORT = 5873;
-our $DEFAULT_HOST = "localhost";
-our $DEFAULT_TIMEOUT = 15;
+our $FS_DEFAULT_PORT = 5872;
+our $FS_DEFAULT_SSL_PORT = 5873;
+our $FS_DEFAULT_HOST = "localhost";
+our $FS_DEFAULT_TIMEOUT = 15;
 
 my $instance = 0;
 my %in_protocol:shared;
@@ -54,7 +54,7 @@ sub new
 	my ($class, $params, $no_error) = @_;
 	$params ||= {};
 	$params->{SOCK} ||= '';
-	$params->{TIMEOUT} ||= $DEFAULT_TIMEOUT;
+	$params->{TIMEOUT} ||= $FS_DEFAULT_TIMEOUT;
 	$params->{NAME} ||= 'SocketSession';
 
 	my $this = $class->SUPER::new($params);

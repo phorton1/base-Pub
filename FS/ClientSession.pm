@@ -45,8 +45,8 @@ sub new
 	$params ||= {};
 
 	$params->{SSL} ||= 0;
-	$params->{HOST} ||= $DEFAULT_HOST;
-	$params->{PORT} ||= $params->{SSL} ? $DEFAULT_SSL_PORT : $DEFAULT_PORT;
+	$params->{HOST} ||= $FS_DEFAULT_HOST;
+	$params->{PORT} ||= $params->{SSL} ? $FS_DEFAULT_SSL_PORT : $FS_DEFAULT_PORT;
 	$params->{NAME} ||= "ClientSession";
 	$params->{TIMEOUT} ||= $DEFAULT_CONNECT_TIMEOUT;
 	$params->{IS_CLIENT} = 1;

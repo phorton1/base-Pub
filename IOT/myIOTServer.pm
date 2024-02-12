@@ -29,37 +29,10 @@ use base qw(Pub::HTTP::ServerBase);
 use sigtrap qw/handler signal_handler normal-signals/;
 	# start signal handlers
 
+my $dbg_main = 0;
 
-# init Pub::Utils
-# we do NOT call complicated MBE related init_my_utils()
-#
-# 2024-02-08 standardize on /base_data/temp/myIOTServer and
-# /base_data/data/myIOTServer which will contain myIOTServer.prefs.
-# All certificates are now duplicated and reused from in /home/pi/phortonCA
-#
-$login_name = '';
-
-$temp_dir = "/base_data/temp/myIOTServer";
-$data_dir = "/base_data/data/myIOTServer";
-
-$logfile  = "$temp_dir/myIOTServer.log";
-
-display(0,0,"temp_dir=$temp_dir");
-display(0,0,"data_dir=$data_dir");
-
-
-# Constants
-
-# my $SEARCH_URN = "upnp:rootdevice";
-my $SEARCH_URN = "urn:myIOTDevice";
-my $DO_FORWARD_PORT = 0;
 my $IOT_SERVER_PORT = 6902;
-my $FILE_SERVER_PORT = 6801;
 
-# Working Variables
-
-my $ssl_cert_dir = "/base_data/_ssl";
-my $pid_file = "$temp_dir/myIOTServer.pid";
 
 our $do_restart:shared = 0;
 our $last_connected = 0;
@@ -73,37 +46,25 @@ my $https_server;
 
 sub startHTTPS
 {
-	$https_server = Pub::IOT::myIOTServer->new({
+	# because there is a preference file, we do NOT
+	# pass in many parameters.  They can explicity
+	# be added to $params herer to override anything from
+	# the prefs file.
 
-		DEBUG_SERVER => 0,
-		DEBUG_REQUEST => 0,
-		DEBUG_RESPONSE => 0,
+	# Otherwise, we set some defaults here, which can
+	# be overriden in the prefs file.
 
-		DEBUG_QUIET_RE => '',
-		DEBUG_LOUD_RE => '',
+	my $params = {};
 
-		PORT => $IOT_SERVER_PORT,
-		MAX_THREADS => 5,
-		# KEEP_ALIVE => 0,
+	getObjectPref($params,'HTTP_PORT',			$IOT_SERVER_PORT);
+	getObjectPref($params,'HTTP_SSL',			1);
+	getObjectPref($params,'HTTP_SSL_CERT_FILE',	"/base_data/_ssl/myIOTServer.crt");
+	getObjectPref($params,'HTTP_SSL_KEY_FILE',	"/base_data/_ssl/myIOTServer.key");
+	getObjectPref($params,'HTTP_AUTH_FILE',		"$data_dir/users.txt");
+	getObjectPref($params,'HTTP_AUTH_REALM',	"myIOTServer");
+	getObjectPref($params,'HTTP_DOCUMENT_ROOT',	"/base/Pub/IOT/site");
 
-		SSL => 1,
-		SSL_CERT_FILE => "$ssl_cert_dir/myIOT.crt",
-		SSL_KEY_FILE  => "$ssl_cert_dir/myIOT.key",
-
-		AUTH_ENCRYPTED => 0,
-		AUTH_FILE => "$data_dir/users.txt",
-		AUTH_REALM => "myIOTServer",
-
-		DOCUMENT_ROOT => "/base/Pub/IOT/site",
-        ALLOW_GET_EXTENSIONS_RE => 'html|js|css|jpg|png|ico',
-		DEFAULT_LOCATION => "index.html",
-
-		# USE_GZIP_RESPONSES => 1,
-		# DEFAULT_HEADERS => {},
-        # ALLOW_SCRIPT_EXTENSIONS_RE => '',
-
-	});
-
+	$https_server = Pub::IOT::myIOTServer->new($params);
 	$https_server->start();
 }
 
@@ -114,13 +75,6 @@ sub startHTTPS
 
 sub stopEverything
 {
-	if ($DO_FORWARD_PORT)
-	{
-		LOG(-1,"Stopping PortForwarder");
-		Pub::IOT::PortForwarder::stop();
-		LOG(-1,"PortForwarder STOPPED");
-	}
-
 	LOG(-1,"Stopping Searcher");
 	Pub::IOT::Searcher::stop();
 	LOG(-1,"Searcher STOPPED");
@@ -151,26 +105,10 @@ sub startEverything
 	# and if it doesn't work, bail and re-schedule the whole thing.
 
 	startHTTPS();
-	while (!Pub::IOT::Searcher::start($SEARCH_URN,\&Pub::IOT::Device::add))
+	while (!Pub::IOT::Searcher::start(\&Pub::IOT::Device::add))
 	{
 		display(0,0,"waiting 3 seconds to restry starting Searcher");
 		sleep(3);
-	}
-
-	if ($DO_FORWARD_PORT)
-	{
-		my $IOT_FORWARD_PORT = getPref('SERVER_FORWARD_PORT');
-		Pub::IOT::PortForwarder->new(0,$IOT_SERVER_PORT,$IOT_FORWARD_PORT)
-			if $IOT_FORWARD_PORT;
-		my $FILE_FORWARD_PORT = getPref('FILE_FORWARD_PORT');
-		Pub::IOT::PortForwarder->new(1,$FILE_SERVER_PORT,$FILE_FORWARD_PORT)
-			if $FILE_FORWARD_PORT;
-
-		# threaded forwarder
-
-		Pub::IOT::PortForwarder::start()
-			if $IOT_FORWARD_PORT || $FILE_FORWARD_PORT;
-
 	}
 }
 
@@ -179,29 +117,35 @@ sub startEverything
 # Begin
 #-------------
 
+$login_name = '';
+
 my $program_name = 'myIOTServer';
 
 setStandardTempDir($program_name);
 	# /base_data/temp/myIOTServer
-	# or Cava Packaged $ENV{USERPROFILE}."/AppData/Local/Temp"
 setStandardDataDir($program_name);
 	# /base_data/data/myIOTServer
-	# or Cava Packaged ENV{USERPROFILE}."/Documents
 
 $logfile = "$temp_dir/$program_name.log";
 
-Pub::Utils::initUtils(1);
-	# AS_SERVICE
+Pub::Utils::initUtils(1,0);
+	# 1 == AS_SERVICE
+	# 0 == QUIET
 Pub::ServerUtils::initServerUtils(1,"$temp_dir/$program_name.pid");
-	# needs_wifi, unix PID file
+	# 1 == NEEDS WIFI
+	# '' == LINUX PID FILE
 
-# prefs needed for SSL parameters
+display($dbg_main,0,"----------------------------------------------");
+display($dbg_main,0,"$program_name.pm starting");
+display($dbg_main,0,"----------------------------------------------");
 
-Pub::Prefs::initPrefs("$data_dir/$program_name.prefs","/base_data/_ssl/PubUtilsEncryptKey.txt");
+
+Pub::Prefs::initPrefs("$data_dir/$program_name.prefs","/base_data/_ssl/PubCryptKey.txt");
 
 LOG(-1,"myIOTServer started ".($AS_SERVICE?"AS_SERVICE":"NO_SERVICE")."  server_ip=$server_ip");
 
 # Start the Wifi Monitor and Wait for Wifi to Start
+# This is already done by initServerUtils, but we monitor the wifi
 
 my $wifi_count = 0;
 Pub::IOT::Wifi::start();
@@ -226,9 +170,6 @@ while (!Pub::IOT::Wifi::connected())
 my $MEMORY_REFRESH = 7200;		# every 2 hours
 my $memory_time = 0;
 
-my $this_thread = threads->self();
-my $this_id:shared = $this_thread ? $this_thread->tid() : "undef";
-LOG(0,"MAIN THREAD=$this_id");
 
 while (1)
 {
@@ -277,37 +218,24 @@ while (1)
 #----------------------------------
 # Signal Handler
 #----------------------------------
-# WITH NO SIGNAL HANDLING
-# Note that I am no longer using Signal Handling
-# so, broken pipes and Perl errors may crash the
-# server or kill threads for the time being.
-#
-# TESTED ON WINDOWS (from command line)
-# Doubt a windows service would be well behaved.
-# The only ramification so far from not having signals is that on
-# windows the sockets don't get closed with ^C and so I have to make a new
-# session.
-#
-# It seems to have helped on Windows if I set the environment variable PERL_SIGNALS=safe
-# THEY WERE ACTUALLY SET TO unsafe ON MY MACHINE!!!  which caused panics, etc, etc, etc.
-# They default to safe without the env variable, so in future I should get rid of it.
+# good candidate for a global method in Pub::ServerUtils
 
 sub signal_handler
 {
-	my $sig_name = $! || 'unknown';
+	my ($sig) = @_;
 	my $thread = threads->self();
 	my $id = $thread ? $thread->tid() : "undef";
 
-    LOG(-1,"CAUGHT SIGNAL: $sig_name  THREAD_ID=$id");
+    LOG(-1,"CAUGHT SIGNAL: SIG$sig  THREAD_ID=$id");
 
 	# We catch SIG_PIPE (there's probably a way to know the actual signal instead of using its 'name')
 	# on the rPi for the WSLocal connection when a device reboots.  We have to return from the signal
 	# or else the server will shut down.
 
-	return if $sig_name =~ 'Broken pipe';
+	return if $sig =~ 'PIPE';
 	stopEverything();
     LOG(-1,"FINISHED SIGNAL");
-	kill 6,$$;	# exit 1;
+	kill 9,$$;	# exit 1;
 }
 
 

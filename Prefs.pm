@@ -47,7 +47,7 @@ use Pub::Crypt;
 #	}
 
 
-my $dbg_prefs = 1;
+my $dbg_prefs =0;
 	# 0 = show static_init_prefs() header msg
 	# -1 = show individual setPrefs
 
@@ -60,12 +60,14 @@ BEGIN
 		setPref
 		getPrefDecrypted
 		setPrefEncrypted
+		getObjectPref
+		copyParamsWithout
     );
 }
 
 
-my $global_prefs:shared;
-my $pref_filename:shared;
+my $global_prefs:shared = shared_clone({});;
+my $pref_filename:shared = '';
 
 
 #---------------------------------------
@@ -75,13 +77,14 @@ my $pref_filename:shared;
 sub getPref
 {
 	my ($id) = @_;
+	display($dbg_prefs+1,0,"getPref($id)");
 	return $global_prefs->{$id};
 }
 
 sub setPref
 {
 	my ($id,$value) = @_;
-	display($dbg_prefs+1,0,"setPref($id,$value)");
+	display($dbg_prefs,0,"setPref($id,$value)");
 	$global_prefs->{$id} = $value;
 	write_prefs();
 }
@@ -103,7 +106,7 @@ sub setPrefEncrypted
 {
 	my ($id,$value) = @_;
 	my $encrypted = my_encrypt($value);
-	display($dbg_prefs+1,0,"setPrefEncrypted($id,$encrypted)");
+	display($dbg_prefs,0,"setPrefEncrypted($id,$encrypted)");
 	setPref($id,$encrypted);
 }
 
@@ -136,7 +139,7 @@ sub initPrefs
 				my $right = substr($line,$pos+1);
 				$left =~ s/^\s+|\s+$//g;
 				$right =~ s/^\s+|\s+$//g;
-				display($dbg_prefs,0,"pref($left)='$right'");
+				display($dbg_prefs+1,0,"pref($left)='$right'");
 				$global_prefs->{$left} = $right;
 		    }
 		}
@@ -146,6 +149,7 @@ sub initPrefs
 
 sub write_prefs
 {
+	display($dbg_prefs,0,"write_prefs($pref_filename)");
     my $text = '';
     for my $k (sort(keys(%$global_prefs)))
     {
@@ -159,6 +163,55 @@ sub write_prefs
     return 1;
 }
 
+
+sub getObjectPref
+	# Params provided to the ctor will pre-empt preferences.
+{
+	my ($params,$id,$default,$force_undef) = @_;
+	if ($force_undef)
+	{
+		display($dbg_prefs+1,0,"getObjectPref($id) forcing undef");
+		delete $params->{$id};
+		return;
+	}
+	if (defined($params->{$id}))
+	{
+		display($dbg_prefs+1,0,"getObjectPref($id) keeping param '$params->{$id}'");
+		return;
+	}
+
+	$params->{$id} = getPref($id);
+	if (defined($params->{$id}))
+	{
+		display($dbg_prefs+1,0,"getObjectPref($id) got defined pref '$params->{$id}'")
+	}
+	elsif (defined($default))
+	{
+		display($dbg_prefs+1,0,"getObjectPref($id) setting to default '$default'");
+		$params->{$id} = $default;
+	}
+	else
+	{
+		display($dbg_prefs+1,0,"getObjectPref($id) == undef");
+		delete $params->{$id};
+	}
+}
+
+sub copyParamsWithout
+	# common method (FS and HTTP) to remove leading
+	# FS_ or HTTP_ from SSL and other params for
+	# portForwarder
+{
+	my ($params,$without) = @_;
+	my $new_params = {};
+	for my $id (keys %$params)
+	{
+		my $val = $params->{$id};
+		$id =~ s/^$without//;
+		$new_params->{$id} = $val;
+	}
+	return $new_params;
+}
 
 
 

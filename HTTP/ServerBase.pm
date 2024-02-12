@@ -2,6 +2,9 @@
 #-----------------------------------------------------
 # Pub::HTTP::ServerBase
 #-----------------------------------------------------
+# Currently limited to a single instance due to many globals
+# and use of prefs.
+#
 # Newly based on an example pooled threaded server i found
 # at https://github.com/macnod/DcServer which uses Threads::Queue
 # to pass the handle_number of the accepted socket to a pool of
@@ -9,43 +12,43 @@
 #
 # PARAMETERS:
 #
-#	DEBUG_SERVER => -1..2	optional - see notes below
-#	DEBUG_REQUEST => 0..5	optional - see notes below
-#	DEBUG_RESPONSE => 0..5	optional - see notes below
+#	HTTP_DEBUG_SERVER => -1..2	optional - see notes below
+#	HTTP_DEBUG_REQUEST => 0..5	optional - see notes below
+#	HTTP_DEBUG_RESPONSE => 0..5	optional - see notes below
 #
-#	DEBUG_QUIET_RE => '',
+#	HTTP_DEBUG_QUIET_RE => '',
 #			# if the request matches this RE, the request
 #			# and response debug levels will be bumped by 2
 #			# so that under normal circumstances, no messages
 #			# will show for these.
-#	DEBUG_LOUD_RE => ''
+#	HTTP_DEBUG_LOUD_RE => ''
 #			# This RE can be used to debug particular URIS
 #			# by effectively decreawing their debug levels by 2
 
-#   DEBUG_PING => 0/1		optional - shows ping debugging at DEBUG_SERVER level
+#   HTTP_DEBUG_PING => 0/1		optional - shows ping debugging at DEBUG_SERVER level
 #
-#	PORT					required
-#	MAX_THREADS	=> 5		default(10)
+#	HTTP_PORT					required
+#	HTTP_MAX_THREADS	=> 5		default(10)
 #
-#	SSL => 1				optional
-# 	SSL_cert_file  			required if SSL
-# 	SSL_key_file  			required if SSL
+#	HTTP_SSL => 1				optional
+# 	HTTP_SSL_cert_file  			required if SSL
+# 	HTTP_SSL_key_file  			required if SSL
 #
-# 	AUTH_ENCRYPTED => 1		optional if AUTH_FILE
-# 	AUTH_FILE      			drives user authentication
-# 	AUTH_REALM     			required if AUTH_FILE
+# 	HTTP_AUTH_ENCRYPTED => 1		optional if AUTH_FILE
+# 	HTTP_AUTH_FILE      			drives user authentication
+# 	HTTP_AUTH_REALM     			required if AUTH_FILE
 #
-# 	USE_GZIP_RESPONSES => 1
-# 	DEFAULT_HEADERS => {},
+# 	HTTP_USE_GZIP_RESPONSES => 1
+# 	HTTP_DEFAULT_HEADERS => {},
 #
-#	DOCUMENT_ROOT =>$base_dir,
-#	DEFAULT_LOCATION => '/index.html'	# used for / requests
-#   ALLOW_GET_EXTENSIONS_RE => 'html|js|css|jpg|png|ico',
-#	ALLOW_SCRIPT_EXTENSIONS_RE => '',
+#	HTTP_DOCUMENT_ROOT =>$base_dir,
+#	HTTP_DEFAULT_LOCATION => '/index.html'	# used for / requests
+#   HTTP_ALLOW_GET_EXTENSIONS_RE => 'html|js|css|jpg|png|ico',
+#	HTTP_ALLOW_SCRIPT_EXTENSIONS_RE => '',
 #		allows scripts to be executed from the HTTP Server
 #
-#	LOGFILE				  	for HTTP separate logfile of HTTP_LOG calls
-#	KEEP_ALIVE				use persistent connections from browsers
+#	HTTP_LOGFILE				  	for HTTP separate logfile of HTTP_LOG calls
+#	HTTP_KEEP_ALIVE				use persistent connections from browsers
 #
 # IDLE TIMING AND LOCKING
 #
@@ -76,6 +79,7 @@ use IO::Select;
 use Time::HiRes qw(sleep time);
 use Pub::Utils;
 use Pub::Crypt;
+use Pub::Prefs;
 use Pub::Users;
 use Pub::ProcessBody;
 use Pub::DebugMem;
@@ -116,11 +120,10 @@ our $OVERRIDE_DEBUG_PING = 0;
 	# for ping specific debugging
 my $DEFAULT_MAX_THREADS = 5;
 	# If the user doesn't specify
-my $DEFAULT_USE_GZIP_RESPONSES = 0;
-    # if the client allows them, that is
 
 my $accept_queue = Thread::Queue->new;
 my $closed_queue = Thread::Queue->new;
+my $port_forwarder;
 
 
 sub dbg_queue
@@ -135,7 +138,7 @@ sub dbg
 {
 	my ($this,$level,$indent,$msg,$call_level,$color) = @_;
 	$call_level ||= 0;
-	my $dbg_level = $level + $dbg_server - ($this->{DEBUG_SERVER} || 0);
+	my $dbg_level = $level + $dbg_server - ($this->{HTTP_DEBUG_SERVER} || 0);
 	display($dbg_level,$indent,$msg,$call_level+1,$color);
 }
 
@@ -177,44 +180,80 @@ sub HTTP_LOG
 sub new
 {
     my ($class,$params) = @_;
+	$params ||= {};
 
-	display_hash(0,0,"Pub::ServerBase::new()",$params);
-    if (!$params->{PORT})
+	getObjectPref($params,'HTTP_SSL',0);
+	getObjectPref($params,'HTTP_PORT',undef);
+	getObjectPref($params,'HTTP_HOST',undef);
+	getObjectPref($params,'HTTP_DEBUG_SSL',0,!$params->{HTTP_SSL});
+	getObjectPref($params,'HTTP_SSL_CERT_FILE',undef,!$params->{HTTP_SSL});
+	getObjectPref($params,'HTTP_SSL_KEY_FILE',undef,!$params->{HTTP_SSL});
+	getObjectPref($params,'HTTP_FWD_PORT',undef);
+	getObjectPref($params,'HTTP_FWD_USER',undef,!$params->{HTTP_FWD_PORT});
+	getObjectPref($params,'HTTP_FWD_SERVER',undef,!$params->{HTTP_FWD_PORT});
+	getObjectPref($params,'HTTP_FWD_SSH_PORT',undef,!$params->{HTTP_FWD_PORT});
+	getObjectPref($params,'HTTP_FWD_KEYFILE',undef,!$params->{HTTP_FWD_PORT});
+	getObjectPref($params,'HTTP_DEBUG_PING',undef);
+	getObjectPref($params,'HTTP_FWD_DEBUG_PING',undef,!$params->{HTTP_FWD_PORT});
+
+	getObjectPref($params,'HTTP_DEBUG_SERVER',0);
+	getObjectPref($params,'HTTP_DEBUG_REQUEST',0);
+	getObjectPref($params,'HTTP_DEBUG_RESPONSE',0);
+	getObjectPref($params,'HTTP_DEBUG_QUIET_RE',undef);
+	getObjectPref($params,'HTTP_DEBUG_LOUD_RE',undef);
+	getObjectPref($params,'HTTP_LOGFILE',undef);
+
+	getObjectPref($params,'HTTP_AUTH_FILE',undef);
+	getObjectPref($params,'HTTP_AUTH_REALM',undef);
+	getObjectPref($params,'HTTP_AUTH_ENCRYPTED',undef);
+
+	getObjectPref($params,'HTTP_MAX_THREADS',$DEFAULT_MAX_THREADS);
+
+	getObjectPref($params,'HTTP_DOCUMENT_ROOT','');
+	getObjectPref($params,'HTTP_DEFAULT_LOCATION','index.html');
+	getObjectPref($params,'HTTP_ALLOW_GET_EXTENSIONS_RE','html|js|css|jpg|png|ico');
+	getObjectPref($params,'HTTP_ALLOW_SCRIPT_EXTENSIONS_RE',undef);
+
+	getObjectPref($params,'HTTP_KEEP_ALIVE',undef);
+	getObjectPref($params,'HTTP_USE_GZIP_RESPONSES',undef);
+	getObjectPref($params,'HTTP_AUTH_FILE',undef);
+
+	# check required parameters
+
+    if (!$params->{HTTP_PORT})
     {
-        error("You must provide a PORT for Pub::ServerBase::new()");
+        error("You must provide a PORT for via ctor or prefs for Pub::ServerBase::new()");
         return;
     }
 
-    my $this = shared_clone({});
-    mergeHash($this,shared_clone($params));
+	display_hash(0,0,"Pub::ServerBase::new()",$params);
+	my $this = shared_clone($params);
     bless $this,$class;
+
+	# required direct defaults of params
+
+	$this->{HTTP_DEBUG_PING} ||= $OVERRIDE_DEBUG_PING;
+	$this->{HTTP_MAX_THREADS} ||= $DEFAULT_MAX_THREADS;
+	# $this->{HTTP_FWD_PING_REQUEST} = "TODO PING" if $this->{HTTP_FWD_PORT};
 
     $this->{running} = 0;
     $this->{stopping} = 0;
 	$this->{request_num} = 0;
 	$this->{active} = 0;
 
-	$this->{DEBUG_SERVER} ||= 0;
-	$this->{DEBUG_REQUEST} ||= 0;
-	$this->{DEBUG_RESPONSE} ||= 0;
-	$this->{DEBUG_QUIET_RE} ||= '';
+    # HTTP_DEFAULT_HEADERS
+	# you may override the entire set of default headers
+	# by providing them as a shared hasth to the ctor.
+	# All or nothing.
 
-	$this->{DEBUG_PING} ||= $OVERRIDE_DEBUG_PING;
-	$this->{MAX_THREADS} ||= $DEFAULT_MAX_THREADS;
-    $this->{DEFAULT_HEADERS} ||= shared_clone({});
-    $this->{USE_GZIP_RESPONSES} = $DEFAULT_USE_GZIP_RESPONSES
-        if !defined($this->{USE_GZIP_RESPONSES});
-
-    # DEFAULT HEADER LIMITATIONS
-    # no cache, no persistent connections
-	# KEEP_ALIVE will cause the server to loop on the connection
-	# until it times out and seems to work.
-
-    my $def_headers = $this->{DEFAULT_HEADERS};
-    $def_headers->{'cache-control'} ||= 'no-cache, no-store, must-revalidate';
-    $def_headers->{'pragma'}        ||= 'no-cache';
-    $def_headers->{'expires'}       ||= '0';
-    $def_headers->{'connection'} 	||= $this->{KEEP_ALIVE} ? 'keep-alive' : 'close';
+    if (!$this->{HTTP_DEFAULT_HEADERS})
+	{
+		my $def_headers = $this->{HTTP_DEFAULT_HEADERS} = shared_clone({});
+		$def_headers->{'cache-control'} ||= 'no-cache, no-store, must-revalidate';
+		$def_headers->{'pragma'}        ||= 'no-cache';
+		$def_headers->{'expires'}       ||= '0';
+		$def_headers->{'connection'} 	||= $this->{HTTP_KEEP_ALIVE} ? 'keep-alive' : 'close';
+	}
 
 	# finished, return to caller
 
@@ -227,12 +266,12 @@ sub new
 sub start
 {
     my ($this) = @_;
-	$this->dbg(0,0,"serverBase::start($this->{MAX_THREADS}) threads");
+	$this->dbg(0,0,"serverBase::start($this->{HTTP_MAX_THREADS}) threads");
 	my $server_thread = threads->create(\&serverThread,$this);
 	$server_thread->detach();
 	$this->dbg(2,1,"serverThread detatched");
 
-	for (my $i=0; $i<$this->{MAX_THREADS}; $i++)
+	for (my $i=0; $i<$this->{HTTP_MAX_THREADS}; $i++)
 	{
 		my $client_thread = threads->create(\&clientThread,$this,$i);
 		$client_thread->detach();
@@ -271,8 +310,8 @@ sub stop
 sub serverThread
 {
     my ($this) = @_;
-    my $port = $this->{PORT};
-	my $dbg_ssl = $this->{SSL} ? ' SSL' : '';
+    my $port = $this->{HTTP_PORT};
+	my $dbg_ssl = $this->{HTTP_SSL} ? ' SSL' : '';
     $this->HTTP_LOG(-1,"HTTP$dbg_ssl SERVER STARTING ON PORT($port)");
 
     my @params = (
@@ -292,6 +331,21 @@ sub serverThread
 
     binmode $socket;
     my $select = IO::Select->new($socket);
+
+	# forward the Port if asked to
+	# Pub::ForwardPort start() is re-entrant
+
+	if ($this->{HTTP_FWD_PORT})
+	{
+		# the PortForwarder needs the SSL parameters from preferences
+		# so that it can do a standard HTTP PING.
+		# Here we duplicate the FS parameters, removing the FS_ prefix
+		# so that portForwder can use them.
+
+		my $fwd_params = copyParamsWithout($this,"HTTP_");
+		$port_forwarder = Pub::PortForwarder->new($fwd_params);
+		Pub::PortForwarder::start() if $port_forwarder;
+	}
 
     #--------------------------------------
 	# LOOP while running && !stopping
@@ -459,12 +513,12 @@ sub clientRequest
 
     # UPGRADE SSL SOCKET
 
-    if ($this->{SSL})
+    if ($this->{HTTP_SSL})
     {
         if (!IO::Socket::SSL->start_SSL($client,
                 SSL_server => 1,
-                SSL_cert_file => $this->{SSL_CERT_FILE},
-                SSL_key_file => $this->{SSL_KEY_FILE}))
+                SSL_cert_file => $this->{HTTP_SSL_CERT_FILE},
+                SSL_key_file => $this->{HTTP_SSL_KEY_FILE}))
         {
             error("clientRequest($request_num) Could not start_SSL() file_handle($file_handle) $dbg_from: $! ~~~ $@");
 	        goto END_REQUEST;
@@ -489,9 +543,9 @@ sub clientRequest
 		my $method = $request->{method} || '';
 		my $uri = $request->{uri} || '';
 
-		if ($uri eq '/' && $this->{DEFAULT_LOCATION})
+		if ($uri eq '/' && $this->{HTTP_DEFAULT_LOCATION})
 		{
-			$uri = $this->{DEFAULT_LOCATION};
+			$uri = $this->{HTTP_DEFAULT_LOCATION};
 			$request->{uri} = $uri;
 		}
 
@@ -499,7 +553,7 @@ sub clientRequest
 
 		my $is_ping = $method eq 'PING' || ($method =~ /get/i && $uri eq "/PING") ? 1 : 0;
 		$this->HTTP_LOG(0,"request($request_num) $method $uri $dbg_from")
-			if !$is_ping || $$this->{DEBUG_PING};
+			if !$is_ping || $$this->{HTTP_DEBUG_PING};
 
 		# prep the socket
 
@@ -516,12 +570,12 @@ sub clientRequest
 		# and set the request auth_user and auth_privs fields
 		# for use by implementation dependent servers
 
-		if (!$response && $this->{AUTH_FILE})
+		if (!$response && $this->{HTTP_AUTH_FILE})
 		{
 			$response = $this->checkAuthorization(
 				$request,
-				$this->{AUTH_FILE},
-				$this->{AUTH_ENCRYPTED});
+				$this->{HTTP_AUTH_FILE},
+				$this->{HTTP_AUTH_ENCRYPTED});
 		}
 
 		goto END_REQUEST if $this->checkStop($client,$request);
@@ -578,7 +632,7 @@ sub clientRequest
 			$this->HTTP_LOG(1,"response($request_num) $response->{status_line} ".
 				"$response->{headers}->{'content-type'} ".
 				"$dbg_content $dbg_to")
-				if !$is_ping || $this->{DEBUG_PING};
+				if !$is_ping || $this->{HTTP_DEBUG_PING};
 
 			$response->send_client($client);
 				# all error reporting is done in send_client
@@ -593,7 +647,7 @@ sub clientRequest
 
 		last if $quit_now;
 		last if $is_ping;
-		last if !$this->{KEEP_ALIVE};
+		last if !$this->{HTTP_KEEP_ALIVE};
 		last if $this->{stopping};
 
 		$request->init_for_re_read();
@@ -704,7 +758,7 @@ sub set_response
 sub handle_request
 {
     my ($this,$client,$request) = @_;
-	my $doc_root = $this->{DOCUMENT_ROOT};
+	my $doc_root = $this->{HTTP_DOCUMENT_ROOT};
 	return if !$doc_root;
 
 	my $dbg_num = "$request->{request_num}/".($this->{running}-1);
@@ -735,6 +789,9 @@ sub handle_request
 	}
 
 	my $filename = "$doc_root/$uri";
+
+	# print "doc_root=$doc_root uri=$uri filename=$filename\n";
+
 	$filename =~ s/\?.*$//;
     if (!-f $filename)
 	{
@@ -753,8 +810,8 @@ sub handle_request
 
 	if ($mime_type &&
         $method eq 'GET' &&
-        $this->{ALLOW_GET_EXTENSIONS_RE} &&
-		$uri =~ /($this->{ALLOW_GET_EXTENSIONS_RE})/)
+        $this->{HTTP_ALLOW_GET_EXTENSIONS_RE} &&
+		$uri =~ /\.($this->{HTTP_ALLOW_GET_EXTENSIONS_RE})$/)
 	{
 		$this->dbg(2,0,"getting $filename");
 		my $text = getTextFile($filename,1);
@@ -777,8 +834,8 @@ sub handle_request
 	# which will be private to each request.
 
 	if ($method =~ /^(GET|POST)$/ &&
-        $this->{ALLOW_SCRIPT_EXTENSIONS_RE} &&
-		$uri =~ /.*\.($this->{ALLOW_SCRIPT_EXTENSIONS_RE})(\?.*)*$/)
+        $this->{HTTP_ALLOW_SCRIPT_EXTENSIONS_RE} &&
+		$uri =~ /.*\.($this->{HTTP_ALLOW_SCRIPT_EXTENSIONS_RE})(\?.*)*$/)
 	{
 		$global_server = $this;
 		$global_request = $request;

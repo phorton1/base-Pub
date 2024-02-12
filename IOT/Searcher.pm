@@ -21,6 +21,7 @@ my $dbg_searcher = 0;
 
 my $MX_TIME = 8;
 my $REFRSH_TIME = 30;
+my $SEARCH_URN = "urn:myIOTDevice";
 
 my $server_thread;
 my $socket;
@@ -33,9 +34,9 @@ my $g_stopping:shared = 0;
 
 sub start
 {
-    my ($urn,$callback) = @_;
+    my ($callback) = @_;
 
-	$g_urn = $urn;
+	$g_urn = $SEARCH_URN;
 	$g_running = 0;
 	$g_stopping = 0;
 	$g_callback = $callback;
