@@ -144,7 +144,7 @@ sub new
 {
 	my ($class,$params) = @_;
 
-	display_hash($dbg_fwd,0,"PortForwarder::new()",$params);
+	display_hash($dbg_fwd+1,0,"PortForwarder::new()",$params);
 
 	$params->{FWD_SSH_PORT} ||= $DEFAULT_SSH_PORT;
 	$params->{WIN_SSH_PATH} ||= $DEFAULT_WIN_SSH_PATH;
