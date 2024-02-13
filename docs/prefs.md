@@ -2,9 +2,9 @@
 
 Much of the Pub layer can be driven by preferences stored
 in a text file.  Applications and Services can define the
-location of that text file which can the subsequently modify
+location of that text file which can then subsequently modify
 the behavior of the Pub Layer without the Application or
-Service, per-se, being aware of, or need to implement those
+Service, per-se, being aware of, or needing to implement those
 preferences.
 
 Typical Perl objects take a set of $params, which can pre-empt
@@ -41,7 +41,7 @@ in its "temp" directory.  By convention, the location of these
 folders is typically **/base_data/data/Service_or_App_name** and
 **/base_data/temp/Service_or_App_name**.
 
-Apps and Services that Cava::Packaged for delivery of Windows
+Apps and Services that are Cava::Packaged for delivery of Windows
 installers typically use the standard User's Documents and Temp
 folders with the Service_or_App_name:
 
@@ -78,7 +78,7 @@ For ease of use, the default for this key file is
 
 	/base_data/_ssl/PubCryptKey.txt
 
-However, Apps and Services can specifically override in their
+However, Apps and Services can specifically override this in their
 initialization code to provide clusters of code that share a
 given encryption key.
 

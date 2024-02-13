@@ -58,6 +58,18 @@
 #   using a quick timeout on the can_read() call, but still slowing it down
 #   to a reasonable load level when idle.  Other details included using lock($this)
 #   when bumping/decrementing $this->{active}.  It now seems to be working.
+#
+# SUB-THREADS (WEB SOCKETS)
+#
+#  	handle_request() may return $RESPONSE_STAY_OPEN which indicates
+#   that a separate thread has been started to handle the response,
+#	freeing the server's thread pool for more requests. This is
+#   required for myIOTServer WebSockets that stay open indefinitely.
+#   Clients that return $RESPONSE_STAY_OPEN must eventually call
+#   endOpenRequest($request) when their threads end.
+#
+#	This causes the socket to not be added to the closed_queue
+#   until some time later
 
 
 package Pub::HTTP::ServerBase;
@@ -385,7 +397,8 @@ sub serverThread
 					my $request_num = $this->{request_num}++;
 					my $active = $this->{active};
 					my $dbg_msg = dbg_queue();
-					$this->dbg(0,0,"CONNECT($request_num) handle($file_handle) active($active) $dbg_msg $dbg_from");
+					$this->dbg(0,0,"CONNECT($request_num) ".
+						"handle($file_handle) active($active) $dbg_msg $dbg_from");
 
 					my $ele = shared_clone({
 						file_handle => $file_handle,
@@ -414,7 +427,8 @@ sub serverThread
 
 				my $active = $this->{active};
 				my $dbg_msg = dbg_queue();
-				$this->dbg(0,0,"DISCONNECT($request_num) handle($file_handle) active($active) $dbg_msg");
+				$this->dbg(0,0,"DISCONNECT($request_num) ".
+					"handle($file_handle) active($active) $dbg_msg");
 
 				# $client_socket->shutdown(2);
 				$client_socket->close();
@@ -454,9 +468,32 @@ sub checkStop
 	my ($this,$request) = @_;
     if ($this->{stopping} || !$this->{running})
     {
-        $this->dbg(1,0,"HTTP_SERVER request($request->{request_num} STOPPING ($this->{stopping},$this->{running})");
+        $this->dbg(1,0,"HTTP_SERVER request($request->{request_num}) ".
+			"STOPPING($this->{stopping},$this->{running})");
 		return 1;
     }
+}
+
+
+# separate, per-thread queue for $RESPONSE_STAY_OPEN sockets
+# that must be closed by the thread is a shared hash by thread
+# num and fileno.
+
+my $thread_close_queue:shared = shared_clone({});
+
+
+sub endOpenRequest
+{
+	my ($request) = @_;
+
+	my $thread_num = $request->{thread_num};
+	my $request_num = $request->{request_num};
+	my $ele = $request->{ele};
+	my $file_handle = $ele->{file_handle};
+
+	$request->{server}->HTTP_LOG(-1,"END_OPEN_REQUEST($request_num) ".
+		"thread_num($thread_num) file_handle($file_handle)");
+	$thread_close_queue->{$thread_num}->{$file_handle} = $ele;
 }
 
 
@@ -464,21 +501,62 @@ sub clientThread
 {
     my ($this,$thread_num) = @_;
     $this->dbg(1,0,"clientThread($thread_num) started");
+
+	my $keep_sockets = {};
+	$thread_close_queue->{$thread_num} = shared_clone({});
+		# hash by fileno of $keep_sockets returned by clientRequest
+
 	while (!$this->{stopping})
 	{
-		my $ele = $accept_queue->dequeue();
+		# my $ele = $accept_queue->dequeue();
+		my $ele = $accept_queue->dequeue_timed(1);
+
+		# display(0,0,"loop ele="._def($ele));
+
 		if ($ele)
 		{
 			{
 				lock($this);
 				$this->{active}++;
 			}
-			clientRequest($this,$thread_num,$ele);
+			my $keep_sock = clientRequest($this,$thread_num,$ele);
 			{
 				lock($this);
 				$this->{active}--;
 			}
-			$closed_queue->enqueue($ele);
+
+			if ($keep_sock)
+			{
+				my $file_handle = $ele->{file_handle};
+				my $request_num = $ele->{request_num};
+				$this->dbg(1,1,"REQUEST($request_num) ".
+					"thread($thread_num} KEEPING SOCKET($keep_sock) file_handle=$file_handle",
+					0,$UTILS_COLOR_CYAN);
+				$keep_sockets->{$file_handle} = $keep_sock;
+			}
+			else
+			{
+				$closed_queue->enqueue($ele)
+			}
+		}
+
+		# check every second for sockets to close
+
+		else
+		{
+			my $this_close_queue = $thread_close_queue->{$thread_num};
+			my @closers = (keys %$this_close_queue);
+			for my $file_handle (@closers)
+			{
+				my $ele = $this_close_queue->{$file_handle};
+				my $sock = $keep_sockets->{$file_handle};
+				$this->dbg(1,0,"REQUEST($ele->{request_num}) ".
+					"CLOSING KEEP_SOCKET($sock) file_handle($file_handle)",
+					0,$UTILS_COLOR_CYAN);
+				# $sock->close();
+				delete $this_close_queue->{$file_handle};
+				$closed_queue->enqueue($ele);
+			}
 		}
 	}
 
@@ -491,6 +569,7 @@ sub clientRequest
 {
 	my ($this,$thread_num,$ele) = @_;
 
+	my $keep_open = 0;
 	my $request_num = $ele->{request_num};
 	my $dbg_from = "from $ele->{peer_ip}:$ele->{peer_port}";
 	my $file_handle = $ele->{file_handle};
@@ -498,11 +577,14 @@ sub clientRequest
 	$this->dbg(1,0,"clientRequest($request_num) file_handle($file_handle) $dbg_from");
 
 	my $request = Pub::HTTP::Request->new($this,{
-		request_num =>	$ele->{request_num},
-		peer_ip   => 	$ele->{peer_ip},
-		peer_port => 	$ele->{peer_port},
-		peer_host => 	$ele->{peer_host},
-		peer_addr => 	$ele->{peer_addr} });
+		request_num => $ele->{request_num},
+		peer_ip   	=> $ele->{peer_ip},
+		peer_port 	=> $ele->{peer_port},
+		peer_host 	=> $ele->{peer_host},
+		peer_addr 	=> $ele->{peer_addr},
+		thread_num 	=> $thread_num,
+		ele 		=> $ele,
+	});
 
 	my $client;
 	if (!open($client, '+<&=' . $file_handle))
@@ -603,8 +685,10 @@ sub clientRequest
 
 			if (!$response)
 			{
-				$this->dbg(0,1,"WARNING: no response from handle_request($request_num) $request->{method} $request->{uri} $dbg_from");
-				$response = http_error($request,"ERROR(404)\n\nThe uri($request->{uri}) was not found on this server");
+				$this->dbg(0,1,"WARNING: no response from handle_request($request_num) ".
+					"$request->{method} $request->{uri} $dbg_from");
+				$response = http_error($request,"ERROR(404)\n\nThe uri($request->{uri}) ".
+					"was not found on this server");
 			}
 		}
 
@@ -620,34 +704,37 @@ sub clientRequest
 		# my $crlf = Socket::CRLF;
 		# local $/ = undef;
 
-		if ($response ne $RESPONSE_HANDLED)
-		{
-			my $dbg_to = $dbg_from;
-			$dbg_to =~ s/from /to /;
-			my $dbg_content = ref($response->{content}) ?
-					"FILE($response->{content}->{filename})" :
-				defined($response->{content}) ?
-					"content_bytes(".length($response->{content}).")" : '';
+		$keep_open = $response eq $RESPONSE_STAY_OPEN ? 1 : 0;
 
-			$this->HTTP_LOG(1,"response($request_num) $response->{status_line} ".
-				"$response->{headers}->{'content-type'} ".
-				"$dbg_content $dbg_to")
-				if !$is_ping || $this->{HTTP_DEBUG_PING};
+		my $is_handled =
+			$response eq $RESPONSE_HANDLED |
+			$response eq $RESPONSE_STAY_OPEN;
 
-			$response->send_client($client);
-				# all error reporting is done in send_client
-				# and we don't care if it worked, or not
-		}
+		my $dbg_to = $dbg_from;
+		$dbg_to =~ s/from /to /;
+		my $dbg_content =
+			$is_handled ? $response :
+			ref($response->{content}) ?
+				"FILE($response->{content}->{filename})" :
+			defined($response->{content}) ?
+				"content_bytes(".length($response->{content}).")" : '';
+		my $dbg_resp = $is_handled ? '' :
+			"$response->{status_line} ".
+			"$response->{headers}->{'content-type'} ";
 
-		my $quit_now =
-			!$response ||
-			$response eq $RESPONSE_HANDLED ||
-			$response->{CLOSE_CONNECTION};
+		$this->HTTP_LOG(1,"response($request_num) $dbg_resp$dbg_content $dbg_to")
+			if !$is_ping || $this->{HTTP_DEBUG_PING};
+
+		$response->send_client($client) if !$is_handled;
+			# all error reporting is done in send_client
+			# and we don't care if it worked, or not
+
 		undef($response);
 
-		last if $quit_now;
 		last if $is_ping;
+		last if $is_handled;
 		last if !$this->{HTTP_KEEP_ALIVE};
+		last if $response->{CLOSE_CONNECTION};
 		last if $this->{stopping};
 
 		$request->init_for_re_read();
@@ -657,8 +744,10 @@ sub clientRequest
 
 END_REQUEST:
 
-	$client->close();
+	$client->close() if !$keep_open;
+
 	$this->dbg(1,1,"requestThread($request_num) finished");
+	return $keep_open ? $client : 0;
 
 }   # requestThread()
 

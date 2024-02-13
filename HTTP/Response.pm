@@ -31,11 +31,14 @@ BEGIN
 		json_response
 
 		$RESPONSE_HANDLED
+		$RESPONSE_STAY_OPEN
     );
 }
 
 
 our $RESPONSE_HANDLED = 'RESPONSE_HANDLED';
+	# for responses that get fully handled by their derived classes
+our $RESPONSE_STAY_OPEN = 'RESPONSE_STAY_OPEN';
 	# for responses that get fully handled by their derived classes
 
 
