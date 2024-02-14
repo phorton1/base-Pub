@@ -166,9 +166,9 @@ Overall HTTP Setup:
 - HTTP_KEEP_ALIVE			= use persistent connections from browsers
 - HTTP_DOCUMENT_ROOT 		= $base_dir,
 - HTTP_DEFAULT_LOCATION 	= '/index.html'	# used for / requests
-- HTTP_USE_GZIP_RESPONSES 	= 1
-- HTTP_ALLOW_GET_EXTENSIONS_RE = 'html|js|css|jpg|png|ico',
-- HTTP_ALLOW_SCRIPT_EXTENSIONS_RE = '',
+- HTTP_ZIP_RESPONSES 	= 1
+- HTTP_GET_EXT_RE = 'html|js|css|jpg|png|ico',
+- HTTP_SCRIPT_EXT_RE = '',
 
 
 ## Pub::IOT (to become apps::myIOTServer)

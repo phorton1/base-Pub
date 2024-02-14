@@ -27,6 +27,7 @@ BEGIN
 
 		http_ok
 		http_error
+		html_ok
 		json_error
 		json_response
 
@@ -49,26 +50,52 @@ my $dbg_resp = 1;
 sub http_ok
 {
     my ($request,$msg) = @_;
-    return Pub::HTTP::Response->new($request,200,'text/plain',$msg);
+    return Pub::HTTP::Response->new($request,$msg);
 }
 sub http_error
 {
     my ($request,$msg) = @_;
-    return Pub::HTTP::Response->new($request,404,'text/plain',$msg);
+    return Pub::HTTP::Response->new($request,$msg,404,'text/plain');
 }
-
-
+sub html_ok
+{
+    my ($request,$msg) = @_;
+    return Pub::HTTP::Response->new($request,$msg,200,'text/html');
+}
 sub json_error
 {
     my ($request,$msg) = @_;
-    return Pub::HTTP::Response->new($request,200,'application/json',{error => $msg});
+    return Pub::HTTP::Response->new($request,{error => $msg},200,'application/json');
 }
 sub json_response
 {
     my ($request,$data) = @_;
-    return Pub::HTTP::Response->new($request,200,'application/json',$data);
+    return Pub::HTTP::Response->new($request,$data,200,'application/json');
 }
 
+
+sub addHeaders
+{
+	my ($this,$add_headers) = @_;
+	my $headers = $this->{headers};
+	for my $left (sort keys %$add_headers)
+	{
+		my $right = $add_headers->{$left} || '';
+		if ($left eq 'cache-control')
+		{
+			delete $headers->{'pragma'};
+			delete $headers->{'expires'};
+		}
+		if ($right eq 'undef')
+		{
+			delete $headers->{$left};
+		}
+		else
+		{
+			$headers->{$left} = $right;
+		}
+	}
+}
 
 
 sub dbg
@@ -111,7 +138,12 @@ sub new
     #
     # Note that the hash must be in shared memory!
 {
-    my ($class,$request,$code,$content_type,$content) = @_;
+    my ($class,$request,$content,$code,$content_type,$addl_headers) = @_;
+
+	$content ||= '';
+	$code ||= 200;
+	$content_type ||= 'text/plain';
+
     my $server = $request->{server};
     my $this = $class->SUPER::new($server);
 	bless $this,$class;
@@ -140,13 +172,13 @@ sub new
     $this->{status_line} = "HTTP/1.1 $code $msg";
     $this->{headers} = shared_clone({});
 
-
     mergeHash($this->{headers},$server->{HTTP_DEFAULT_HEADERS});
 
     $this->{headers}->{'content-type'} = "$content_type";
         # charsets not implemented
         # $response->{headers}->{'content-type'} .= "; charset=ISO-8859-1";
         # $response->{headers}->{'content-type'} .= "; charset=utf8";
+	$this->addHeaders($addl_headers) if $addl_headers;
 
     if ($code == 401)
     {
@@ -200,7 +232,7 @@ sub new
 
         if ($zipit &&
             $content_type ne 'application/zip' &&
-            $server->{HTTP_USE_GZIP_RESPONSES})
+            $server->{HTTP_ZIP_RESPONSES})
         {
             $this->dbg(2,1,"new() zipping content_length=".length($content));
             my $zipped = '';
@@ -338,7 +370,7 @@ sub startReply
 {
     my ($class,$request,$code,$content_type,$client) = @_;
 
-	my $this = $class->new($request,$code,$content_type);
+	my $this = $class->new($request,'',$code,$content_type);
 	return if !$this->send_client($client);
 
 	$client_handle = $client;

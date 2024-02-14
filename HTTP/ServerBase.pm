@@ -10,11 +10,11 @@
 # to pass the handle_number of the accepted socket to a pool of
 # threads
 #
-# PARAMETERS:
+# PARAMETERS from prefs:
 #
-#	HTTP_DEBUG_SERVER => -1..2	optional - see notes below
-#	HTTP_DEBUG_REQUEST => 0..5	optional - see notes below
-#	HTTP_DEBUG_RESPONSE => 0..5	optional - see notes below
+#	HTTP_DEBUG_SERVER => -1..2	default(0) - optional - see notes below
+#	HTTP_DEBUG_REQUEST => 0..5	default(0) - optional - see notes below
+#	HTTP_DEBUG_RESPONSE => 0..5	default(0) - optional - see notes below
 #
 #	HTTP_DEBUG_QUIET_RE => '',
 #			# if the request matches this RE, the request
@@ -25,30 +25,31 @@
 #			# This RE can be used to debug particular URIS
 #			# by effectively decreawing their debug levels by 2
 
-#   HTTP_DEBUG_PING => 0/1		optional - shows ping debugging at DEBUG_SERVER level
+#   HTTP_DEBUG_PING 	=> 0/1			default(0) optional - shows ping debugging at DEBUG_SERVER level
 #
-#	HTTP_PORT					required
-#	HTTP_MAX_THREADS	=> 5		default(10)
+#	HTTP_PORT			=> number		required
+#	HTTP_MAX_THREADS	=> 5			default(10)
 #
-#	HTTP_SSL => 1				optional
-# 	HTTP_SSL_cert_file  			required if SSL
-# 	HTTP_SSL_key_file  			required if SSL
+#	HTTP_SSL 			=> 1			default(0) optional
+# 	HTTP_SSL_cert_file  => filename		required if SSL
+# 	HTTP_SSL_key_file  	=> filename		required if SSL
 #
-# 	HTTP_AUTH_ENCRYPTED => 1		optional if AUTH_FILE
-# 	HTTP_AUTH_FILE      			drives user authentication
-# 	HTTP_AUTH_REALM     			required if AUTH_FILE
+# 	HTTP_AUTH_ENCRYPTED => 1			optional if AUTH_FILE
+# 	HTTP_AUTH_FILE      => filename		drives user authentication
+# 	HTTP_AUTH_REALM     => string		required if AUTH_FILE
 #
-# 	HTTP_USE_GZIP_RESPONSES => 1
-# 	HTTP_DEFAULT_HEADERS => {},
+#	HTTP_KEEP_ALIVE			=> 0/1		default(0)	use persistent connections from browsers
+# 	HTTP_ZIP_RESPONSES 		=> 1		optional in general
 #
-#	HTTP_DOCUMENT_ROOT =>$base_dir,
-#	HTTP_DEFAULT_LOCATION => '/index.html'	# used for / requests
-#   HTTP_ALLOW_GET_EXTENSIONS_RE => 'html|js|css|jpg|png|ico',
-#	HTTP_ALLOW_SCRIPT_EXTENSIONS_RE => '',
-#		allows scripts to be executed from the HTTP Server
+#	HTTP_DOCUMENT_ROOT 		=> path				optional, requied for base class to serve files
+#	HTTP_DEFAULT_LOCATION 	=> filename			default('index.html') can be set to '' to disable
+#   HTTP_GET_EXT_RE 		=> re				default('html|js|css|jpg|png|ico')
+#	HTTP_SCRIPT_EXT_RE 		=> re				default('') example: 'cgi|pm|pl',
 #
-#	HTTP_LOGFILE				  	for HTTP separate logfile of HTTP_LOG calls
-#	HTTP_KEEP_ALIVE				use persistent connections from browsers
+#	HTTP_LOGFILE			=> filename	  		for HTTP separate logfile of HTTP_LOG calls
+#
+# 	HTTP_DEFAULT_HEADERS 		=> {},				see below
+#	HTTP_DEFAULT_HEADERS_{EXT} 	=> {},				see below
 #
 # IDLE TIMING AND LOCKING
 #
@@ -70,6 +71,54 @@
 #
 #	This causes the socket to not be added to the closed_queue
 #   until some time later
+#
+# DEFAULT HEADERS
+#
+#	The headers for a response are determined by the default
+#   DEFAULT_HEADERS and DEFAULT_HEADERS_{EXT} params.
+#
+#	In the preferences file, DEFAULT_HEADERS and DEFAULT_HEADERS_{EXT}
+#		are given by a non-sparse set of numbered, singular, defines:
+#		starting at zero, as a => delimited pair:
+#
+#			DEFAULT_HEADER_0 = cache-control => max_age: 604800
+#
+#		where the special value of 'undef' may be used to delete
+#		the header from the response.  In the case that headers
+#		ARE specified in the prefs file, they will override those
+#		from the ctor (unlike most other params where the ctor
+#		overrides the prefs).
+#
+#	For DEFAULT_HEADERS_{EXT} the list of Extensions provided
+#		in HTTP_GET_EXT_RE and HTTP_SCRIPT_EXT_RE will be searched,
+#		and those extensions utilized to get the additional headers:
+#
+#			DEFAULT_HEADERS_JPG_0 = cache-control => max_age: 604800
+#
+#	All responses start with the DEFAULT HEADERS the entire set of
+#  		which can be overridden, in their entirety, all or none,
+#		by derived classes in the ctor.
+#
+#		'cache-control' => 'no-cache, no-store, must-revalidate',
+#		'pragma'        => 'no-cache',
+#		'expires'       => '0',
+#		'connection' 	=> $this->{HTTP_KEEP_ALIVE} ? 'keep-alive' : 'close';
+#
+#		Any override of the 'cache-control' header will automatically
+#		remove the 'pragma' and 'expires' headers as well
+#
+#   For files served from DOCUMENT_LOCATION. DEFAULT_HEADERS_BY_EXT
+#		may be provided which will be added to the DEFAULT_HEADERS
+#		for those file based on the file extension (which maps to
+#		the mime-type) of the response.
+#
+#		A special value of 'undef' can be used to undefine and remove
+#		headers from the defaults for that file type.
+#
+#	Finally, derived class handle_request() methods can define and
+#		remove headers directly from $response->{headers} after the
+#		response is created, overriding both the construction params
+#		and the preferences file.
 
 
 package Pub::HTTP::ServerBase;
@@ -101,7 +150,8 @@ use Pub::HTTP::Message;
 use Pub::ProcessBody;
 use Pub::DebugMem;
 
-
+my $dbg_def_headers = 1;
+	# debug default headers from prefs file
 our $dbg_server = 1;
 	# works with DEBUG_SERVER param and dbg() and HTTP_LOG() methods
 	#
@@ -130,7 +180,7 @@ our $SUPPRESS_HTTP_LOG = 0;
 our $OVERRIDE_DEBUG_PING = 0;
 	# Normally 0, this can be set to one here, or via the parameters
 	# for ping specific debugging
-my $DEFAULT_MAX_THREADS = 5;
+my $DEFAULT_MAX_THREADS = 10;
 	# If the user doesn't specify
 
 my $accept_queue = Thread::Queue->new;
@@ -153,7 +203,6 @@ sub dbg
 	my $dbg_level = $level + $dbg_server - ($this->{HTTP_DEBUG_SERVER} || 0);
 	display($dbg_level,$indent,$msg,$call_level+1,$color);
 }
-
 
 
 sub HTTP_LOG
@@ -183,11 +232,96 @@ sub HTTP_LOG
 }
 
 
+sub my_chomp
+{
+	my ($value) = @_;
+	$value |= '';
+	$value =~ s/^\s+|\s+$//g;
+	return $value;
+}
+
+
+sub getDefHeadersPref
+	# get non-sparse number set of default headers.
+	# undef and removing cache-control are done on
+	# a per request basis for HTTP_DEFAULT_HEADERS_{EXT}
+{
+	my ($params,$ext) = @_;
+	$ext ||= '';		# for main set of prefs
+	display($dbg_def_headers,0,"getDefHeadersPref($ext)");
+
+	my $pref_key = "HTTP_DEFAULT_HEADER_";
+	my $param_key = "HTTP_DEFAULT_HEADERS";
+
+	$pref_key .= uc($ext)."_" if $ext;
+	$param_key .= "_".uc($ext) if $ext;
+
+	my $num = 0;
+	my $pref = getPref($pref_key.$num);
+	display($dbg_def_headers,1,"checking pref($pref_key$num)="._def($pref));
+	while (defined($pref))
+	{
+		my ($left,$right) = split(/=>/,$pref);
+		$left = my_chomp($left);
+		$right = my_chomp($right);
+
+		$params->{$param_key} ||= shared_clone({});
+		my $headers = $params->{$param_key};
+
+		if (!$ext && $left eq 'cache-control')
+		{
+			display($dbg_def_headers,2,"removing cache-control for $param_key");
+			$headers->delete('pragma');
+			$headers->delete('expires');
+		}
+
+		if (!$ext && $right eq 'undef')
+		{
+			display($dbg_def_headers,2,"deleting param $param_key($left)");
+			delete $headers->{$left};
+		}
+		else
+		{
+			display($dbg_def_headers,2,"param ($param_key($left)='$right'");
+			$headers->{$left} = $right;
+		}
+
+		$num++;
+		$pref = getPref($pref_key.$num);
+		display($dbg_def_headers,1,"checking pref($pref_key$num)="._def($pref));
+	}
+
+	display_hash(0,0,$param_key,$params->{$param_key})
+		if $params->{$param_key};
+}
+
+
+
+sub getExtHeadersPref
+	# for one of the EXTENION_RE's for the default server
+	# get default prefs into the $params hash for later
+	# use by base class (or derived class) handle_request
+	# method.
+{
+	my ($params,$re_key) = @_;
+	display($dbg_def_headers,0,"getExtHeadersPref($re_key)");
+	my $exts = $params->{$re_key};
+	if ($exts)
+	{
+		display($dbg_def_headers,0,"checking extensions: $exts");
+		for my $ext (split(/\|/,$exts))
+		{
+			display($dbg_def_headers,0,"doing extension: $ext");
+			getDefHeadersPref($params,$ext);
+		}
+	}
+}
+
+
 
 #-------------------------------------------------
 # Constructor, start() and stop()
 #-------------------------------------------------
-
 
 sub new
 {
@@ -223,12 +357,33 @@ sub new
 
 	getObjectPref($params,'HTTP_DOCUMENT_ROOT','');
 	getObjectPref($params,'HTTP_DEFAULT_LOCATION','index.html');
-	getObjectPref($params,'HTTP_ALLOW_GET_EXTENSIONS_RE','html|js|css|jpg|png|ico');
-	getObjectPref($params,'HTTP_ALLOW_SCRIPT_EXTENSIONS_RE',undef);
+	getObjectPref($params,'HTTP_GET_EXT_RE','html|js|css|jpg|png|ico');
+	getObjectPref($params,'HTTP_SCRIPT_EXT_RE',undef);
 
 	getObjectPref($params,'HTTP_KEEP_ALIVE',undef);
-	getObjectPref($params,'HTTP_USE_GZIP_RESPONSES',undef);
+	getObjectPref($params,'HTTP_ZIP_RESPONSES',undef);
 	getObjectPref($params,'HTTP_AUTH_FILE',undef);
+
+	display_hash(0,0,"Pub::ServerBase::new()",$params);
+
+	# HTTP_DEFAULT_HEADERS
+	# you may override the entire set of default headers
+	# by providing them as a shared hash to the ctor.
+	# All or nothing. Params may also contain HTTP_DEFAULT_HEADERS_{EXT}
+	# for the given extension, which will be applied on a per-file basis
+	# for gets from DOCUMENT_ROOT.
+
+	$params->{HTTP_DEFAULT_HEADERS} ||= shared_clone({
+		'cache-control'  => 'no-cache, no-store, must-revalidate',
+		'pragma'         => 'no-cache',
+		'expires'        => '0',
+		'connection'  	 => $params->{HTTP_KEEP_ALIVE} ? 'keep-alive' : 'close',
+	});
+
+	getDefHeadersPref($params,'');
+	getExtHeadersPref($params,'HTTP_GET_EXT_RE');
+	getExtHeadersPref($params,'HTTP_SCRIPT_EXT_RE');
+
 
 	# check required parameters
 
@@ -238,7 +393,7 @@ sub new
         return;
     }
 
-	display_hash(0,0,"Pub::ServerBase::new()",$params);
+
 	my $this = shared_clone($params);
     bless $this,$class;
 
@@ -252,20 +407,6 @@ sub new
     $this->{stopping} = 0;
 	$this->{request_num} = 0;
 	$this->{active} = 0;
-
-    # HTTP_DEFAULT_HEADERS
-	# you may override the entire set of default headers
-	# by providing them as a shared hasth to the ctor.
-	# All or nothing.
-
-    if (!$this->{HTTP_DEFAULT_HEADERS})
-	{
-		my $def_headers = $this->{HTTP_DEFAULT_HEADERS} = shared_clone({});
-		$def_headers->{'cache-control'} ||= 'no-cache, no-store, must-revalidate';
-		$def_headers->{'pragma'}        ||= 'no-cache';
-		$def_headers->{'expires'}       ||= '0';
-		$def_headers->{'connection'} 	||= $this->{HTTP_KEEP_ALIVE} ? 'keep-alive' : 'close';
-	}
 
 	# finished, return to caller
 
@@ -645,7 +786,7 @@ sub clientRequest
 		# PINGS do not require authorization
 
 		my $response;
-		$response = Pub::HTTP::Response->new($request,200,"text/plain","PING OK\n\n")
+		$response = http_ok($request,"PING OK")
 			if $is_ping;
 
 		# CHECK FOR AUTHORIZATION
@@ -707,17 +848,18 @@ sub clientRequest
 		$keep_open = $response eq $RESPONSE_STAY_OPEN ? 1 : 0;
 
 		my $is_handled =
-			$response eq $RESPONSE_HANDLED |
-			$response eq $RESPONSE_STAY_OPEN;
+			$response eq $RESPONSE_HANDLED ||
+			$response eq $RESPONSE_STAY_OPEN ? 1 : 0;
 
 		my $dbg_to = $dbg_from;
 		$dbg_to =~ s/from /to /;
+
+		my $content = ref($response) ? $response->{content} : '';
+		my $len = length($content);
 		my $dbg_content =
 			$is_handled ? $response :
-			ref($response->{content}) ?
-				"FILE($response->{content}->{filename})" :
-			defined($response->{content}) ?
-				"content_bytes(".length($response->{content}).")" : '';
+			ref($content) ? "FILE($content->{filename})" :
+			defined($content) ? "content_bytes($len)" : '';
 		my $dbg_resp = $is_handled ? '' :
 			"$response->{status_line} ".
 			"$response->{headers}->{'content-type'} ";
@@ -811,8 +953,8 @@ sub checkAuthorization
     my $response= undef;
     if (!$auth_ok)
     {
-        $response = Pub::HTTP::Response->new($request,401,
-            "text/plain","Authorization Required");
+        $response = Pub::HTTP::Response->new($request,
+			"Authorization Required",401,'text/plain');
     }
     return $response;
 }
@@ -899,19 +1041,21 @@ sub handle_request
 
 	if ($mime_type &&
         $method eq 'GET' &&
-        $this->{HTTP_ALLOW_GET_EXTENSIONS_RE} &&
-		$uri =~ /\.($this->{HTTP_ALLOW_GET_EXTENSIONS_RE})$/)
+        $this->{HTTP_GET_EXT_RE} &&
+		$uri =~ /\.($this->{HTTP_GET_EXT_RE})$/)
 	{
+		my $ext = $1;
 		$this->dbg(2,0,"getting $filename");
 		my $text = getTextFile($filename,1);
 		$text = processBody($text,$request,$this,$doc_root) if $uri =~ /\.html$/;
-		return Pub::HTTP::Response->new($request,200,$mime_type,$text);
+		my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
+		return Pub::HTTP::Response->new($request,$text,200,$mime_type,$ext_headers);
 	}
 
 	#----------------------------
 	# PERL CGI REQUESTS
 	#----------------------------
-    # Requires ALLOW_SCRIPT_EXTENSIONS_RE
+    # Requires HTTP_SCRIPT_EXT_RE
 	#	$uri =~ /.*\.(pm|pl|cgi)(\?.*)*$/)
     #
 	# Perl scripts are run in the context of the
@@ -923,9 +1067,10 @@ sub handle_request
 	# which will be private to each request.
 
 	if ($method =~ /^(GET|POST)$/ &&
-        $this->{HTTP_ALLOW_SCRIPT_EXTENSIONS_RE} &&
-		$uri =~ /.*\.($this->{HTTP_ALLOW_SCRIPT_EXTENSIONS_RE})(\?.*)*$/)
+        $this->{HTTP_SCRIPT_EXT_RE} &&
+		$uri =~ /.*\.($this->{HTTP_SCRIPT_EXT_RE})(\?.*)*$/)
 	{
+		my $ext = $1;
 		$global_server = $this;
 		$global_request = $request;
 
@@ -960,7 +1105,11 @@ sub handle_request
 
 		display(0,1,"do($filename) returning response="._def($response));
 		$this->dbg(1,1,"do_response($method $uri)=$response->{headers}->{'content-type'}") if $response;
-		return $response if $response;
+		if ($response)
+		{
+			my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
+			return $response;
+		}
 	}
 
 	return; # null return
@@ -976,40 +1125,40 @@ sub handle_request
 # will be different in different threads.
 
 
-sub startCaptureOutput
-	# start capturing the output
-	# LOG, display(), etc, to a buffer
-{
-	my ($this) = @_;
-	$this->{capture_buffer} = '';
-	Pub::Utils::setOutputListener($this);
-}
-
-
-sub endCaptureOutput
-	# returns the html for the captured output
-	# and clear the buffer.
-{
-	my ($this) = @_;
-	Pub::Utils::setOutputListener(undef);
-	my $rslt = $this->{capture_buffer};
-	$this->{capture_buffer} = '';
-	return $rslt;
-}
-
-
-sub onUtilsOutput
-{
-	my ($this,$full_message,$utils_color) = @_;
-
-	my $hex_color = $utils_color_to_rgb->{$utils_color} || 0;
-	my $html_color = sprintf("#%06X",$hex_color);
-
-	$full_message =~ s/\n/<br>\n/g;
-	$full_message =~ s/ /&nbsp;/g;
-
-	$this->{capture_buffer} .= "<font color='$html_color'>$full_message</font><br>\n";
-}
+#	sub startCaptureOutput
+#		# start capturing the output
+#		# LOG, display(), etc, to a buffer
+#	{
+#		my ($this) = @_;
+#		$this->{capture_buffer} = '';
+#		Pub::Utils::setOutputListener($this);
+#	}
+#
+#
+#	sub endCaptureOutput
+#		# returns the html for the captured output
+#		# and clear the buffer.
+#	{
+#		my ($this) = @_;
+#		Pub::Utils::setOutputListener(undef);
+#		my $rslt = $this->{capture_buffer};
+#		$this->{capture_buffer} = '';
+#		return $rslt;
+#	}
+#
+#
+#	sub onUtilsOutput
+#	{
+#		my ($this,$full_message,$utils_color) = @_;
+#
+#		my $hex_color = $utils_color_to_rgb->{$utils_color} || 0;
+#		my $html_color = sprintf("#%06X",$hex_color);
+#
+#		$full_message =~ s/\n/<br>\n/g;
+#		$full_message =~ s/ /&nbsp;/g;
+#
+#		$this->{capture_buffer} .= "<font color='$html_color'>$full_message</font><br>\n";
+#	}
 
 
 1;
