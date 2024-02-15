@@ -21,20 +21,11 @@ use Pub::FS::Server;
 use Pub::Utils;
 use Pub::Prefs;
 use Pub::ServerUtils;
+use Pub::ServiceMain;
 use base qw(Pub::FS::Server);
-use sigtrap 'handler', \&onSignal, qw(normal-signals);
-
 
 my $file_server;
 
-
-sub onSignal
-{
-    my ($sig) = @_;
-	warning(0,0,"fileServer.pm terminating on SIG$sig");
-	$file_server->stop() if $file_server;
-	exit(0);
-}
 
 
 sub new
@@ -76,10 +67,14 @@ $file_server = Pub::FS::fileServer->new();
 
 # loop forever
 
-while (1)
-{
-	sleep(1);
-}
+Pub::ServiceMain::main_loop({
+	MAIN_LOOP_CONSOLE => 1,
+	MAIN_LOOP_SLEEP => 0.2,
+	# MAIN_LOOP_CB_TIME => 1,
+	# MAIN_LOOP_CB => \&on_loop,
+	# MAIN_LOOP_KEY_CB => \&on_console_key,
+	# MAIN_LOOP_TERMINATE_CB => \&on_terminate,
+});
 
 
 
