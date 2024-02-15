@@ -55,6 +55,7 @@ sub http_ok
 sub http_error
 {
     my ($request,$msg) = @_;
+	error("HTTP_ERROR RESPONSE($request->{request_num}): $msg");
     return Pub::HTTP::Response->new($request,$msg,404,'text/plain');
 }
 sub html_ok
@@ -65,6 +66,7 @@ sub html_ok
 sub json_error
 {
     my ($request,$msg) = @_;
+	error("JSON_ERROR RESPONSE($request->{request_num}): $msg->{error}");
     return Pub::HTTP::Response->new($request,{error => $msg},200,'application/json');
 }
 sub json_response
@@ -154,9 +156,15 @@ sub new
 	$this->{request} = $request;
 	$this->{server} = $request->{server};
 
-    my $dbg_content = defined($content) ? ref($content) ?
-            "FILE("._def($content->{filename}).")" :
-            "content_bytes(".length($content).")" : '';
+	my $dbg_ref = ref($content) || '';
+    my $dbg_content = !defined($content) ? 'undef' :
+		$dbg_ref =~ /HASH/ ?
+			$content->{filename} ? "FILE("._def($content->{filename}).")" :
+			'HASH with '.scalar(keys %$content).' keys' :
+		$dbg_ref =~ /ARRAY/ ?
+			'ARRAY with '.scalar(@$content).' elements' :
+        "scalar bytes(".length($content).")";
+
 	my $dbg_to = $this->{request}->get_dbg_from();
     $this->dbg(2,0,"$code $content_type $dbg_content to $dbg_to");
 
@@ -210,16 +218,17 @@ sub new
 
         $content->{size} = $size || 0;
         $this->{headers}->{'content-length'} = $size || 0;
-        $this->{content} = $content;
+		$this->{headers}->{'content-type'} ||= myMimetype($filename);
+        $this->{content} = ref($content) ? shared_clone($content) : $content;
     }
 
     # normal, in-memory response
 
     elsif ($content)
     {
-        if ($content_type eq 'application/json')
+        if (ref($content) && $content_type eq 'application/json')
         {
-            $content = encode_json($content);
+            $content = my_encode_json($content);
             my $txt = "new() encoded_json_length=".length($content);
             $this->dbg(2,1,$txt);
         }
@@ -289,6 +298,9 @@ sub send_client
     my $content = $this->{content};
     if (defined($content) && !ref($content) && length($content))
     {
+		$this->dbg(1,1,"WARNING: non-200 scalar reply: $content",0,$DISPLAY_COLOR_WARNING)
+			if $this->{code} != 200;
+
         if (!$client->write($content)) # print $client $send)
         {
             error("Could not send content to client");

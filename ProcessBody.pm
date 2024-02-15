@@ -255,7 +255,9 @@ sub processBody
         #    0 = not including stuff waiting for else
         #   -1 = not including stuff, condition satisfied
 
-        if ($line =~ /{(if|if_not|if_null|if_exists|if_lt0|if_gt0)\s+(.*?)}/)
+		# TODO: PRH - disabled {} type things for artisan js UI
+
+        if (0 && $line =~ /{(if|if_not|if_null|if_exists|if_lt0|if_gt0)\s+(.*?)}/)
         {
             my $what = $1;
             my $expr = $2;
@@ -562,7 +564,7 @@ sub processBody
 
         # do squigly bracket expression substitutions
 
-        while ($line =~ s/{((&|\w).*?)}/###HERE###/)
+        while (0 && $line =~ s/{((&|\w).*?)}/###HERE###/)
         {
             my $what = $2;
             my $expr = $1;

@@ -70,19 +70,14 @@ sub new
 
 
 
-sub parseParams
-    # standard method to parse all url and post params
+sub getPostParams
+    # standard method to parse post params
     # Note that we use the default '&' separator for both url and post params,
     # and that the data is not yet url decoded!
 {
     my ($this,$dbg) = @_;
-    $dbg = 1 if !defined($dbg);
-
-    my $uri = $this->{uri};
-    my $params = ($uri =~ /^.*\?(.+)$/) ?
-        parseParamStr($1,$dbg,"url_") : {};
-	mergeHash($params,parseParamStr($this->get_content(),$dbg,'post_'))
-        if $this->{method} =~ /post/i;
+    $dbg = $dbg_req + $this->{debug_extra} if !defined($dbg);
+    my $params = parseParamStr($this->get_content(),$dbg,'post_');
     return $params;
 }
 
@@ -148,13 +143,32 @@ sub read_headers
 	$this->{method} = uc $1;
 	$this->{uri} = $2;
 	$this->{http_version} = $3;
+	$this->{params} = shared_clone({});
 
 	my $quiet_re = $server->{HTTP_DEBUG_QUIET_RE};
 	my $loud_re = $server->{HTTP_DEBUG_LOUD_RE};
-	$this->{extra_debug} += 2 if $quiet_re && $this->{uri} =~ /$quiet_re/;
-	$this->{extra_debug} -= 2 if $loud_re && $this->{uri} =~ /$loud_re/;
+	if ($quiet_re && $this->{uri} =~ /$quiet_re/)
+	{
+		$this->{extra_debug} += 2;
+		# print "==> QUIET extra_debug($this->{uri})=$this->{extra_debug} re='$quiet_re'\n";
+	}
+
+	if ($loud_re && $this->{uri} =~ /$loud_re/)
+	{
+		$this->{extra_debug} -= 2;
+		# print "==> LOUD  extra_debug($this->{uri})=$this->{extra_debug} re='$loud_re'\n";
+	}
 
 	$this->dbg(0,0,"$this->{method} $this->{uri} $this->{http_version} from $dbg_from");
+
+		# REMOVE PARAMETERS FROM HEADERS BY DEFAULT
+
+	if ($this->{uri} =~ s/\?(.*)$//)
+	{
+		my $dbg = $dbg_req + $this->{extra_debug};
+		mergeHash($this->{params},parseParamStr($1,$dbg,"url_"));
+	}
+
 
     # READ THE HEADERS
 
@@ -260,7 +274,7 @@ sub get_decoded_content
     if ($this->{headers}->{'content-type'} eq 'application/json')
     {
         $this->dbg(1,0,"get_content() decoding ".length($content)." bytes of json");
-        $content = decode_json($content);
+        $content = shared_clone(decode_json($content));
         if (!$content)
         {
             error("Message($this->{request_num}) - Could not decode json");

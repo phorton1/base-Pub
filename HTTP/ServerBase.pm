@@ -152,7 +152,9 @@ use Pub::DebugMem;
 
 my $dbg_def_headers = 1;
 	# debug default headers from prefs file
-our $dbg_server = 1;
+
+my $dbg_http_log = 0;
+my $dbg_server = 1;
 	# works with DEBUG_SERVER param and dbg() and HTTP_LOG() methods
 	#
 	# server dbg() calls all have a hardwired debug level, usually 0, 1, or 2.
@@ -207,9 +209,21 @@ sub dbg
 
 sub HTTP_LOG
 {
-	my ($this,$indent_level,$msg,$call_level) = @_;
+	my ($this,$request,$indent_level,$msg,$call_level) = @_;
+
+	# display(0,0,"ref(RESPONSE_HANDLED)=".ref($request),0,$UTILS_COLOR_CYAN)
+	# 	if ($request && $request eq $RESPONSE_HANDLED);
+
+	my $dbg_level = $dbg_http_log;
+	my $extra = ref($request) ? $request->{extra_debug} : 0;
+	$dbg_level +=  $extra;
+
+	# display(0,0,"http_log dbg_level($dbg_level) extra($extra) uri($request->{uri}) ref=".ref($request));
+
+	return if $debug_level < $dbg_level;
+
 	$call_level ||= 0;
-	$this->dbg(-1,$indent_level,$msg,$call_level+1,$UTILS_COLOR_WHITE);
+	display($dbg_level,$indent_level,$msg,$call_level+1,$UTILS_COLOR_WHITE);
 
 	return if !$this->{LOGFILE};
 	return if $SUPPRESS_HTTP_LOG;
@@ -465,7 +479,7 @@ sub serverThread
     my ($this) = @_;
     my $port = $this->{HTTP_PORT};
 	my $dbg_ssl = $this->{HTTP_SSL} ? ' SSL' : '';
-    $this->HTTP_LOG(-1,"HTTP$dbg_ssl SERVER STARTING ON PORT($port)");
+    $this->HTTP_LOG(undef,-1,"HTTP$dbg_ssl SERVER STARTING ON PORT($port)");
 
     my @params = (
         Proto => 'tcp',
@@ -590,7 +604,7 @@ sub serverThread
 
 	$this->{running} = 0;
 	$socket->close();
-    $this->HTTP_LOG(-1,"HTTP_SERVER STOPPED($this->{stopping},$this->{running})");
+    $this->HTTP_LOG(undef,-1,"HTTP_SERVER STOPPED($this->{stopping},$this->{running})");
 
 
 }   # serverThread()
@@ -632,7 +646,7 @@ sub endOpenRequest
 	my $ele = $request->{ele};
 	my $file_handle = $ele->{file_handle};
 
-	$request->{server}->HTTP_LOG(-1,"END_OPEN_REQUEST($request_num) ".
+	$request->{server}->HTTP_LOG($request,-1,"END_OPEN_REQUEST($request_num) ".
 		"thread_num($thread_num) file_handle($file_handle)");
 	$thread_close_queue->{$thread_num}->{$file_handle} = $ele;
 }
@@ -775,7 +789,7 @@ sub clientRequest
 		# detect pings, and log/debug the request
 
 		my $is_ping = $method eq 'PING' || ($method =~ /get/i && $uri eq "/PING") ? 1 : 0;
-		$this->HTTP_LOG(0,"request($request_num) $method $uri $dbg_from")
+		$this->HTTP_LOG($request,0,"request($request_num) $method $uri $dbg_from")
 			if !$is_ping || $$this->{HTTP_DEBUG_PING};
 
 		# prep the socket
@@ -864,7 +878,7 @@ sub clientRequest
 			"$response->{status_line} ".
 			"$response->{headers}->{'content-type'} ";
 
-		$this->HTTP_LOG(1,"response($request_num) $dbg_resp$dbg_content $dbg_to")
+		$this->dbg(1,0,"response($request_num) $dbg_resp$dbg_content $dbg_to")
 			if !$is_ping || $this->{HTTP_DEBUG_PING};
 
 		$response->send_client($client) if !$is_handled;
@@ -938,16 +952,16 @@ sub checkAuthorization
             $auth_ok = 1;
             $request->{auth_user} = $uid;
             $request->{auth_privs} = $user->{privs};
-            $this->HTTP_LOG(0,"accepted($user->{privs}) credentials for user $uid $dbg_from");
+            $this->HTTP_LOG($request,0,"accepted($user->{privs}) credentials for user $uid $dbg_from");
         }
         else
         {
-            $this->HTTP_LOG(-1,"ERROR: Bad Credentials('"._def($user)."','"._def($pass)."') $dbg_from");
+            $this->HTTP_LOG(undef,-1,"ERROR: Bad Credentials('"._def($user)."','"._def($pass)."') $dbg_from");
         }
     }
     else
     {
-        $this->HTTP_LOG(-1,"ERROR: No Credentials presented $dbg_from");
+        $this->HTTP_LOG(undef,-1,"ERROR: No Credentials presented $dbg_from");
     }
 
     my $response= undef;
@@ -1001,7 +1015,7 @@ sub handle_request
 
     if ($uri =~ /\.\./)
     {
-        $this->HTTP_LOG(-1,"ERROR: request($dbg_num) - No relative (../) urls allowed: $uri");
+        $this->HTTP_LOG(undef,-1,"ERROR: request($dbg_num) - No relative (../) urls allowed: $uri");
         return;
     }
 
@@ -1074,7 +1088,7 @@ sub handle_request
 		$global_server = $this;
 		$global_request = $request;
 
-		$this->HTTP_LOG(1,"Calling do($filename)");
+		$this->HTTP_LOG($request,1,"Calling do($filename)");
 		my $rslt;
 
 		try
@@ -1084,14 +1098,14 @@ sub handle_request
 		catch Error with
 		{
 			my $ex = shift;
-			$this->HTTP_LOG(-1,"ERROR in Pub::ServerBase::handle_request($dbg_num) do($filename): $ex");
+			$this->HTTP_LOG(undef,-1,"ERROR in Pub::ServerBase::handle_request($dbg_num) do($filename): $ex");
 		};
 
 
 		# display(0,1,"do($filename) returned '"._def($rslt)."'");
         if (!defined($rslt))
         {
-             $this->HTTP_LOG(-1,"ERROR: no rslt in Pub::ServerBase::handle_request($dbg_num) do($filename): "._def($!)." ~~ "._def($@));
+             $this->HTTP_LOG(undef,-1,"ERROR: no rslt in Pub::ServerBase::handle_request($dbg_num) do($filename): "._def($!)." ~~ "._def($@));
         }
         else
         {

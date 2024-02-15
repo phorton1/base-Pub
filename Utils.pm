@@ -502,10 +502,11 @@ sub get_indent
 
 		$f ||= '';
 		my @parts = split(/\/|\\/,$f);
-		my $fl = pop @parts;
 		if ($first)
 		{
-			$file = $fl;
+			my $fl = pop @parts;
+			my $dir = pop @parts || '';
+			$file = ($dir ? "$dir/" : '').$fl;
 			$line = $l;
 		}
         $first = 0;
@@ -679,9 +680,10 @@ sub display_hash
 {
 	my ($level,$indent,$title,$hash) = @_;
 	return if !display($level,$indent,$title,1);
-	if (!$hash)
+	if (!$hash || ref($hash) !~ /HASH/)
 	{
-		display($level,$indent+1,"NO HASH",1);
+		display($level,$indent+1,"NO HASH ref(".ref($hash).")",1);
+		return;
 	}
 	for my $k (sort(keys(%$hash)))
 	{
@@ -1528,6 +1530,11 @@ sub myMimeType
 		$ext eq 'png' 				? 'image/png' :
 		$ext =~ /^(html|htm)$/ 		? 'text/html' :
 		$ext eq 'json' 				? 'application/json' :
+
+		$ext eq 'mp3'				? 'audio/mpeg' :
+		$ext eq 'm4a'				? 'audio/x-m4a' :
+		$ext eq 'wma'				? 'audio/x-ms-wma' :
+		$ext eq 'wav'				? 'audio/x-wav' :
 
 		$ext =~ /^(txt|asc|log)$/ 	? 'text/plain' :
 
