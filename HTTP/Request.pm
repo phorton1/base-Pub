@@ -145,6 +145,10 @@ sub read_headers
 	$this->{http_version} = $3;
 	$this->{params} = shared_clone({});
 
+	my $def_location = $this->{server}->{HTTP_DEFAULT_LOCATION} || '';
+	$this->{uri} = $def_location
+		if $def_location && $this->{uri} eq '/';
+
 	my $quiet_re = $server->{HTTP_DEBUG_QUIET_RE};
 	my $loud_re = $server->{HTTP_DEBUG_LOUD_RE};
 	if ($quiet_re && $this->{uri} =~ /$quiet_re/)

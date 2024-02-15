@@ -43,9 +43,12 @@
 #
 #	HTTP_DOCUMENT_ROOT 		=> path				optional, requied for base class to serve files
 #	HTTP_DEFAULT_LOCATION 	=> filename			default('index.html') can be set to '' to disable
+#	HTTP_FAVICON			=> filename			optional fully qualified (jpg|png|ico) file
 #   HTTP_GET_EXT_RE 		=> re				default('html|js|css|jpg|png|ico')
 #	HTTP_SCRIPT_EXT_RE 		=> re				default('') example: 'cgi|pm|pl',
 #
+#	HTTP_MINIFIED_JS		=> 1				default(undef) whether to return minimized JS files if they exist
+#	HTTP_MINIFID_CSS		=> 1				default(undef) whether to return minimized CSS files if they exist
 #	HTTP_LOGFILE			=> filename	  		for HTTP separate logfile of HTTP_LOG calls
 #
 # 	HTTP_DEFAULT_HEADERS 		=> {},				see below
@@ -371,8 +374,12 @@ sub new
 
 	getObjectPref($params,'HTTP_DOCUMENT_ROOT','');
 	getObjectPref($params,'HTTP_DEFAULT_LOCATION','index.html');
+	getObjectPref($params,'HTTP_FAVICON',undef);
 	getObjectPref($params,'HTTP_GET_EXT_RE','html|js|css|jpg|png|ico');
 	getObjectPref($params,'HTTP_SCRIPT_EXT_RE',undef);
+
+	getObjectPref($params,'HTTP_MINIFIED_JS',undef);
+	getObjectPref($params,'HTTP_MINIFIED_CSS',undef);
 
 	getObjectPref($params,'HTTP_KEEP_ALIVE',undef);
 	getObjectPref($params,'HTTP_ZIP_RESPONSES',undef);
@@ -780,12 +787,6 @@ sub clientRequest
 		my $method = $request->{method} || '';
 		my $uri = $request->{uri} || '';
 
-		if ($uri eq '/' && $this->{HTTP_DEFAULT_LOCATION})
-		{
-			$uri = $this->{HTTP_DEFAULT_LOCATION};
-			$request->{uri} = $uri;
-		}
-
 		# detect pings, and log/debug the request
 
 		my $is_ping = $method eq 'PING' || ($method =~ /get/i && $uri eq "/PING") ? 1 : 0;
@@ -1011,6 +1012,14 @@ sub handle_request
 	my $method = $request->{method};
 	$this->dbg(1,0,"Pub::ServerBase::handle_request($dbg_num) $method $uri");
 
+	# generic icon request
+
+	if ($this->{HTTP_FAVICON} && $uri =~ /^\/(favicon.ico)/)
+	{
+		return Pub::HTTP::Response->new($request,
+			{filename => $this->{HTTP_FAVICON} });
+	}
+
     # don't allow .. addressing
 
     if ($uri =~ /\.\./)
@@ -1019,7 +1028,7 @@ sub handle_request
         return;
     }
 
-    # Strip of # anchors which are only used by browser
+    # Strip off # anchors which are only used by browser
 
     $uri =~ s/#.*$//;
 
@@ -1032,6 +1041,7 @@ sub handle_request
 	{
 		$this->dbg(0,1,"WARNING: relative uri: $uri");
 	}
+
 
 	my $filename = "$doc_root/$uri";
 
@@ -1060,10 +1070,38 @@ sub handle_request
 	{
 		my $ext = $1;
 		$this->dbg(2,0,"getting $filename");
+
+		if (($ext eq 'js' && $this->{HTTP_MINIFIED_JS}) ||
+			($ext eq 'css' && $this->{HTTP_MINIFIED_CSS}))
+		{
+			my $filename2 = $filename;
+			$filename2 =~ s/$ext$/min.$ext/;
+			display(5,0,"checking MIN: $filename2");
+			if (-f "$filename2")
+			{
+				$this->dbg(-1,1,"serving MIN: $filename2");
+				$filename = $filename2;
+			}
+		}
+
 		my $text = getTextFile($filename,1);
-		$text = processBody($text,$request,$this,$doc_root) if $uri =~ /\.html$/;
+		$text = processBody($text,$request,$this,$doc_root)
+			if $ext eq 'html';
+
 		my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
-		return Pub::HTTP::Response->new($request,$text,200,$mime_type,$ext_headers);
+		my $response = Pub::HTTP::Response->new($request,$text,200,$mime_type,$ext_headers);
+
+		# Add most generous CORS cross-origin headers to the main HTML file for
+		# iPad browsers which would not call /get_art/ in Artisan otherwise.
+		# This may better be done via prefs/ctor for certain apps only.
+
+		if ($ext eq 'html')
+		{
+			$response->{headers}->{'access-control-allow-origin'} = '*';
+			$response->{headers}->{'access-control-allow-methods'} = 'GET';
+		}
+
+		return $response;
 	}
 
 	#----------------------------
@@ -1100,7 +1138,6 @@ sub handle_request
 			my $ex = shift;
 			$this->HTTP_LOG(undef,-1,"ERROR in Pub::ServerBase::handle_request($dbg_num) do($filename): $ex");
 		};
-
 
 		# display(0,1,"do($filename) returned '"._def($rslt)."'");
         if (!defined($rslt))

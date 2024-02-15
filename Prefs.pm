@@ -3,6 +3,13 @@
 # Pub::Prefs
 #---------------------------------------
 # A simple text file based preferences file.
+#
+# Program preferences are read-only, highly edited
+# files with comments in them.
+#
+# User preferences are writable, alphabetized,
+# and destroy comments.
+
 
 package Pub::Prefs;
 use strict;
@@ -47,7 +54,7 @@ use Pub::Crypt;
 #	}
 
 
-my $dbg_prefs =0;
+my $dbg_prefs = 0;
 	# 0 = show static_init_prefs() header msg
 	# -1 = show individual setPrefs
 
@@ -58,16 +65,20 @@ BEGIN
 	our @EXPORT = qw (
 		getPref
 		setPref
-		getPrefDecrypted
-		setPrefEncrypted
 		getObjectPref
 		copyParamsWithout
+
+		getUserPref
+		setUserPref
+		getPrefDecrypted
+		setPrefEncrypted
     );
 }
 
 
-my $global_prefs:shared = shared_clone({});;
-my $pref_filename:shared = '';
+my $program_prefs:shared = shared_clone({});;
+my $user_prefs:shared = shared_clone({});;
+my $user_pref_filename:shared = '';
 
 
 #---------------------------------------
@@ -78,17 +89,8 @@ sub getPref
 {
 	my ($id) = @_;
 	display($dbg_prefs+1,0,"getPref($id)");
-	return $global_prefs->{$id};
+	return $program_prefs->{$id};
 }
-
-sub setPref
-{
-	my ($id,$value) = @_;
-	display($dbg_prefs,0,"setPref($id,$value)");
-	$global_prefs->{$id} = $value;
-	write_prefs();
-}
-
 
 sub getPrefDecrypted
 	# the result from this should be used
@@ -100,34 +102,91 @@ sub getPrefDecrypted
 }
 
 
-sub setPrefEncrypted
+
+sub getUserPref
+{
+	my ($id) = @_;
+	display($dbg_prefs+1,0,"getUserPref($id)");
+	return $user_prefs->{$id};
+}
+
+sub setUserPref
+{
+	my ($id,$value) = @_;
+	display($dbg_prefs,0,"setUserPref($id,$value)");
+	$user_prefs->{$id} = $value;
+	write_user_prefs();
+}
+
+
+sub getUserPrefDecrypted
+	# the result from this should be used
+	# and de-allocated as quickly as possible
+{
+	my ($id) = @_;
+	my $value = getUserPref($id);
+	return my_decrypt($value);
+}
+
+sub setUserPrefEncrypted
 	# the result from this should be used
 	# and de-allocated as quickly as possible
 {
 	my ($id,$value) = @_;
 	my $encrypted = my_encrypt($value);
 	display($dbg_prefs,0,"setPrefEncrypted($id,$encrypted)");
-	setPref($id,$encrypted);
+	setUserPref($id,$encrypted);
 }
 
 
 #-----------------------------------------
-# read and write text file
+# initPrefs
 #-----------------------------------------
 
 sub initPrefs
+	# The program prefs file may contain a CRYPT_FILE
+	# preference which overrides that provided by the
+	# caller.
 {
-	my ($filename,$crypt_file,$defaults) = @_;
+	my ($filename,$defaults,$crypt_file) = @_;
 	$crypt_file ||= '';
 	$defaults ||= {};
-	display($dbg_prefs,0,"initPrefs($filename,$crypt_file)");
-	$pref_filename = $filename;
-	$global_prefs = shared_clone($defaults);
-	init_crypt($crypt_file) if $crypt_file;
 
-	if (-f $pref_filename)
+	display($dbg_prefs,0,"initPrefs($filename,$crypt_file)");
+
+	$program_prefs = shared_clone($defaults);
+	read_prefs(0,$program_prefs,$filename);
+
+	if ($program_prefs->{CRYPT_FILE})
 	{
-	    my @lines = getTextLines($pref_filename);
+		$crypt_file = $program_prefs->{CRYPT_FILE};
+		display($dbg_prefs,1,"using pref CRYPT_FILE=$crypt_file");
+	}
+
+	init_crypt($crypt_file) if $crypt_file;
+}
+
+
+sub initUserPrefs
+{
+	my ($filename,$defaults) = @_;;
+	$defaults ||= {};
+
+	display($dbg_prefs,0,"initUserPrefs($filename)");
+
+	$user_prefs = shared_clone($defaults);
+	read_prefs(1,$user_prefs,$filename);
+	$user_pref_filename = $filename;
+}
+
+
+
+sub read_prefs
+{
+	my ($user,$prefs,$filename) = @_;
+	if (-f $filename)
+	{
+	    my @lines = getTextLines($filename);
         for my $line (@lines)
         {
 			$line =~ s/#.*$//;
@@ -139,33 +198,49 @@ sub initPrefs
 				my $right = substr($line,$pos+1);
 				$left =~ s/^\s+|\s+$//g;
 				$right =~ s/^\s+|\s+$//g;
-				display($dbg_prefs+1,0,"pref($left)='$right'");
-				$global_prefs->{$left} = $right;
+				display($dbg_prefs+1,0,($user?"USER":"PROGRAM")." pref($left)='$right'");
+				$prefs->{$left} = $right;
 		    }
 		}
     }
 }
 
 
-sub write_prefs
+sub write_user_prefs
 {
-	display($dbg_prefs,0,"write_prefs($pref_filename)");
+	display($dbg_prefs,0,"write_user_prefs($user_pref_filename)");
     my $text = '';
-    for my $k (sort(keys(%$global_prefs)))
+    for my $k (sort(keys(%$user_prefs)))
     {
-        $text .= "$k=$global_prefs->{$k}\n";
+        $text .= "$k=$user_prefs->{$k}\n";
     }
-    if (!printVarToFile(1,$pref_filename,$text,1))
+    if (!printVarToFile(1,$user_pref_filename,$text,1))
     {
-        error("Could not write prefs to $pref_filename");
+        error("Could not write prefs to $user_pref_filename");
         return;
     }
     return 1;
 }
 
 
+
+
+#-----------------------------------------
+# support for object $param ctors
+#-----------------------------------------
+
 sub getObjectPref
-	# Params provided to the ctor will pre-empt preferences.
+	# For a given ID to for a param in an object ctor,
+	# See if a preference is defined, and use that if so,
+	# Otherwise, if a param is provided, use that.
+	# And only if all else fails, use the $default.
+	#
+	# force_undef is used by knowledgable objects to prevent
+	#	cluttering params with non-sensical sub params when
+	#   a major param turns on/off a whole set of param.
+	#
+	# Params prefiex in the ctor with FORCE_ will override
+	# the parameters.
 {
 	my ($params,$id,$default,$force_undef) = @_;
 	if ($force_undef)
@@ -174,16 +249,25 @@ sub getObjectPref
 		delete $params->{$id};
 		return;
 	}
-	if (defined($params->{$id}))
+
+	my $force_id = 'FORCE_'.$id;
+	if (defined($params->{$force_id}))
 	{
-		display($dbg_prefs+1,0,"getObjectPref($id) keeping param '$params->{$id}'");
+		$params->{$id} = $params->{$force_id};
+		delete $params->{$force_id};
+		display($dbg_prefs+1,0,"getObjectPref($id) $force_id '$params->{$id}'");
 		return;
 	}
 
-	$params->{$id} = getPref($id);
-	if (defined($params->{$id}))
+	my $pref_val = getPref($id);
+	if (defined($pref_val))
 	{
-		display($dbg_prefs+1,0,"getObjectPref($id) got defined pref '$params->{$id}'")
+		$params->{$id} = $pref_val;
+		display($dbg_prefs+1,0,"getObjectPref($id) got pref '$params->{$id}'")
+	}
+	elsif (defined($params->{$id}))
+	{
+		display($dbg_prefs+1,0,"getObjectPref($id) using ctor param '$params->{$id}'")
 	}
 	elsif (defined($default))
 	{
@@ -193,7 +277,6 @@ sub getObjectPref
 	else
 	{
 		display($dbg_prefs+1,0,"getObjectPref($id) == undef");
-		delete $params->{$id};
 	}
 }
 

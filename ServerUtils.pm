@@ -49,6 +49,10 @@ BEGIN
 }
 
 
+my $POWER_OUT = 0;
+	# Set this to one if the power is out in Bocas
+	# and you need to keep working. Will set $server_ip
+	# to 127.0.0.1
 
 our $server_ip:shared = '';
 
@@ -161,6 +165,12 @@ sub unused_finish_unix_service
 sub getServerIP
 {
     display($dbg_su,0,"getServerIP() started");
+	if ($POWER_OUT)
+	{
+		warning(0,0,"Using 127.0.0.1 for POWER_OUT");
+		$server_ip = '127.0.0.1';
+		return;
+	}
 
     while (!$server_ip)
     {
