@@ -145,6 +145,10 @@ sub read_headers
 	$this->{http_version} = $3;
 	$this->{params} = shared_clone({});
 
+	# Strip off # anchors which are only used by browser
+
+    $this->{uri} =~ s/#.*$//;
+
 	my $def_location = $this->{server}->{HTTP_DEFAULT_LOCATION} || '';
 	$this->{uri} = $def_location
 		if $def_location && $this->{uri} eq '/';

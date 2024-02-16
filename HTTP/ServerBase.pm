@@ -47,6 +47,9 @@
 #   HTTP_GET_EXT_RE 		=> re				default('html|js|css|jpg|png|ico')
 #	HTTP_SCRIPT_EXT_RE 		=> re				default('') example: 'cgi|pm|pl',
 #
+#	HTTP_USE_STANDARD_CACHE_SCHEME => 0/1		default(undef) - send max-age instead of no-cache for JS and CSS
+#												requires use of <&$this->includeCSS/JS('blah.js')> in main html file
+#
 #	HTTP_MINIFIED_JS		=> 1				default(undef) whether to return minimized JS files if they exist
 #	HTTP_MINIFID_CSS		=> 1				default(undef) whether to return minimized CSS files if they exist
 #	HTTP_LOGFILE			=> filename	  		for HTTP separate logfile of HTTP_LOG calls
@@ -76,6 +79,10 @@
 #   until some time later
 #
 # DEFAULT HEADERS
+#
+#   This scheme for static files is bogus.
+#   I really need to think caching all the way through.
+#
 #
 #	The headers for a response are determined by the default
 #   DEFAULT_HEADERS and DEFAULT_HEADERS_{EXT} params.
@@ -384,6 +391,8 @@ sub new
 	getObjectPref($params,'HTTP_KEEP_ALIVE',undef);
 	getObjectPref($params,'HTTP_ZIP_RESPONSES',undef);
 	getObjectPref($params,'HTTP_AUTH_FILE',undef);
+
+	getObjectPref($params,'HTTP_USE_STANDARD_CACHE_SCHEME', undef);
 
 	display_hash(0,0,"Pub::ServerBase::new()",$params);
 
@@ -1008,6 +1017,28 @@ sub set_response
 }
 
 
+sub getMinifiedUri
+{
+	my ($this,$puri,$ext) = @_;
+
+	if (($ext eq 'js' && $this->{HTTP_MINIFIED_JS}) ||
+		($ext eq 'css' && $this->{HTTP_MINIFIED_CSS}))
+	{
+		my $uri = $$puri;
+		$uri =~ s/$ext$/min.$ext/;
+		my $filename = makePath($this->{HTTP_DOCUMENT_ROOT},$uri);
+		display(5,0,"checking MIN: $filename");
+		if (-f "$filename")
+		{
+			$this->dbg(-1,1,"serving MIN: $filename");
+			$$puri = $uri;
+		}
+		return 1;
+	}
+}
+
+
+
 sub handle_request
 {
     my ($this,$client,$request) = @_;
@@ -1035,31 +1066,16 @@ sub handle_request
         return;
     }
 
-    # Strip off # anchors which are only used by browser
+	# Strip leading '/' if present and see if the file exists
 
-    $uri =~ s/#.*$//;
-
-	# ABSOLUTE RELATIVE to DOCUMENT_ROOT
-	# should be absolute requests from /
-	# we give a warning if it's relative
-	# and strip the / in any case
-
-	if ($uri !~ s/^\///)
-	{
-		$this->dbg(0,1,"WARNING: relative uri: $uri");
-	}
-
-
+	$uri =~ s/^\///;
 	my $filename = "$doc_root/$uri";
-
-	# print "doc_root=$doc_root uri=$uri filename=$filename\n";
-
-	$filename =~ s/\?.*$//;
     if (!-f $filename)
 	{
 		error("request($dbg_num) $method $filename FILE DOES NOT EXIST");
 		return;
 	}
+
 
 	#----------------------------
 	# STATIC GET REQUESTS
@@ -1076,20 +1092,10 @@ sub handle_request
 		$uri =~ /\.($this->{HTTP_GET_EXT_RE})$/)
 	{
 		my $ext = $1;
-		$this->dbg(2,0,"getting $filename");
+		$filename = "$doc_root/$uri"
+			if $this->getMinifiedUri(\$uri,$ext);
 
-		if (($ext eq 'js' && $this->{HTTP_MINIFIED_JS}) ||
-			($ext eq 'css' && $this->{HTTP_MINIFIED_CSS}))
-		{
-			my $filename2 = $filename;
-			$filename2 =~ s/$ext$/min.$ext/;
-			display(5,0,"checking MIN: $filename2");
-			if (-f "$filename2")
-			{
-				$this->dbg(-1,1,"serving MIN: $filename2");
-				$filename = $filename2;
-			}
-		}
+		$this->dbg(2,0,"getting $filename");
 
 		my $text = getTextFile($filename,1);
 		$text = processBody($text,$request,$this,$doc_root)
@@ -1106,6 +1112,18 @@ sub handle_request
 		{
 			$response->{headers}->{'access-control-allow-origin'} = '*';
 			$response->{headers}->{'access-control-allow-methods'} = 'GET';
+		}
+
+		# implement JS/CSS caching scheme that requires calls to
+		# <&$this->includeJS/CSS('blah.js)'> in the main html
+
+		elsif ($ext =~ /js|css/ &&
+			   $this->{HTTP_USE_STANDARD_CACHE_SCHEME})
+		{
+			delete $response->{headers}->{pragma};
+			delete $response->{headers}->{expires};
+			my $forever = 2147483648;
+			$response->{headers}->{'cache-control'} = "max-age=$forever, immutable";
 		}
 
 		return $response;
@@ -1174,49 +1192,40 @@ sub handle_request
 }
 
 
-#-------------------------------------------------
-# Utilities for use by handle_request methods
-# to capture output and obtain a database handle
-#-------------------------------------------------
-# this is thread safe to the degree that we use
-# a global variable for the output buffer which
-# will be different in different threads.
+
+#----------------------------------------------
+# methods for browser caching
+#----------------------------------------------
+# TODO: These have to match the minimified states
 
 
-#	sub startCaptureOutput
-#		# start capturing the output
-#		# LOG, display(), etc, to a buffer
-#	{
-#		my ($this) = @_;
-#		$this->{capture_buffer} = '';
-#		Pub::Utils::setOutputListener($this);
-#	}
-#
-#
-#	sub endCaptureOutput
-#		# returns the html for the captured output
-#		# and clear the buffer.
-#	{
-#		my ($this) = @_;
-#		Pub::Utils::setOutputListener(undef);
-#		my $rslt = $this->{capture_buffer};
-#		$this->{capture_buffer} = '';
-#		return $rslt;
-#	}
-#
-#
-#	sub onUtilsOutput
-#	{
-#		my ($this,$full_message,$utils_color) = @_;
-#
-#		my $hex_color = $utils_color_to_rgb->{$utils_color} || 0;
-#		my $html_color = sprintf("#%06X",$hex_color);
-#
-#		$full_message =~ s/\n/<br>\n/g;
-#		$full_message =~ s/ /&nbsp;/g;
-#
-#		$this->{capture_buffer} .= "<font color='$html_color'>$full_message</font><br>\n";
-#	}
+sub includeJS
+{
+	my ($this,$path) = @_;
+	my $uri = $path;
+	$this->getMinifiedUri(\$uri,'js');
+	my $filename = makePath($this->{HTTP_DOCUMENT_ROOT},$uri);
+	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+		$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
+    $mtime = '' if (!$mtime);
+	$this->dbg(0,0,"includeJS($path)=$mtime");
+    return "<script type=\"text/javascript\" src=\"$path?$mtime\"></script>";
+}
+
+
+
+sub includeCSS
+{
+	my ($this,$path) = @_;
+	my $uri = $path;
+	$this->getMinifiedUri(\$uri,'css');
+	my $filename = makePath($this->{HTTP_DOCUMENT_ROOT},$uri);
+	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+		$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
+    $mtime = '' if (!$mtime);
+	$this->dbg(0,0,"includeCSS($path)=$mtime");
+	return "<link rel=\"stylesheet\" type=\"text/css\" href=\"$path?$mtime\" />";
+}
 
 
 1;
