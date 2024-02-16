@@ -89,7 +89,7 @@ sub main_loop
 		}
 		else
 		{
-			$linux_keyboard = 1; 
+			$linux_keyboard = 1;
 		}
 	}
 
@@ -148,16 +148,16 @@ sub main_loop
 			elsif ($linux_keyboard)
 			{
 				# print "kbd loop\n";
-			
-				ReadMode "raw";
+
+				ReadMode("raw");
 				my $char = ReadKey($LOOP_SLEEP, *STDIN);
-				ReadMode "normal";
-				
+				ReadMode("normal");
+
 				if (defined($char))
 				{
 					my $key = ord($char);
 					# print "got char($char) key($key)\n";
-					
+
 					if ($key == 3)       # ctrl-C
 					{
 						display($dbg_main,0,"main_loop() got CTRL-C");
@@ -174,7 +174,7 @@ sub main_loop
 					{
 						&$key_cb($key);
 					}
-					
+
 				}
 			}
 
