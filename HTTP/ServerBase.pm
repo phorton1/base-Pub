@@ -552,6 +552,12 @@ sub serverThread
 					$open_sockets->{$file_handle} = $client_socket;
 
 					my $peer_addr = $client_socket->peeraddr();
+
+					if (!$peer_addr)
+					{
+						error("Could not get peer_addr from connection!");
+						next;
+					}
 					my $peer_host = gethostbyaddr($peer_addr,AF_INET) || $client_socket->peerhost();
 					my $peer_ip = inet_ntoa($peer_addr);
 					my $peer_port = $client_socket->peerport();
