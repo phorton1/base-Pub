@@ -395,6 +395,7 @@ sub new
 	# for gets from DOCUMENT_ROOT.
 
 	$params->{HTTP_DEFAULT_HEADERS} ||= shared_clone({
+		'server' 		 => 'Artisan Perl('.getMachineId().")",
 		'cache-control'  => 'no-cache, no-store, must-revalidate',
 		'pragma'         => 'no-cache',
 		'expires'        => '0',
