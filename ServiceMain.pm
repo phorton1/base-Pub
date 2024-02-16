@@ -15,6 +15,7 @@ use IO::Select;
 use Pub::Utils;
 use Pub::Prefs;
 use if is_win, 'Win32::Console';
+use if !is_win, 'Term::ReadKey';
 use Time::HiRes qw(sleep time);
 
 # I'm gonna start with an unparameterized signal handler
@@ -88,8 +89,7 @@ sub main_loop
 		}
 		else
 		{
-			$linux_keyboard = IO::Select->new();
-			$linux_keyboard->add(\*STDIN);
+			$linux_keyboard = 1; 
 		}
 	}
 
@@ -121,7 +121,7 @@ sub main_loop
 
 						# print "got event down(" . $event[1] . ") char(" . $event[5] . ")\n";
 
-						if ($key == 3)        # char = 0x03
+						if ($key == 3)        # key = ctrl-C
 						{
 							display($dbg_main,0,"main_loop() got CTRL-C");
 							my $ignore = $terminate_cb ?
@@ -147,11 +147,26 @@ sub main_loop
 
 			elsif ($linux_keyboard)
 			{
-				if ($linux_keyboard->can_read($LOOP_SLEEP||0.0001))		# minimum in case of zero so no block
+				# print "kbd loop\n";
+			
+				ReadMode "raw";
+				my $char = ReadKey($LOOP_SLEEP, *STDIN);
+				ReadMode "normal";
+				
+				if (defined($char))
 				{
-					my $key;
-					$key = sysread(STDIN,$key,1);
-					if ($key eq 'd')
+					my $key = ord($char);
+					# print "got char($char) key($key)\n";
+					
+					if ($key == 3)       # ctrl-C
+					{
+						display($dbg_main,0,"main_loop() got CTRL-C");
+						my $ignore = $terminate_cb ?
+							&$terminate_cb('CTRL-C') : 0;
+						LOG(-1,"main_loop() ".($ignore?"ignoring":"terminating on")." CTRL-C");
+						exit(0) if !$ignore;
+					}
+					elsif ($key == 4)	# ctrl-D
 					{
 						 print "\033[2J\n";
 					}
@@ -159,6 +174,7 @@ sub main_loop
 					{
 						&$key_cb($key);
 					}
+					
 				}
 			}
 

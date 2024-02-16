@@ -64,6 +64,7 @@ Type=forking
 PIDFile=/base_data/temp/fileServer/fileServer.pid
 ExecStart=/base/Pub/FS/fileServer.pm
 ExecStop=kill -KILL $(cat /base_data/temp/fileServer/fileServer.pid)
+EnvironmentFile=/etc/environment
 
 [Install]
 WantedBy=multi-user.target
