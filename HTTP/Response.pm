@@ -144,7 +144,7 @@ sub new
 
 	$content ||= '';
 	$code ||= 200;
-	$content_type ||= 'text/plain';
+	$content_type ||= '';
 
     my $server = $request->{server};
     my $this = $class->SUPER::new($server);
@@ -182,7 +182,7 @@ sub new
 
     mergeHash($this->{headers},$server->{HTTP_DEFAULT_HEADERS});
 
-    $this->{headers}->{'content-type'} = "$content_type";
+    $this->{headers}->{'content-type'} = $content_type;
         # charsets not implemented
         # $response->{headers}->{'content-type'} .= "; charset=ISO-8859-1";
         # $response->{headers}->{'content-type'} .= "; charset=utf8";
@@ -255,6 +255,8 @@ sub new
         $this->{headers}->{'content-length'} = length($content);
         $this->{content} = $content;
     }
+
+	$this->{headers}->{'content-type'} ||= 'text/plain';
 
     return $this;
 }
