@@ -218,7 +218,7 @@ sub new
 
         $content->{size} = $size || 0;
         $this->{headers}->{'content-length'} = $size || 0;
-		$this->{headers}->{'content-type'} ||= myMimetype($filename);
+		$this->{headers}->{'content-type'} ||= myMimeType($filename);
         $this->{content} = ref($content) ? shared_clone($content) : $content;
     }
 
