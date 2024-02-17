@@ -1109,8 +1109,8 @@ sub handle_request
 
 		if ($ext eq 'html')
 		{
-			$response->{headers}->{'access-control-allow-origin'} = '*';
-			$response->{headers}->{'access-control-allow-methods'} = 'GET';
+			$response->{headers}->{'Access-Control-Allow-Origin'} = '*';
+			$response->{headers}->{'Access-Control-Allow-Methods'} = 'GET';
 		}
 
 		# implement JS/CSS caching scheme that requires calls to
