@@ -262,6 +262,14 @@ sub new
 }
 
 
+sub cache
+{
+	my ($this) = @_;
+	delete $this->{headers}->{pragma};
+	delete $this->{headers}->{pragma};
+	my $forever = 2147483648;
+	$this->{headers}->{'cache-control'} = "max-age=$forever, immutable";
+}
 
 
 sub send_client

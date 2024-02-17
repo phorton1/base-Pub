@@ -47,9 +47,8 @@
 #   HTTP_GET_EXT_RE 		=> re				default('html|js|css|jpg|png|ico')
 #	HTTP_SCRIPT_EXT_RE 		=> re				default('') example: 'cgi|pm|pl',
 #
-#	HTTP_USE_STANDARD_CACHE_SCHEME => 0/1		default(undef) - send max-age instead of no-cache for JS and CSS
-#												requires use of <&$this->includeCSS/JS('blah.js')> in main html file
-#
+#	HTML_USE_INCLUDES 		=> 0/1				default(undef) - send max-age instead of no-cache for JS and CSS
+#												from html files. requires use of <&$this->includeCSS/JS('blah.js')>
 #	HTTP_MINIFIED_JS		=> 1				default(undef) whether to return minimized JS files if they exist
 #	HTTP_MINIFID_CSS		=> 1				default(undef) whether to return minimized CSS files if they exist
 #	HTTP_LOGFILE			=> filename	  		for HTTP separate logfile of HTTP_LOG calls
@@ -392,7 +391,7 @@ sub new
 	getObjectPref($params,'HTTP_ZIP_RESPONSES',undef);
 	getObjectPref($params,'HTTP_AUTH_FILE',undef);
 
-	getObjectPref($params,'HTTP_USE_STANDARD_CACHE_SCHEME', undef);
+	getObjectPref($params,'HTML_USE_INCLUDES', undef);
 
 	display_hash(0,0,"Pub::ServerBase::new()",$params);
 
@@ -1104,7 +1103,7 @@ sub handle_request
 		my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
 		my $response = Pub::HTTP::Response->new($request,$text,200,$mime_type,$ext_headers);
 
-		# Add most generous CORS cross-origin headers to the main HTML file for
+		# Add most generous CORS cross-origin headers to HTML files for
 		# iPad browsers which would not call /get_art/ in Artisan otherwise.
 		# This may better be done via prefs/ctor for certain apps only.
 
@@ -1118,7 +1117,7 @@ sub handle_request
 		# <&$this->includeJS/CSS('blah.js)'> in the main html
 
 		elsif ($ext =~ /js|css/ &&
-			   $this->{HTTP_USE_STANDARD_CACHE_SCHEME})
+			   $this->{HTML_USE_INCLUDES})
 		{
 			delete $response->{headers}->{pragma};
 			delete $response->{headers}->{expires};
@@ -1196,7 +1195,9 @@ sub handle_request
 #----------------------------------------------
 # methods for browser caching
 #----------------------------------------------
-# TODO: These have to match the minimified states
+# These are called back from processBody()
+# to include CSS and JS with ?792390747 dt stamps
+# for the HTML_USE_INCLUDES scheme.
 
 
 sub includeJS
