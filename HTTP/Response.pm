@@ -278,6 +278,10 @@ sub send_client
     # $client->write($send)
 {
     my ($this,$client) = @_;
+    
+    my $request = $this->{request};
+    my $err_name = "response($request->{request_num}) $request->{peer_ip}:$request->{peer_port} uri($request->{uri})";
+    
     $this->dbg(0,0,"send_client($this->{status_line})");
 
     local $/ = undef;
@@ -297,7 +301,7 @@ sub send_client
     $this->dbg(1,1,"send_client header length=".length($text));
 	if (!$client->write($text)) # print $client $send)
 	{
-		error("Could not send response headers to client");
+		error("Could not send headers for $err_name");
         return;
 	}
 
@@ -313,7 +317,7 @@ sub send_client
 
         if (!$client->write($content)) # print $client $send)
         {
-            error("Could not send content to client");
+            error("Could not send content for $err_name");
             return;
         }
         return 1;
