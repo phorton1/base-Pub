@@ -82,7 +82,6 @@
 #   This scheme for static files is bogus.
 #   I really need to think caching all the way through.
 #
-#
 #	The headers for a response are determined by the default
 #   DEFAULT_HEADERS and DEFAULT_HEADERS_{EXT} params.
 #

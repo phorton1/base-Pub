@@ -103,7 +103,7 @@ named with a prepended **HTTP** or **FS** prefix.
 
 ### Global
 
-- CRYPT_KEYFILE 	= TODO
+- CRYPT_KEYFILE 	= can be specified
 - LOGFILE			= TODO
 
 
@@ -178,6 +178,12 @@ preferences from above.  In addition it has a few of its own specific
 preferences:
 
 - SKIP_IOT_TYPES = a regular expression for myIOTDevice types that will be ignored (i.e. 'theClock')
+
+## Artisan
+
+SSDP_FIND_ARTISAN_LIBRARIES	= default(1)
+SSDP_FIND_OTHER_LIBRARIES	= default(0)
+SSDP_FIND_RENDERERS		 	= not implemented/useful - default(0);
 
 
 

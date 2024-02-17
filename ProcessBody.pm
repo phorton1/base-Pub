@@ -519,7 +519,7 @@ sub processBody
                 next;
             }
 
-			# PRH TODO ... include files should be relative to main file
+			# include files should are relative to main file
 
             if (!open INCF,"<$filename")
             {
