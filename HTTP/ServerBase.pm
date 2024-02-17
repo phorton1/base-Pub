@@ -1103,20 +1103,7 @@ sub handle_request
 		my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
 		my $response = Pub::HTTP::Response->new($request,$text,200,$mime_type,$ext_headers);
 
-		# Add most generous CORS cross-origin headers to HTML files for
-		# iPad browsers which would not call /get_art/ in Artisan otherwise.
-		# This may better be done via prefs/ctor for certain apps only.
-
-		if ($ext eq 'html')
-		{
-			$response->{headers}->{'Access-Control-Allow-Origin'} = '*';
-			$response->{headers}->{'Access-Control-Allow-Methods'} = 'GET';
-		}
-
-		# implement JS/CSS caching scheme that requires calls to
-		# <&$this->includeJS/CSS('blah.js)'> in the main html
-
-		elsif ($ext =~ /js|css/ &&
+		if ($ext =~ /js|css/ &&
 			   $this->{HTML_USE_INCLUDES})
 		{
 			delete $response->{headers}->{pragma};
