@@ -69,18 +69,20 @@ sub new
 }
 
 
+#---------------------------------------
+# read
+#---------------------------------------
 
-sub getPostParams
-    # standard method to parse post params
-    # Note that we use the default '&' separator for both url and post params,
-    # and that the data is not yet url decoded!
+sub init_for_re_read
 {
-    my ($this,$dbg) = @_;
-    $dbg = $dbg_req + $this->{debug_extra} if !defined($dbg);
-    my $params = parseParamStr($this->get_content(),$dbg,'post_');
-    return $params;
+	my ($this) = @_;
+    $this->{headers} = shared_clone({});
+    $this->{content} = '';
+    $this->{method} = '';
+	$this->{uri} = '';
+	$this->{http_version} = '';
+	$this->{decoded_content} = '';
 }
-
 
 
 sub read_headers
@@ -251,16 +253,40 @@ sub read
 }   # Message::read()
 
 
+#-------------------------------
+# get_decoded_content
+#-------------------------------
 
-sub init_for_re_read
+sub getPostParams
+    # standard method to parse post params
+    # Note that we use the default '&' separator for both url and post params,
+    # and that the data is not yet url decoded!
+{
+    my ($this,$dbg) = @_;
+    $dbg = $dbg_req + $this->{debug_extra} if !defined($dbg);
+    my $params = parseParamStr($this->get_decoded_content(),$dbg,'post_');
+    return $params;
+}
+
+sub getPostJSON
 {
 	my ($this) = @_;
-    $this->{headers} = shared_clone({});
-    $this->{content} = '';
-    $this->{method} = '';
-	$this->{uri} = '';
-	$this->{http_version} = '';
-	$this->{decoded_content} = '';
+	my $json;
+    if ($this->{headers}->{'content-type'} eq 'application/json')
+    {
+        my $content = $this->get_decoded_content();
+        $this->dbg(1,0,"get_content() decoding ".length($content)." bytes of json");
+		$json = shared_clone(decode_json($content));
+        if (!$json)
+        {
+            error("Message($this->{request_num}) - Could not decode json");
+        }
+    }
+	else
+	{
+        error("Message($this->{request_num}) - getPostJSON() not application/json");
+	}
+	return $json;
 }
 
 
@@ -278,15 +304,6 @@ sub get_decoded_content
         gunzip \$content => \$unzipped;
         $this->dbg(1,0,"get_content() unzipped length=".length($unzipped));
 		$content = $unzipped;
-    }
-    if ($this->{headers}->{'content-type'} eq 'application/json')
-    {
-        $this->dbg(1,0,"get_content() decoding ".length($content)." bytes of json");
-        $content = shared_clone(decode_json($content));
-        if (!$content)
-        {
-            error("Message($this->{request_num}) - Could not decode json");
-        }
     }
 	$this->{decoded_content} = $content;
     return $content;
