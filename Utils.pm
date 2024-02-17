@@ -13,6 +13,7 @@ use threads::shared;
 sub is_win { return $^O eq "MSWin32" ? 1 : 0 }
 use Cwd;
 use JSON;
+use Error qw(:try);
 use Date::Calc;
 use MIME::Base64;
 use Time::Local;
