@@ -64,14 +64,14 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw (
 		getPref
-		setPref
+		getPrefDecrypted
 		getObjectPref
 		copyParamsWithout
 
 		getUserPref
 		setUserPref
-		getPrefDecrypted
-		setPrefEncrypted
+		getUserPrefDecrypted
+		setUserPrefEncrypted
     );
 }
 

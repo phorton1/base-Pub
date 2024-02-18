@@ -9,7 +9,7 @@ use warnings;
 use threads;
 use threads::shared;
 use Pub::Utils;
-use Pub::SQLite;
+use Pub::Database;
 
 
 BEGIN
@@ -140,12 +140,12 @@ sub utilToBgrColor
 
 sub xlsRecToDbRec
 {
-	my ($table,$sheet,$row,$skip_end) = @_;
+	my ($defs,$table,$sheet,$row,$skip_end) = @_;
 	$skip_end ||= 0;
 
 	my $col = 1;
 	my $rec = {};
-	my $fields = get_table_fields($table);
+	my $fields = Pub::Database::getFieldNames(undef,$table,$defs);
 	my $last_col = scalar(@$fields) - $skip_end;
 	for my $field (@$fields)
 	{
@@ -158,18 +158,18 @@ sub xlsRecToDbRec
 
 
 
-sub xlsDBFieldCols
-{
-	my ($table) = @_;
-	my $fields = get_table_fields($table);
-	my $field_cols = {};
-	my $col = 1;
-	for my $field (@$fields)
-	{
-		$field_cols->{$field} = $col++;
-	}
-	return $field_cols;
-}
+#	sub xlsDBFieldCols
+#	{
+#		my ($table) = @_;
+#		my $fields = get_table_fields($table);
+#		my $field_cols = {};
+#		my $col = 1;
+#		for my $field (@$fields)
+#		{
+#			$field_cols->{$field} = $col++;
+#		}
+#		return $field_cols;
+#	}
 
 
 

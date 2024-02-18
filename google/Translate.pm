@@ -10,7 +10,6 @@ use warnings;
 use threads;
 use threads::shared;
 use WWW::Google::Translate;
-use Pub::SQLite;
 use Pub::Utils;
 
 
