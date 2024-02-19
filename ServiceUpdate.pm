@@ -27,7 +27,7 @@ use threads;
 use threads::shared;
 use Pub::Utils;
 
-my $DETAILED_RESPONSES = 0;
+my $DETAILED_RESPONSES = 1;
 
 
 
@@ -167,8 +167,9 @@ sub updateOne
 	if (!$behind)
 	{
 		$$report_text .= "repo($repo) is up to date";
-		$$report_text .= ", but note that it has $has_changes local changes\n"
+		$$report_text .= ", but note that it has $has_changes local changes"
 			if $has_changes;
+		$$report_text .= "\n";
 		$$report_text .= "$changes\n"
 			if $has_changes && $DETAILED_RESPONSES;
 		return $GIT_UP_TO_DATE;
