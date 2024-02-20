@@ -5,10 +5,11 @@
 # Check for local and remote GIT changes, allowing
 # for UI to choose to "stash" local changes if neeeded.
 #
-# One or both of these are required on linux to run git from backticks:
+# Setting $SIG{CHILD}='DEFAULT' is required on linux 
+# after calling initServerUtils() to run git from
+# backticks in a linux service:
 #
-# 		$SIG{CHLD} = 'DEFAULT' if !is_win();
-# 		$SIG{PIPE} = 'IGNORE' if !is_win();
+# 	$SIG{CHLD} = 'DEFAULT' if !is_win();
 #
 # An update is only allowed if the remote machine
 # is behind, not ahead, of the github repository.

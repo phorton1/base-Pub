@@ -17,24 +17,13 @@ use Pub::Prefs;
 use if is_win, 'Win32::Console';
 use if !is_win, 'Term::ReadKey';
 use Time::HiRes qw(sleep time);
-
-# I'm gonna start with an unparameterized signal handler
-# and later figure out a way to parameterize it, as needed
-
 use sigtrap 'handler', \&onMainSignal, 'normal-signals';
-
-# special handling for specific cases *may* be included in apps
-
-$SIG{CHLD} = 'DEFAULT' if !is_win();
-	# Needed to run git from linux service
 
 
 my $dbg_main = 0;
 
 
 my $sig_terminate_cb;
-
-
 
 
 sub onMainSignal
