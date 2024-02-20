@@ -39,6 +39,7 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw (
 		$GIT_UP_TO_DATE
+		$GIT_CAN_UPDATE
 		$GIT_NEEDS_STASH
 		$GIT_UPDATE_DONE
 		$GIT_CANT_UPDATE
@@ -52,13 +53,15 @@ our $GIT_NONE = 0;
 	# init value
 our $GIT_UP_TO_DATE = 1;
 	# No changes needed.
-our $GIT_NEEDS_STASH = 2;
+our $GIT_CAN_UPDATE = 2;	# only from canUpdate()
+	# An update can be performed
+our $GIT_NEEDS_STASH = 3;
 	# A stash was required and $do_stash was not specified
-our $GIT_UPDATE_DONE = 3;
+our $GIT_UPDATE_DONE = 4;
 	# The update was done
-our $GIT_CANT_UPDATE = 4;
+our $GIT_CANT_UPDATE = 5;
 	# The update cannot complete due to remote commits
-our $GIT_ERROR = 5;
+our $GIT_ERROR = 6;
 	# There was an error calling a git routine
 
 sub git_result_to_text
@@ -66,6 +69,7 @@ sub git_result_to_text
 	my ($code) = @_;
 	return
 		$code == $GIT_UP_TO_DATE 	? 'GIT_UP_TO_DATE' :
+		$code == $GIT_CAN_UPDATE 	? 'GIT_CAN_UPDATE' :
 		$code == $GIT_NEEDS_STASH 	? 'GIT_NEEDS_STASH' :
 		$code == $GIT_UPDATE_DONE 	? 'GIT_UPDATE_DONE' :
 		$code == $GIT_CANT_UPDATE 	? 'GIT_CANT_UPDATE' :
@@ -115,11 +119,15 @@ sub gitCommand
 
 
 
+
 sub updateOne
 
 {
-	my ($do_stash,$repo,$report_text) = @_;
-	display($dbg_update+1,0,"updateOne($do_stash,$repo)");
+	my ($do_stash,$repo,$report_text,$check_update) = @_;
+	$check_update ||= 0;
+		# if set, we will return $GIT_CAN_UPDATE instead of
+		# doing an update
+	display($dbg_update+1,0,"updateOne($do_stash,$repo,$check_update)");
 
 	my $text;
 	if (!gitCommand(0,\$text,$repo,'remote update'))
@@ -177,25 +185,32 @@ sub updateOne
 
 	# We now know the repository is behind and can be updated
 
-	if ($changes)
+	if ($changes && !$do_stash)
 	{
-		if (!$do_stash)
+		$$report_text .= "repo($repo) has $has_changes local changes that need to be stashed\n";
+		$$report_text .= "$changes\n" if  $DETAILED_RESPONSES;
+		return $GIT_NEEDS_STASH;
+	}
+
+	# short return if $check_update
+
+	if ($check_update)
+	{
+		$$report_text .= "repo($repo) needs to be updated\n";
+		return $GIT_CAN_UPDATE;
+	}
+
+	if ($changes && $do_stash)
+	{
+		$$report_text .= "repo($repo) stashing $has_changes local_changes\n";
+		$$report_text .= "$changes\n" if  $DETAILED_RESPONSES;
+		if (!gitCommand(1,\$text,$repo,'stash'))
 		{
-			$$report_text .= "repo($repo) has $has_changes local changes that need to be stashed\n";
-			$$report_text .= "$changes\n" if  $DETAILED_RESPONSES;
-			return $GIT_NEEDS_STASH;
-		}
-		else
-		{
-			$$report_text .= "repo($repo) stashing $has_changes local_changes\n";
-			$$report_text .= "$changes\n" if  $DETAILED_RESPONSES;
-			if (!gitCommand(1,\$text,$repo,'stash'))
-			{
-				$$report_text .= $text;
-				return $GIT_ERROR;
-			}
+			$$report_text .= $text;
+			return $GIT_ERROR;
 		}
 	}
+
 
 	# DO THE PULL
 
@@ -278,6 +293,25 @@ sub doSystemUpdate
 	display($dbg_update,0,"doSystemUpdate() returning(highest)=".git_result_to_text($highest));
 	return $highest;
 }
+
+
+sub canUpdate
+{
+	my ($ptext,$repos) = @_;
+	display($dbg_update,0,"canUpdate(".join(' ',@$repos).")");
+
+	$$ptext = '';
+
+	my $highest = $GIT_NONE;
+	for my $repo (@$repos)
+	{
+		my $rslt = updateOne(0,$repo,$ptext,1);
+		$highest = $rslt if $rslt > $highest;
+	}
+	display($dbg_update,0,"canUpdate() returning ".git_result_to_text($highest));
+	return $highest;
+}
+
 
 
 1;
