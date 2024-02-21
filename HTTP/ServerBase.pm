@@ -193,9 +193,17 @@ our $OVERRIDE_DEBUG_PING = 0;
 my $DEFAULT_MAX_THREADS = 10;
 	# If the user doesn't specify
 
+
+my $port_forwarder;
 my $accept_queue = Thread::Queue->new;
 my $closed_queue = Thread::Queue->new;
-my $port_forwarder;
+my $kept_open_queue:shared = shared_clone({});
+	# separate, per-thread queue for $RESPONSE_STAY_OPEN sockets
+	# that must be closed by the thread that had them, is a shared
+	# hash by thread num and fileno.
+
+
+
 
 
 sub dbg_queue
@@ -413,7 +421,6 @@ sub new
 	getExtHeadersPref($params,'HTTP_GET_EXT_RE');
 	getExtHeadersPref($params,'HTTP_SCRIPT_EXT_RE');
 
-
 	# check required parameters
 
     if (!$params->{HTTP_PORT})
@@ -421,7 +428,6 @@ sub new
         error("You must provide a PORT for via ctor or prefs for Pub::ServerBase::new()");
         return;
     }
-
 
 	my $this = shared_clone($params);
     bless $this,$class;
@@ -550,46 +556,60 @@ sub serverThread
         my @can_read  = $select->can_read($sleep_time);
 		if (@can_read)
 		{
+			# RESOLVED PERFORMANCE ISSUES
+			#
+			# There were two things causing the Windows version to be
+			# very slow when hit from the phone in Chrome.  First,
+			# the unnessecary lookup of the peer_host, which probably
+			# uses DNS, was taking a lot of time.
+			#
+			# Second, in copy-pazte programming from someone else, that
+			# I didn't really understand, I had a "if ($sock == $socket)"
+			# check arouond the whole block, which *seemed* to cause
+			# disconnects.
+			#
+			# For good measure, third, I changed to a form of accept
+			# that returns the peer_addr.
+
 			for my $sock (@can_read)
 			{
-				if ($sock == $socket)
+				my $client_socket;
+				my $remote = accept($client_socket, $sock);
+				my ($peer_port, $peer_addr) = sockaddr_in($remote);
+				my $peer_ip = inet_ntoa($peer_addr);
+
+				if (!$peer_addr)
 				{
-					my $client_socket = $socket->accept();
-					my $file_handle = fileno($client_socket);
-					$open_sockets->{$file_handle} = $client_socket;
+					error("Could not get peer_addr from connection!");
+					close $client_socket;
+					next;
+				}
 
-					my $peer_addr = $client_socket->peeraddr();
+				my $dbg_from =  "$peer_ip:$peer_port";
 
-					if (!$peer_addr)
-					{
-						error("Could not get peer_addr from connection!");
-						next;
-					}
-					my $peer_host = gethostbyaddr($peer_addr,AF_INET) || $client_socket->peerhost();
-					my $peer_ip = inet_ntoa($peer_addr);
-					my $peer_port = $client_socket->peerport();
-					my $dbg_from =  "$peer_ip<$peer_host>:$peer_port";
+				my $file_handle = fileno($client_socket);
+				$open_sockets->{$file_handle} = $client_socket;
 
-					my $request_num = $this->{request_num}++;
-					my $active = $this->{active};
-					my $dbg_msg = dbg_queue();
-					$this->dbg(0,0,"CONNECT($request_num) ".
-						"handle($file_handle) active($active) $dbg_msg $dbg_from");
+				my $request_num = $this->{request_num}++;
+				my $active = $this->{active};
+				my $dbg_msg = dbg_queue();
+				$this->dbg(0,0,"CONNECT($request_num) ".
+					"handle($file_handle) active($active) $dbg_msg $dbg_from");
 
-					my $ele = shared_clone({
-						file_handle => $file_handle,
-						request_num => $request_num,
-						peer_ip => $peer_ip,
-						peer_port => $peer_port,
-						peer_addr => $peer_addr,
-						peer_host => $peer_host });
+				my $ele = shared_clone({
+					file_handle => $file_handle,
+					request_num => $request_num,
+					peer_ip => $peer_ip,
+					peer_port => $peer_port,
+					peer_addr => $peer_addr,
+					# peer_host => $peer_host,
+				});
 
-					$accept_queue->enqueue($ele);
+				$accept_queue->enqueue($ele);
 
-					$last_connect = time();
-					$sleep_time = $SLEEP_ACTIVE;
+				$last_connect = time();
+				$sleep_time = $SLEEP_ACTIVE;
 
-				}	# if ($sock == $socket)
 			}	# for my $sock (@can_read)
 		}	# @can_read
 		else
@@ -612,6 +632,7 @@ sub serverThread
 			}
 
 			# display(0,0,"check sleep_time($sleep_time}) active($this->{active}) last_connect($last_connect) time=".scalar(time()));
+
 			if ($sleep_time == $SLEEP_ACTIVE &&
 				!$this->{active} &&
 				time() > $last_connect + $IDLE_TIME)
@@ -651,12 +672,6 @@ sub checkStop
 }
 
 
-# separate, per-thread queue for $RESPONSE_STAY_OPEN sockets
-# that must be closed by the thread is a shared hash by thread
-# num and fileno.
-
-my $thread_close_queue:shared = shared_clone({});
-
 
 sub endOpenRequest
 {
@@ -669,7 +684,7 @@ sub endOpenRequest
 
 	$request->{server}->HTTP_LOG($request,-1,"END_OPEN_REQUEST($request_num) ".
 		"thread_num($thread_num) file_handle($file_handle)");
-	$thread_close_queue->{$thread_num}->{$file_handle} = $ele;
+	$kept_open_queue->{$thread_num}->{$file_handle} = $ele;
 }
 
 
@@ -679,7 +694,7 @@ sub clientThread
     $this->dbg(1,0,"clientThread($thread_num) started");
 
 	my $keep_sockets = {};
-	$thread_close_queue->{$thread_num} = shared_clone({});
+	$kept_open_queue->{$thread_num} = shared_clone({});
 		# hash by fileno of $keep_sockets returned by clientRequest
 
 	while (!$this->{stopping})
@@ -716,21 +731,22 @@ sub clientThread
 			}
 		}
 
-		# check every second for sockets to close
+		# check every second for 'keep_open' sockets
+		# that need to be closed
 
 		else
 		{
-			my $this_close_queue = $thread_close_queue->{$thread_num};
-			my @closers = (keys %$this_close_queue);
+			my $this_kept_queue = $kept_open_queue->{$thread_num};
+			my @closers = (keys %$this_kept_queue);
 			for my $file_handle (@closers)
 			{
-				my $ele = $this_close_queue->{$file_handle};
+				my $ele = $this_kept_queue->{$file_handle};
 				my $sock = $keep_sockets->{$file_handle};
 				$this->dbg(1,0,"REQUEST($ele->{request_num}) ".
 					"CLOSING KEEP_SOCKET($sock) file_handle($file_handle)",
 					0,$UTILS_COLOR_CYAN);
 				# $sock->close();
-				delete $this_close_queue->{$file_handle};
+				delete $this_kept_queue->{$file_handle};
 				$closed_queue->enqueue($ele);
 			}
 		}
@@ -916,7 +932,6 @@ sub clientRequest
 END_REQUEST:
 
 	$client->close() if !$keep_open;
-
 	$this->dbg(1,1,"requestThread($request_num) finished");
 	return $keep_open ? $client : 0;
 
