@@ -86,6 +86,7 @@ use Pub::Utils;
 use Pub::Prefs;
 use Pub::DatabaseDefs;
 use Pub::DatabaseImport;
+use if !is_win(), 'DBD::SQLite::Constants';
 
 
 our $dbg_db      	= 0;		# 0..1 connect() and disconnect()
