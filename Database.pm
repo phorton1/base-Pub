@@ -88,7 +88,7 @@ use Pub::DatabaseDefs;
 use Pub::DatabaseImport;
 
 
-our $dbg_db      	= 1;		# 0..1 connect() and disconnect()
+our $dbg_db      	= 0;		# 0..1 connect() and disconnect()
 our $dbg_params  	= 1;		# 0..1 standard_params()
 our $dbg_defs    	= 1;		# 0..2 getFieldNamaes() and getFieldDefs()
 
@@ -98,7 +98,7 @@ our $dbg_get_recs	= 1;		# 0..1 get_records()
 our $dbg_exec   	= 1;		# 0..1 execute()
 our $dbg_do   		= 1;		# 0..1 db_do()
 
-our $dbg_create 	= 1;		# 0..2 createTable() && createDatabase()
+our $dbg_create 	= 0;		# 0..2 createTable() && createDatabase()
 our $dbg_insert 	= 1;		# 0..2 insert_record()
 our $dbg_update 	= 1;		# 0..2 update_record()
 our $dbg_bind    	= 1;		# 0..2 binding
@@ -339,7 +339,7 @@ sub disconnect
     my ($this) = @_;
 	$this->{errstr} = '';
     return warning(0,0,"$this->{database} already disconnected") if !$this->{dbh};
-	display($dbg_db,0,"disconnect($this}->{database}");
+	display($dbg_db,0,"disconnect($this->{database}}");
     if (!$this->{dbh}->disconnect())
     {
 		$this->{errstr} = $this->{dbh}->errstr || '';
@@ -631,6 +631,8 @@ sub insert_record
         $vstring .= '?';
 
 		my $val = $rec->{$field};
+		$val = '0' if !$val && $def->{type} =~ /INTEGER|FLOAT/;
+
 		display($dbg_bind+1,2,"$field='"._def($val)."'");
 		push @$bind_values,$val;
     }
@@ -679,6 +681,7 @@ sub update_record
         $vstring .= ',' if $vstring;
         $vstring .= "$field=?";
 
+		$val = '0' if !$val && $def->{type} =~ /INTEGER|FLOAT/;
 		display($dbg_bind+1,2,"$field='"._def($val)."'");
 
 		push @$bind_values,$val;
@@ -742,7 +745,7 @@ sub do
 	# calls execute() and finishes the $sth
 {
     my ($this,$query,$params) = @_;
-    display($dbg_do,0,"do() params="._def($params));
+    display($dbg_do,0,"do($query) params="._def($params));
 	my $sth = $this->execute($query,$params);
 	$sth->finish() if $sth;
     return $sth ? 1 : 0;
@@ -852,6 +855,7 @@ sub deleteDatabase
     {
 		$params->{database} = '' if isPostgres($params);
         my $this = Pub::Database->connect($params);
+		$params->{database} = $database;	# restore
         return if !$this;
         $rslt = $this->do("DROP DATABASE $database");
 		$errstr = $this->{errstr} if !$rslt;

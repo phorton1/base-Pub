@@ -70,6 +70,9 @@ BEGIN
         $logfile
 		$login_name
 
+		setStandardTempDir
+		setStandardDataDir
+
 		setAppFrame
 		getAppFrame
 
@@ -174,8 +177,6 @@ BEGIN
 		releaseSTDOUTSemaphore
 
 		$resource_dir
-		setStandardTempDir
-		setStandardDataDir
 		setStandardCavaResourceDir
 
 		execNoShell

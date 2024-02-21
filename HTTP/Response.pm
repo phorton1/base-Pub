@@ -66,7 +66,7 @@ sub html_ok
 sub json_error
 {
     my ($request,$msg) = @_;
-	error("JSON_ERROR RESPONSE($request->{request_num}): $msg->{error}");
+	error("JSON_ERROR RESPONSE($request->{request_num}): $msg");
     return Pub::HTTP::Response->new($request,{error => $msg},200,'application/json');
 }
 sub json_response
@@ -278,10 +278,10 @@ sub send_client
     # $client->write($send)
 {
     my ($this,$client) = @_;
-    
+
     my $request = $this->{request};
     my $err_name = "response($request->{request_num}) $request->{peer_ip}:$request->{peer_port} uri($request->{uri})";
-    
+
     $this->dbg(0,0,"send_client($this->{status_line})");
 
     local $/ = undef;
