@@ -9,7 +9,8 @@ use strict;
 use warnings;
 use threads;
 use threads::shared;
-use WWW::Google::Translate;
+# use WWW::Google::Translate;
+use Pub::google::GoogleTranslate;
 use Pub::Utils;
 
 
@@ -36,7 +37,8 @@ sub init_translate
 	my $api_key = getTextFile("/dat/private/base_pub_google_api_key.txt");
 	display($dbg_tl,0,"init_translate($api_key)");
 
-	$wgt = WWW::Google::Translate->new( {
+	# $wgt = WWW::Google::Translate->new( {
+	$wgt = Pub::google::GoogleTranslate->new( {
 		key 			=> $api_key,
         default_source  => 'en',
         default_target  => 'es',
