@@ -981,10 +981,12 @@ sub filenameFromWin
 
 
 sub makePath
-    # static, handles '/'
+    # static, adds '/' to dir and
+	# removes it from entry
 {
     my ($dir,$entry) = @_;
     $dir .= '/' if ($dir !~ /\/$/);
+	$entry =~ s/^\///;
     return $dir.$entry;
 }
 

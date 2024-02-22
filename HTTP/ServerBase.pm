@@ -1065,10 +1065,14 @@ sub handle_request
 
 	# generic icon request
 
-	if ($this->{HTTP_FAVICON} && $uri =~ /^\/(favicon.ico)/)
+	if ($uri =~ /^\/(favicon.ico)/ &&
+		$this->{HTTP_FAVICON})
 	{
+		my $filename = makePath(
+			$this->{HTTP_DOCUMENT_ROOT},
+			$this->{HTTP_FAVICON});
 		return Pub::HTTP::Response->new($request,
-			{filename => $this->{HTTP_FAVICON} });
+			{filename => $filename } );
 	}
 
     # don't allow .. addressing
