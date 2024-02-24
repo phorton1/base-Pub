@@ -89,7 +89,7 @@ use Pub::DatabaseImport;
 use if !is_win(), 'DBD::SQLite::Constants';
 
 
-our $dbg_db      	= 0;		# 0..1 connect() and disconnect()
+our $dbg_db      	= 1;		# 0..1 connect() and disconnect()
 our $dbg_params  	= 1;		# 0..1 standard_params()
 our $dbg_defs    	= 1;		# 0..2 getFieldNamaes() and getFieldDefs()
 
