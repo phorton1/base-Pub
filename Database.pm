@@ -424,6 +424,7 @@ sub getFieldDefsArray
 		return;
 	}
 
+	my $colnum = 0;
     for my $field_def (@$table_def)
     {
 		# field {name} limited to 15 chars in some implementations
@@ -477,6 +478,7 @@ sub getFieldDefsArray
 
         my $def = {
             name => $name,
+			colnum => $colnum++,
 			type => $type,
 			create => $create,
  			def_type => $def_type,
