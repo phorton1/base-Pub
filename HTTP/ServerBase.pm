@@ -1120,15 +1120,9 @@ sub handle_request
 
 		my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
 		my $response = Pub::HTTP::Response->new($request,$text,200,$mime_type,$ext_headers);
-
-		if ($ext =~ /js|css/ &&
-			   $this->{HTML_USE_INCLUDES})
-		{
-			delete $response->{headers}->{pragma};
-			delete $response->{headers}->{expires};
-			my $forever = 2147483648;
-			$response->{headers}->{'cache-control'} = "max-age=$forever, immutable";
-		}
+		$response->setAsCached() if
+			$ext =~ /js|css/ &&
+			$this->{HTML_USE_INCLUDES};
 
 		return $response;
 	}

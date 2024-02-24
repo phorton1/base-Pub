@@ -262,7 +262,7 @@ sub new
 }
 
 
-sub cache
+sub setAsCached
 {
 	my ($this) = @_;
 	delete $this->{headers}->{pragma};
