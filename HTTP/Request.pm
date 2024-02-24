@@ -175,8 +175,9 @@ sub read_headers
 
 	if ($this->{uri} =~ s/\?(.*)$//)
 	{
+		$this->{param_str} = $1;
 		my $dbg = $dbg_req + $this->{extra_debug};
-		mergeHash($this->{params},parseParamStr($1,$dbg,"url_"));
+		mergeHash($this->{params},parseParamStr($this->{param_str},$dbg,"url_"));
 	}
 
 
