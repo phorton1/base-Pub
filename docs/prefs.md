@@ -217,7 +217,11 @@ routine in ServiceMain:
 
 	initServiceMain(program_name);
 
+Preferences and global variables that drive
+database Update and Merge functions:
 
+- MASTER_DB_HOST
+- MASTER_DB_PORT
 
 
 
