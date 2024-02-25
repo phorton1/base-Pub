@@ -2,7 +2,12 @@
 #---------------------------------------
 # ServiceMain.pm
 #---------------------------------------
-# A standardized "Main" loop for Services
+# A standardized "Main" loop for Services.
+#
+# Standard functions include a 'restartService()'
+# method that can be called by client code that
+# will restart the Service after 1 second in
+# the main loop
 
 
 package Pub::ServiceMain;
@@ -22,8 +27,19 @@ use sigtrap 'handler', \&onMainSignal, 'normal-signals';
 
 my $dbg_main = 0;
 
+BEGIN
+{
+ 	use Exporter qw( import );
+	our @EXPORT = qw (
+		restartService
+	);
+};
+
+
 
 my $sig_terminate_cb;
+my $service_name:shared = '';
+my $restart_service:shared = 0;
 
 
 sub onMainSignal
@@ -43,6 +59,33 @@ sub onMainSignal
     LOG(-1,"onMainSignal() ".($ignore?"ignoring":"terminating on")." SIG$sig");
 	kill 9, $$ if !$ignore;		# 9 == SIGKILL
 }
+
+
+
+
+sub restartService
+{
+	my ($name) = @_;
+	LOG(-1,"restartService($name)");
+	$service_name = $name;
+	$restart_service = time();
+}
+
+
+sub doRestartService
+{
+	LOG(0,"RESTARTING $service_name SERVICE AS_SERVICE=$AS_SERVICE");
+	return if !$AS_SERVICE;
+	if (is_win())
+	{
+		kill 9, $$;		# 9 == SIGKILL
+	}
+	else
+	{
+		system("sudo systemctl restart $service_name");
+	}
+}
+
 
 
 
@@ -89,6 +132,12 @@ sub main_loop
 
 		try
 		{
+			if ($AS_SERVICE && $restart_service &&
+				time() > $restart_service + 1)
+			{
+				doRestartService();
+			}
+
 			if ($loop_cb && time() >= $last_loop_cb + $LOOP_CB_TIME)
 			{
 				$last_loop_cb = time();

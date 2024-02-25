@@ -161,6 +161,7 @@ HTTP Authorization (Pub::Users text file):
 
 Overall HTTP Setup:
 
+- HTTP_SERVER_NAME			= name passed as http Server header in default headers
 - HTTP_LOGFILE				= for HTTP separate logfile of HTTP_LOG calls
 - HTTP_MAX_THREADS			= default 5
 - HTTP_KEEP_ALIVE			= use persistent connections from browsers
@@ -169,6 +170,14 @@ Overall HTTP Setup:
 - HTTP_ZIP_RESPONSES 	= 1
 - HTTP_GET_EXT_RE = 'html|js|css|jpg|png|ico',
 - HTTP_SCRIPT_EXT_RE = '',
+
+System Commands
+
+- HTTP_ALLOW_REBOOT   		=> 1				linux only
+- HTTP_RESTART_SERVICE  	=> 'artisan'
+- HTTP_GIT_UPDATE       	=> '/base/Pub,/base/apps/artisan'
+
+
 
 
 ## Pub::IOT (to become apps::myIOTServer)
@@ -184,6 +193,31 @@ preferences:
 SSDP_FIND_ARTISAN_LIBRARIES	= default(1)
 SSDP_FIND_OTHER_LIBRARIES	= default(0)
 SSDP_FIND_RENDERERS		 	= not implemented/useful - default(0);
+
+
+## Inventory System
+
+Takes a command line parameter besides 'no_service' to override
+'inventory' with some other name ('rhapsody_inventory' or
+'electronics_inventory') as $program_name that will be used
+for the standard system directories, preference file, service
+and pid filename, as well as the database and tranlsated database.
+
+	/base_data/data/{program_name}
+		{program_name}.prefs
+		{program_name}.db
+		{program_name}_translated.db
+	/base_data/temp/{program_name}
+		{program_name}.log
+
+Eventually the whole 'standard service setup' can be
+encapsulated for Artisan, myEbay, myIOTServer, and
+multiple instances of the inventory system, into a single
+routine in ServiceMain:
+
+	initServiceMain(program_name);
+
+
 
 
 

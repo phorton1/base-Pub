@@ -12,6 +12,9 @@
 #
 # PARAMETERS from prefs:
 #
+#	HTTP_SERVER_NAME => 'Artisan Perl",
+#			# used for default http 'Server' header
+#
 #	HTTP_DEBUG_SERVER => -1..2	default(0) - optional - see notes below
 #	HTTP_DEBUG_REQUEST => 0..5	default(0) - optional - see notes below
 #	HTTP_DEBUG_RESPONSE => 0..5	default(0) - optional - see notes below
@@ -49,12 +52,16 @@
 #
 #	HTML_USE_INCLUDES 		=> 0/1				default(undef) - send max-age instead of no-cache for JS and CSS
 #												from html files. requires use of <&$this->includeCSS/JS('blah.js')>
+#												NOT REALLY A PREF, BUT AN IMPLEMENTATION DECISION
 #	HTTP_MINIFIED_JS		=> 1				default(undef) whether to return minimized JS files if they exist
 #	HTTP_MINIFID_CSS		=> 1				default(undef) whether to return minimized CSS files if they exist
 #	HTTP_LOGFILE			=> filename	  		for HTTP separate logfile of HTTP_LOG calls
 #
-# 	HTTP_DEFAULT_HEADERS 		=> {},				see below
-#	HTTP_DEFAULT_HEADERS_{EXT} 	=> {},				see below
+# 	HTTP_DEFAULT_HEADERS 		=> {},			see below
+#
+#   HTTP_ALLOW_REBOOT   	=> 1				linux only
+#	HTTP_RESTART_SERVICE  	=> 'artisan'
+#	HTTP_GIT_UPDATE       	=> '/base/Pub,/base/apps/artisan'
 #
 # IDLE TIMING AND LOCKING
 #
@@ -79,54 +86,58 @@
 #
 # DEFAULT HEADERS
 #
-#   This scheme for static files is bogus.
-#   I really need to think caching all the way through.
+#	The headers for all	responses are determined by the default
+#   DEFAULT_HEADERS param.
 #
-#	The headers for a response are determined by the default
-#   DEFAULT_HEADERS and DEFAULT_HEADERS_{EXT} params.
+#	Client ctors can completely replace the DEFAULT_HEADERS.
+#	It is all or none.
 #
-#	In the preferences file, DEFAULT_HEADERS and DEFAULT_HEADERS_{EXT}
-#		are given by a non-sparse set of numbered, singular, defines:
-#		starting at zero, as a => delimited pair:
+#	In the preferences file, DEFAULT_HEADERS are given by a non-sparse
+#	set of numbered, singular, defines, starting at zero, as a =>
+#   delimited pair:
 #
-#			DEFAULT_HEADER_0 = cache-control => max_age: 604800
+#		DEFAULT_HEADER_0 = cache-control => max_age: 604800
 #
-#		where the special value of 'undef' may be used to delete
-#		the header from the response.  In the case that headers
-#		ARE specified in the prefs file, they will override those
-#		from the ctor (unlike most other params where the ctor
-#		overrides the prefs).
-#
-#	For DEFAULT_HEADERS_{EXT} the list of Extensions provided
-#		in HTTP_GET_EXT_RE and HTTP_SCRIPT_EXT_RE will be searched,
-#		and those extensions utilized to get the additional headers:
-#
-#			DEFAULT_HEADERS_JPG_0 = cache-control => max_age: 604800
-#
-#	All responses start with the DEFAULT HEADERS the entire set of
-#  		which can be overridden, in their entirety, all or none,
-#		by derived classes in the ctor.
+#	where the special value of 'undef' may be used to delete
+#	the header from the ctor/base class defaults.  In the case
+#   that headers ARE specified in the prefs file, they will override
+#	those from the ctor/base class.
 #
 #		'cache-control' => 'no-cache, no-store, must-revalidate',
 #		'pragma'        => 'no-cache',
 #		'expires'       => '0',
 #		'connection' 	=> $this->{HTTP_KEEP_ALIVE} ? 'keep-alive' : 'close';
 #
-#		Any override of the 'cache-control' header will automatically
-#		remove the 'pragma' and 'expires' headers as well
-#
-#   For files served from DOCUMENT_LOCATION. DEFAULT_HEADERS_BY_EXT
-#		may be provided which will be added to the DEFAULT_HEADERS
-#		for those file based on the file extension (which maps to
-#		the mime-type) of the response.
-#
-#		A special value of 'undef' can be used to undefine and remove
-#		headers from the defaults for that file type.
+#	Any override of the 'cache-control' header will automatically
+#	remove the 'pragma' and 'expires' headers as well
 #
 #	Finally, derived class handle_request() methods can define and
-#		remove headers directly from $response->{headers} after the
-#		response is created, overriding both the construction params
-#		and the preferences file.
+#	remove headers directly from $response->{headers} after the
+#	response is created, overriding both the construction params
+#	and the preferences file. One useful method for this is
+#
+#		$response->setAsCached()
+#
+#	which will set a "cache-control max-age: forever, immutable"
+#	header, and remove the 'expires' and 'pragma' headers from
+#	the response.
+#
+# SYSTEM FUNCTIONS (reboot, restart, update_system, update_system_stash)
+#
+#	These functions have been standardized across Artisan, myIOTServer,
+#   and the inventory control services, all of which use Pub::ServiceMain
+#   for their main loops.
+#
+#   For this reason, this base class, by default, includes the
+#   Pub::ServiceMain && Pub::ServiceUpdate modules, which are only
+#   actually used in the case that the HTTP_RESTART_SERVICE and/or
+#	HTTP_GIT_UPDATE values are set, in which case the /restart,
+#	/update_system, and /update_system_stash urls are valid.
+#
+#   The /reboot url is only valid on linux machines
+#	if HTTP_ALLOW_REBOOT is set.
+
+
 
 
 package Pub::HTTP::ServerBase;
@@ -151,6 +162,8 @@ use Pub::Crypt;
 use Pub::Prefs;
 use Pub::Users;
 use Pub::ProcessBody;
+use Pub::ServiceMain;
+use Pub::ServiceUpdate;
 use Pub::DebugMem;
 use Pub::HTTP::Request;
 use Pub::HTTP::Response;
@@ -272,9 +285,9 @@ sub my_chomp
 
 
 sub getDefHeadersPref
-	# get non-sparse number set of default headers.
-	# undef and removing cache-control are done on
-	# a per request basis for HTTP_DEFAULT_HEADERS_{EXT}
+	# get non-sparse numbered set of default headers
+	# that allow 'undef' and will delete 'pragma' and
+	# 'expires' if 'cache-control' is provided
 {
 	my ($params,$ext) = @_;
 	$ext ||= '';		# for main set of prefs
@@ -327,27 +340,6 @@ sub getDefHeadersPref
 
 
 
-sub getExtHeadersPref
-	# for one of the EXTENION_RE's for the default server
-	# get default prefs into the $params hash for later
-	# use by base class (or derived class) handle_request
-	# method.
-{
-	my ($params,$re_key) = @_;
-	display($dbg_def_headers,0,"getExtHeadersPref($re_key)");
-	my $exts = $params->{$re_key};
-	if ($exts)
-	{
-		display($dbg_def_headers,0,"checking extensions: $exts");
-		for my $ext (split(/\|/,$exts))
-		{
-			display($dbg_def_headers,0,"doing extension: $ext");
-			getDefHeadersPref($params,$ext);
-		}
-	}
-}
-
-
 
 #-------------------------------------------------
 # Constructor, start() and stop()
@@ -357,6 +349,8 @@ sub new
 {
     my ($class,$params) = @_;
 	$params ||= {};
+
+	getObjectPref($params,'HTTP_SERVER_NAME','ServerBase('.getMachineId().')');
 
 	getObjectPref($params,'HTTP_SSL',0);
 	getObjectPref($params,'HTTP_PORT',undef);
@@ -400,6 +394,10 @@ sub new
 
 	getObjectPref($params,'HTML_USE_INCLUDES', undef);
 
+	getObjectPref($params,'HTTP_ALLOW_REBOOT', undef);
+	getObjectPref($params,'HTTP_RESTART_SERVICE', undef);
+	getObjectPref($params,'HTTP_GIT_UPDATE', undef);
+
 	display_hash(0,0,"Pub::ServerBase::new()",$params);
 
 	# HTTP_DEFAULT_HEADERS
@@ -410,7 +408,7 @@ sub new
 	# for gets from DOCUMENT_ROOT.
 
 	$params->{HTTP_DEFAULT_HEADERS} ||= shared_clone({
-		'server' 		 => 'Artisan Perl('.getMachineId().")",
+		'server' 		 => $params->{HTTP_SERVER_NAME},
 		'cache-control'  => 'no-cache, no-store, must-revalidate',
 		'pragma'         => 'no-cache',
 		'expires'        => '0',
@@ -418,8 +416,7 @@ sub new
 	});
 
 	getDefHeadersPref($params,'');
-	getExtHeadersPref($params,'HTTP_GET_EXT_RE');
-	getExtHeadersPref($params,'HTTP_SCRIPT_EXT_RE');
+
 
 	# check required parameters
 
@@ -931,7 +928,7 @@ sub clientRequest
 
 END_REQUEST:
 
-	$client->close() if !$keep_open;
+	close($client) if !$keep_open;
 	$this->dbg(1,1,"requestThread($request_num) finished");
 	return $keep_open ? $client : 0;
 
@@ -1063,7 +1060,7 @@ sub handle_request
 	my $method = $request->{method};
 	$this->dbg(1,0,"Pub::ServerBase::handle_request($dbg_num) $method $uri");
 
-	# generic icon request
+	# SPECIFIC URLS
 
 	if ($uri =~ /^\/(favicon.ico)/ &&
 		$this->{HTTP_FAVICON})
@@ -1074,6 +1071,67 @@ sub handle_request
 		return Pub::HTTP::Response->new($request,
 			{filename => $filename } );
 	}
+
+	elsif ($uri eq "/reboot" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
+	{
+		LOG(0,"Rebooting the rPi");
+		system("sudo reboot");
+		return html_ok($request,"Rebooting Server");
+	}
+	elsif ($uri eq '/restart_service' && $AS_SERVICE && $this->{HTTP_RESTART_SERVICE} )
+	{
+		# this url should ONLY be hit if the JS has the as_service variable set.
+		# there is no error checking.
+
+		LOG(0,"Artisan restarting service in 5 seconds");
+		restartService( $this->{HTTP_RESTART_SERVICE});
+		return html_ok($request,"Restarting Service");
+	}
+	elsif ($uri =~ /update_system(_stash)*/ && $this->{HTTP_GIT_UPDATE})
+	{
+		my $do_stash = $1 ? 1 : 0;
+		LOG(0,"Updating system source($this->{HTTP_GIT_UPDATE}) stash($do_stash)");
+		my $text = '';
+		my $rslt = Pub::ServiceUpdate::doSystemUpdate(
+			\$text,
+			$do_stash,
+			[split(/,/,$this->{HTTP_GIT_UPDATE})]);
+		my $line1 = git_result_to_text($rslt);
+		$text =~ s/\n/<br>/g;
+		if ($rslt == $GIT_UPDATE_DONE &&
+			$AS_SERVICE && $this->{HTTP_RESTART_SERVICE})
+		{
+			$line1 .= "<br>Restarting service in 1 second";
+			restartService( $this->{HTTP_RESTART_SERVICE});
+		}
+		return html_ok($request,$line1."<br>".$text);
+	}
+	elsif ($uri eq "/log")
+	{
+		return Pub::HTTP::Response->new($request,
+            shared_clone({filename=>$logfile}),
+			200,'text/plain');
+	}
+	elsif ($uri eq "/log/clear")
+	{
+		if (!(-f $logfile))
+		{
+			return http_ok($request,"LOGFILE $logfile does not exist");
+		}
+		else
+		{
+			unlink $logfile;
+			sleep(1);
+			LOG(-1,"logfile $logfile cleared");
+			sleep(1);
+			return Pub::HTTP::Response->new($request,
+				shared_clone({filename=>$logfile}),
+				200,'text/plain');
+		}
+	}
+
+
+	# FALL THROUGH TO GENERIC FILE REQUESTS
 
     # don't allow .. addressing
 
@@ -1179,11 +1237,7 @@ sub handle_request
 
 		display(0,1,"do($filename) returning response="._def($response));
 		$this->dbg(1,1,"do_response($method $uri)=$response->{headers}->{'content-type'}") if $response;
-		if ($response)
-		{
-			my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
-			return $response;
-		}
+		return $response if $response;
 	}
 
 	return; # null return
