@@ -35,6 +35,8 @@ BEGIN
 
 		xlsRecToDbRec
 		xlsDBFieldCols
+
+		xlsRecToHash
 	);
 };
 
@@ -152,6 +154,22 @@ sub xlsRecToDbRec
 		$rec->{$field} = xlsGetValue($sheet,$row,$col) || '';
 		$col++;
 		last if $col > $last_col;
+	}
+	return $rec;
+}
+
+
+sub xlsRecToHash
+{
+	my ($field_names,$sheet,$row,$skip_end) = @_;
+	$skip_end ||= 0;
+
+	my $col = 1;
+	my $rec = {};
+	for my $field (@$field_names)
+	{
+		$rec->{$field} = xlsGetValue($sheet,$row,$col) || '';
+		$col++;
 	}
 	return $rec;
 }
