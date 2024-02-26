@@ -306,7 +306,7 @@ sub connect
     $this->{dbh} = DBI->connect($dsn,$this->{user},$this->{password},$this);
     if (!$this->{dbh})
     {
-        error("Unable to connect($dbg_dsn): $DBI::errstr");
+        $params->{errstr} = error("Unable to connect($dbg_dsn): $DBI::errstr");
         return;
     }
 
@@ -864,7 +864,8 @@ sub deleteDatabase
 		$errstr = $this->{errstr} if !$rslt;
 		$this->disconnect();
     }
-    error("Could not delete database($database): $errstr")
+
+	$params->{errstr} = error("Could not delete database($database): $errstr")
         if !$rslt;
     return $rslt;
 }
@@ -902,7 +903,7 @@ sub createDatabase
 
 	if (!$rslt)
 	{
-		error("Could not create database $database: $this->{errstr}");
+		$params->{errstr} = error("Could not create database $database: $this->{errstr}");
 		return;
 	}
 
