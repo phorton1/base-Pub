@@ -2,6 +2,9 @@
 #-----------------------------------------------------
 # Pub::HTTP::ServerBase
 #-----------------------------------------------------
+# TODO: I don't think the JS/CSS caching is working on Android/Chrome.
+# HTML seems to get reloaded okereloaded on Android.
+#
 # Currently limited to a single instance due to many globals
 # and use of prefs.
 #
