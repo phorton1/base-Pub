@@ -9,7 +9,6 @@ use warnings;
 use threads;
 use threads::shared;
 use Pub::Utils;
-use Pub::Database;
 
 
 BEGIN
@@ -33,10 +32,8 @@ BEGIN
 		xlrc
 		utilToBgrColor
 
-		xlsRecToDbRec
-		xlsDBFieldCols
-
-		xlsRecToHash
+		xlsRowToHash
+		xlsHashToRow
 	);
 };
 
@@ -137,33 +134,12 @@ sub utilToBgrColor
 
 
 #---------------------------------
-# database utilties
+# hash utilties
 #---------------------------------
 
-sub xlsRecToDbRec
+sub xlsRowToHash
 {
-	my ($defs,$table,$sheet,$row,$skip_end) = @_;
-	$skip_end ||= 0;
-
-	my $col = 1;
-	my $rec = {};
-	my $fields = Pub::Database::getFieldNames(undef,$table,$defs);
-	my $last_col = scalar(@$fields) - $skip_end;
-	for my $field (@$fields)
-	{
-		$rec->{$field} = xlsGetValue($sheet,$row,$col) || '';
-		$col++;
-		last if $col > $last_col;
-	}
-	return $rec;
-}
-
-
-sub xlsRecToHash
-{
-	my ($field_names,$sheet,$row,$skip_end) = @_;
-	$skip_end ||= 0;
-
+	my ($sheet,$row,$field_names) = @_;
 	my $col = 1;
 	my $rec = {};
 	for my $field (@$field_names)
@@ -175,21 +151,23 @@ sub xlsRecToHash
 }
 
 
+sub xlsHashToRow
+	# converts a hash to an excel row.
+	# if the value starts with '=' it is set as a formula
+{
+	my ($sheet,$row,$rec,$field_names) = @_;
 
-#	sub xlsDBFieldCols
-#	{
-#		my ($table) = @_;
-#		my $fields = get_table_fields($table);
-#		my $field_cols = {};
-#		my $col = 1;
-#		for my $field (@$fields)
-#		{
-#			$field_cols->{$field} = $col++;
-#		}
-#		return $field_cols;
-#	}
-
-
+	my $col = 1;
+	for my $field (@$field_names)
+	{
+		my $val = $rec->{$field};
+		$val = '' if !defined($val);
+		$val =~ /^=/ ?
+			xlsSetFormula($sheet,$row,$col,$val) :
+			xlsSetValue($sheet,$row,$col,$val);
+		$col++;
+	}
+}
 
 
 1;
