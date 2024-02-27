@@ -101,10 +101,12 @@ BEGIN
 		gmtToLocalTime
 		timeToStr
 		datePlusDays
+		hiResNow
 
         makePath
 		pathOf
 		filenameFromWin
+		getFileTime
 		getTimestamp
 		setTimestamp
         getTextFile
@@ -966,6 +968,12 @@ sub datePlusDays
 }
 
 
+sub hiResNow
+{
+	return sprintf("%0.6f",time());
+}
+
+
 
 #----------------------------------------------------------
 # File Routines
@@ -1038,6 +1046,16 @@ sub printVarToFile
 }
 
 
+sub getFileTime
+{
+	my ($filename) = @_;
+	my @stats = stat($filename);
+	my $mtime = $stats[9];
+	return $mtime || 0;
+}
+
+
+
 sub getTimestamp
 	# param = unix format full path to file
 	# returns colon delmited GMT timestamp.
@@ -1048,11 +1066,8 @@ sub getTimestamp
 {
 	my ($filename,$local) = @_;
 	my $ts = '';
-
-	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
-	  	$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
-    $mtime = '' if (!$mtime);
-	if ($mtime ne '')
+	my $mtime = getFileTime($filename);
+	if ($mtime)
 	{
 		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
              $local ? localtime($mtime) : gmtime($mtime);

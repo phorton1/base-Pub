@@ -1072,6 +1072,21 @@ sub handle_request
 			{filename => $filename } );
 	}
 
+	# debug_output now handled by base class
+	# needs to be removed from all derived classes
+
+	elsif ($uri =~ s/^\/debug_output\///)
+	{
+		my $msg = $uri . " ". ($request->{param_str} || '');
+		my $color = $msg =~ /ERROR/ ?
+			$DISPLAY_COLOR_ERROR :
+			$UTILS_COLOR_LIGHT_GREEN;
+		Pub::Utils::_setColor($color);
+		print "REMOTE: ".url_decode($msg)."\n";
+		Pub::Utils::_setColor($DISPLAY_COLOR_NONE);
+		return http_ok($request,"");
+	}
+
 	elsif ($uri eq "/reboot" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
 	{
 		LOG(0,"Rebooting the rPi");
@@ -1259,9 +1274,7 @@ sub includeJS
 	my $uri = $path;
 	$this->getMinifiedUri(\$uri,'js');
 	my $filename = makePath($this->{HTTP_DOCUMENT_ROOT},$uri);
-	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
-		$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
-    $mtime = '' if (!$mtime);
+    my $mtime = getFileTime($filename);
 	$this->dbg(0,0,"includeJS($path)=$mtime");
     return "<script type=\"text/javascript\" src=\"$path?$mtime\"></script>";
 }
@@ -1274,9 +1287,7 @@ sub includeCSS
 	my $uri = $path;
 	$this->getMinifiedUri(\$uri,'css');
 	my $filename = makePath($this->{HTTP_DOCUMENT_ROOT},$uri);
-	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
-		$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
-    $mtime = '' if (!$mtime);
+    my $mtime = getFileTime($filename);
 	$this->dbg(0,0,"includeCSS($path)=$mtime");
 	return "<link rel=\"stylesheet\" type=\"text/css\" href=\"$path?$mtime\" />";
 }
