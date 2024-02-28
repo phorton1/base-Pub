@@ -658,13 +658,18 @@ sub error
 	$call_level ||= 0;
 	_output(-1,"ERROR - $msg",$DISPLAY_COLOR_ERROR,$call_level+1);
 
+	# We allow the client to set a temporary 'app_frame' == '1'
+	# during startup to show error dialog during frame construction
+
     my $app_frame = getAppFrame();
-	$app_frame->showError("Error: ".$msg) if
+	Pub::WX::Frame::showError(
+		$app_frame eq 1 ? undef : $app_frame, "Error: ".$msg) if
 		!$suppress_show &&
 		$app_frame &&
 		!threads->tid() &&
+		$app_frame eq '1' || (
 		blessed($app_frame) &&
-		$app_frame->can('showError');
+		$app_frame->can('showError'));
 
 	return $msg;
 }
