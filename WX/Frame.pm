@@ -29,7 +29,7 @@ use Pub::WX::Dialogs;
 use base qw(Wx::Frame Pub::WX::FrameBase);
 
 
-my $dbg_frame = -2;
+my $dbg_frame = 0;
     # 0 = main lifecycle events
 	# -1 = main pane events
 	# -2 = all details
