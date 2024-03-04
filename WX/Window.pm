@@ -39,7 +39,7 @@ use Wx::Event qw(EVT_CHILD_FOCUS EVT_CLOSE);
 use Pub::Utils;
 use base qw(Wx::Window);
 
-my $debug_aw = -2;
+my $debug_aw = 0;
 
 
 sub MyWindow
@@ -100,7 +100,7 @@ sub onChildFocus
 {
 	my ($this,$event) = @_;
 	$this->{frame}->setCurrentPane($this);
-	display($debug_aw,0,"Pub::WX::Window::onChildFocus($this->{label}) pending_populate=$this->{pending_populate}");
+	display($debug_aw+1,0,"Pub::WX::Window::onChildFocus($this->{label}) pending_populate=$this->{pending_populate}");
 	$event->Skip();
 }
 
