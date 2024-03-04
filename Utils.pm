@@ -98,6 +98,7 @@ BEGIN
 		@monthName
 		now
 		today
+		gmtToInt
 		gmtToLocalTime
 		timeToStr
 		datePlusDays
@@ -915,9 +916,7 @@ sub now
 }
 
 
-sub gmtToLocalTime
-    # takes a GMT time in the format 2013-07-05 12:31:22
-    # and returns a local date time in the same format.
+sub gmtToInt
 {
     my ($ts) = @_;
 
@@ -936,6 +935,16 @@ sub gmtToLocalTime
 	$mo = 1 if $mo < 0;
 	$day = 1 if !int($day);
 	my $gm_time = timegm($sec,$min,$hour,$day,$mo,$year);
+	return $gm_time;
+}
+
+
+sub gmtToLocalTime
+    # takes a GMT time in the format 2013-07-05 12:31:22
+    # and returns a local date time in the same format.
+{
+    my ($ts) = @_;
+	my $gm_time = gmtToInt($ts);
 	my @time_parts = localtime($gm_time);
 	return
 		($time_parts[5]+1900) .'-'.
