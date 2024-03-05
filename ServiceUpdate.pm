@@ -5,7 +5,7 @@
 # Check for local and remote GIT changes, allowing
 # for UI to choose to "stash" local changes if neeeded.
 #
-# Setting $SIG{CHILD}='DEFAULT' is required on linux 
+# Setting $SIG{CHILD}='DEFAULT' is required on linux
 # after calling initServerUtils() to run git from
 # backticks in a linux service:
 #
@@ -93,7 +93,7 @@ sub gitCommand
 {
 	my ($no_blank,$ptext,$repo,$command) = @_;
 	display($dbg_git,0,"gitCommand($no_blank,$repo) $command");
-	$$ptext = `git -C $repo $command 2>&1`;
+	$$ptext = `git -C "$repo" $command 2>&1`;
 	my $exit_code = $?;
 
 	if (!defined($$ptext))
