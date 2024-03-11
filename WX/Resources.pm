@@ -25,11 +25,14 @@ BEGIN
     );
 }
 
+# APPS get any IDs over 200
+
 our (
     $ID_SEPARATOR,
 	$CLOSE_ALL_PANES,
 	$CLOSE_OTHER_PANES,
-) = (7238..7777);
+) = (100..199);
+
 
 
 my @view_menu = (
