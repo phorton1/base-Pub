@@ -58,12 +58,13 @@ my $dbg_prefs = 0;
 	# 0 = show static_init_prefs() header msg
 	# -1 = show individual setPrefs
 
-
 BEGIN
 {
  	use Exporter qw( import );
 	our @EXPORT = qw (
+
 		getPref
+		getSequencedPref
 		getPrefDecrypted
 		getObjectPref
 		copyParamsWithout
@@ -139,6 +140,24 @@ sub setUserPrefEncrypted
 }
 
 
+sub getSequencedPref
+	# finds a sequence of prefs of the form $id_NN
+	# starting at zero
+{
+	my ($id) = @_;
+	my $num = 0;
+
+	my @rslt = ();
+	my $value = getPref($id."_".$num++);
+	while (defined($value))
+	{
+		push @rslt,$value;
+		$value = getPref($id."_".$num++);
+	}
+	return @rslt;
+}
+
+
 #-----------------------------------------
 # initPrefs
 #-----------------------------------------
@@ -148,11 +167,13 @@ sub initPrefs
 	# preference which overrides that provided by the
 	# caller.
 {
-	my ($filename,$defaults,$crypt_file) = @_;
+	my ($filename,$defaults,$crypt_file,$show_init_prefs) = @_;
 	$crypt_file ||= '';
 	$defaults ||= {};
+	$show_init_prefs ||= 0;
 
-	display($dbg_prefs,0,"initPrefs($filename,$crypt_file)");
+	my $use_dbg = $show_init_prefs ? 0 : $dbg_prefs;
+	display($use_dbg,0,"initPrefs($filename,$crypt_file)");
 
 	$program_prefs = shared_clone($defaults);
 	read_prefs(0,$program_prefs,$filename);
@@ -164,12 +185,21 @@ sub initPrefs
 	}
 
 	init_crypt($crypt_file) if $crypt_file;
+
+	if ($show_init_prefs)
+	{
+		for my $key (sort keys %$program_prefs)
+		{
+			display(0,1,"pref($key) = '$program_prefs->{$key}'");
+		}
+	}
+
 }
 
 
 sub initUserPrefs
 {
-	my ($filename,$defaults) = @_;;
+	my ($filename,$defaults) = @_;
 	$defaults ||= {};
 
 	display($dbg_prefs,0,"initUserPrefs($filename)");
