@@ -663,14 +663,11 @@ sub error
 	# during startup to show error dialog during frame construction
 
     my $app_frame = getAppFrame();
-	Pub::WX::Frame::showError(
-		$app_frame eq 1 ? undef : $app_frame, "Error: ".$msg) if
-		!$suppress_show &&
-		$app_frame &&
-		!threads->tid() &&
-		$app_frame eq '1' || (
-		blessed($app_frame) &&
-		$app_frame->can('showError'));
+	if ($app_frame && !$suppress_show)	# && !threads->tid() ?!?!
+	{
+		my $use_frame = $app_frame eq 1 ? undef : $app_frame;
+		Pub::WX::Frame::showError($use_frame, "Error: ".$msg);
+	}
 
 	return $msg;
 }
