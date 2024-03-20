@@ -2,14 +2,19 @@
 #---------------------------------------
 # Pub::Prefs
 #---------------------------------------
-# A simple text file based preferences file.
+# A simple text file based preferences file, with
+# comment preserving, non-default writing. The client
+# must call explicitly call writePrefs() after calling
+# setPref, setPrefEncrypted, or setPrefSequenced.
 #
-# Program preferences are read-only, highly edited
-# files with comments in them.
+# Any line that matches a default value will be
+# commented out.
 #
-# User preferences are writable, alphabetized,
-# and destroy comments.
-
+# If a line that has a different value than the pref,
+# that line will be changed, and the line rewritten.
+#
+# Otherwise, new lines will be added after a blank line
+# at the end, with a DT stamp comment.
 
 package Pub::Prefs;
 use strict;
@@ -63,23 +68,27 @@ BEGIN
  	use Exporter qw( import );
 	our @EXPORT = qw (
 
+		initPrefs
+		writePrefs
+
 		getPref
-		getSequencedPref
 		getPrefDecrypted
+		getSequencedPref
+
+		setPref
+		setPrefEncrypted
+		getSequencedPref
+
 		getObjectPref
 		copyParamsWithout
 
-		getUserPref
-		setUserPref
-		getUserPrefDecrypted
-		setUserPrefEncrypted
     );
 }
 
+my $pref_filename:shared = '';
+my $prefs:shared = shared_clone({});;
+my $pref_defaults:shared = shared_clone({});
 
-my $program_prefs:shared = shared_clone({});;
-my $user_prefs:shared = shared_clone({});;
-my $user_pref_filename:shared = '';
 
 
 #---------------------------------------
@@ -90,7 +99,7 @@ sub getPref
 {
 	my ($id) = @_;
 	display($dbg_prefs+1,0,"getPref($id)");
-	return $program_prefs->{$id};
+	return $prefs->{$id};
 }
 
 sub getPrefDecrypted
@@ -102,59 +111,69 @@ sub getPrefDecrypted
 	return my_decrypt($value);
 }
 
-
-
-sub getUserPref
-{
-	my ($id) = @_;
-	display($dbg_prefs+1,0,"getUserPref($id)");
-	return $user_prefs->{$id};
-}
-
-sub setUserPref
-{
-	my ($id,$value) = @_;
-	display($dbg_prefs,0,"setUserPref($id,$value)");
-	$user_prefs->{$id} = $value;
-	write_user_prefs();
-}
-
-
-sub getUserPrefDecrypted
-	# the result from this should be used
-	# and de-allocated as quickly as possible
-{
-	my ($id) = @_;
-	my $value = getUserPref($id);
-	return my_decrypt($value);
-}
-
-sub setUserPrefEncrypted
-	# the result from this should be used
-	# and de-allocated as quickly as possible
-{
-	my ($id,$value) = @_;
-	my $encrypted = my_encrypt($value);
-	display($dbg_prefs,0,"setPrefEncrypted($id,$encrypted)");
-	setUserPref($id,$encrypted);
-}
-
-
 sub getSequencedPref
 	# finds a sequence of prefs of the form $id_NN
 	# starting at zero
 {
 	my ($id) = @_;
 	my $num = 0;
-
-	my @rslt = ();
+	my $rslt = [];
 	my $value = getPref($id."_".$num++);
 	while (defined($value))
 	{
-		push @rslt,$value;
+		push @$rslt,$value;
 		$value = getPref($id."_".$num++);
 	}
-	return @rslt;
+	return $rslt;
+}
+
+
+
+
+sub setPref
+{
+	my ($id,$value) = @_;
+	display($dbg_prefs,0,"setPref($id,$value)");
+	$prefs->{$id} = $value;
+}
+
+
+sub setPrefEncrypted
+	# the result from this should be used
+	# and de-allocated as quickly as possible
+{
+	my ($id,$value) = @_;
+	my $encrypted = my_encrypt($value);
+	display($dbg_prefs,0,"setPrefEncrypted($id,$encrypted)");
+	setPref($id,$encrypted);
+}
+
+
+
+sub setSequencedPref
+	# sets a sequence of prefs of the form $id_NN
+	# starting at zero, clearing any previous
+{
+	my ($id,$values) = @_;
+	display($dbg_prefs,0,"setSequencedPref($id)\r".join("\r".@$values));
+
+	my @deletes;
+	my $base = $id."_";
+	for my $key (sort keys %$prefs)
+	{
+		push @deletes,$key if $key =~ /^$base\d+$/;
+	}
+	for my $del (@deletes)
+	{
+		delete $prefs->{key};
+	}
+
+	my $num = 0;
+	for my $value (@$values)
+	{
+		$value = '' if !defined($value);
+		$prefs->{$base.$num} = $value;
+	}
 }
 
 
@@ -175,12 +194,15 @@ sub initPrefs
 	my $use_dbg = $show_init_prefs ? 0 : $dbg_prefs;
 	display($use_dbg,0,"initPrefs($filename,$crypt_file)");
 
-	$program_prefs = shared_clone($defaults);
-	read_prefs(0,$program_prefs,$filename);
+	$pref_filename = $filename;
+	$prefs = shared_clone($defaults);
+	$pref_defaults = shared_clone($defaults);
 
-	if ($program_prefs->{CRYPT_FILE})
+	readPrefs();
+
+	if ($prefs->{CRYPT_FILE})
 	{
-		$crypt_file = $program_prefs->{CRYPT_FILE};
+		$crypt_file = $prefs->{CRYPT_FILE};
 		display($dbg_prefs,1,"using pref CRYPT_FILE=$crypt_file");
 	}
 
@@ -188,35 +210,22 @@ sub initPrefs
 
 	if ($show_init_prefs)
 	{
-		for my $key (sort keys %$program_prefs)
+		for my $key (sort keys %$prefs)
 		{
-			display(0,1,"pref($key) = '$program_prefs->{$key}'");
+			display(0,1,"pref($key) = '$prefs->{$key}'");
 		}
 	}
 
 }
 
 
-sub initUserPrefs
+
+
+sub readPrefs
 {
-	my ($filename,$defaults) = @_;
-	$defaults ||= {};
-
-	display($dbg_prefs,0,"initUserPrefs($filename)");
-
-	$user_prefs = shared_clone($defaults);
-	read_prefs(1,$user_prefs,$filename);
-	$user_pref_filename = $filename;
-}
-
-
-
-sub read_prefs
-{
-	my ($user,$prefs,$filename) = @_;
-	if (-f $filename)
+	if (-f $pref_filename)
 	{
-	    my @lines = getTextLines($filename);
+	    my @lines = getTextLines($pref_filename);
         for my $line (@lines)
         {
 			$line =~ s/#.*$//;
@@ -228,7 +237,7 @@ sub read_prefs
 				my $right = substr($line,$pos+1);
 				$left =~ s/^\s+|\s+$//g;
 				$right =~ s/^\s+|\s+$//g;
-				display($dbg_prefs+1,0,($user?"USER":"PROGRAM")." pref($left)='$right'");
+				display($dbg_prefs+1,0," readPref($left)='$right'");
 				$prefs->{$left} = $right;
 		    }
 		}
@@ -236,18 +245,69 @@ sub read_prefs
 }
 
 
-sub write_user_prefs
+sub writePrefs
 {
-	display($dbg_prefs,0,"write_user_prefs($user_pref_filename)");
+	display($dbg_prefs,0,"writePrefs($pref_filename)");
+
     my $text = '';
-    for my $k (sort(keys(%$user_prefs)))
+	my $found = {};
+	my @lines = getTextLines($pref_filename);
+
+	for my $line (@lines)
+	{
+		my $new_line = $line;
+		my $comment = $line =~ s/(\s+#.*)$// ? $1 : '';
+		my $lead_white =$line =~ s/^(\s+)// ? $1 : '';
+		my $pos = index($line,'=');
+		if ($pos > 1)
+		{
+			my $left = substr($line,0,$pos);
+			my $right = substr($line,$pos+1);
+			$left =~ s/^\s+|\s+$//g;
+			$right =~ s/^\s+|\s+$//g;
+
+			$found->{$left} = 1;
+
+			my $value = $prefs->{$left};
+			my $default = $pref_defaults->{$left};
+
+			# comment out existing line that matches default
+			# value or change existing line that changed ..
+
+			if (defined($value))
+			{
+				if (defined($default) && $value eq $default)
+				{
+					$new_line = '# '.$new_line;
+				}
+				elsif ($right ne $value)
+				{
+					$new_line = $lead_white.$left.' = '.$value.$comment;
+				}
+			}
+
+			$text .= $new_line."\n";
+		}
+	}
+
+	my $extra_added = 0;
+    for my $id (sort(keys(%$prefs)))
     {
-        $text .= "$k=$user_prefs->{$k}\n";
+		next if $found->{$id};
+
+		my $default = $pref_defaults->{$id};
+		my $value = $prefs->{$id};
+		$value = '' if !defined($value);
+		next if defined($default) && $value eq $default;
+
+		$text .= "\n" if !$extra_added;
+		$extra_added++;
+        $text .= "$id = $value\n";
     }
-    if (!printVarToFile(1,$user_pref_filename,$text,1))
+    if (!printVarToFile(1,$pref_filename,$text,1))
     {
-        error("Could not write prefs to $user_pref_filename");
-        return;
+        error("Could not write prefs to $pref_filename");
+        return 0;
     }
     return 1;
 }
