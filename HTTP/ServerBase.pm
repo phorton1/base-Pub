@@ -1081,7 +1081,7 @@ sub handle_request
 		my $color = $msg =~ /ERROR/ ?
 			$DISPLAY_COLOR_ERROR :
 			$UTILS_COLOR_LIGHT_GREEN;
-		display(0,-1,"EMOTE: ".url_decode($msg),0,$color);
+		display(0,-1,"REMOTE: ".url_decode($msg),0,$color);
 
 		# Pub::Utils::_setColor($color);
 		# print "REMOTE: ".url_decode($msg)."\n";
