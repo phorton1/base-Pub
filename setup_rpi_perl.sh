@@ -23,7 +23,7 @@ sudo apt-get install libprotocol-websocket-perl
 sudo apt-get install libio-socket-multicast-perl
 sudo apt-get install libxml-simple-perl
 sudo apt-get install libdbi-perl
-sudo apt-get install libaudio-wma 
+sudo apt-get install libaudio-wma-perl 
 sudo apt-get install libmp4-info-perl
 sudo apt-get install libdbd-sqlite3-perl
 sudo apt-get install libterm-readkey-perl
