@@ -204,11 +204,12 @@ our $data_dir        = '';
 our $logfile         = '';
 our $resource_dir    = '';
 
-my $CHARS_PER_INDENT = 2;
-my $WITH_TIMESTAMPS = 0;
-my $WITH_PROCESS_INFO = 1;
-my $PAD_FILENAMES = 30;
-my $USE_ANSI_COLORS = is_win() ? 0 : 1;
+our $CHARS_PER_INDENT = 2;
+our $LOG_WITH_TIMESTAMPS = 1;
+our $DISPLAY_WITH_TIMESTAMPS = 0;
+our $WITH_PROCESS_INFO = 1;
+our $PAD_FILENAMES = 30;
+our $USE_ANSI_COLORS = is_win() ? 0 : 1;
 	# by default, we use ANSI colors on linux
 
 # THESE COLOR CONSTANTS JUST HAPPEN TO MATCH WINDOWS
@@ -544,31 +545,31 @@ sub _output
     $call_level ||= 0;
     my ($indent,$file,$line,$tree) = get_indent($call_level+1);
 
-	my $dt = $WITH_TIMESTAMPS ? now(1) : '';
-	my $dt_padded = $WITH_TIMESTAMPS  ? pad($dt." ",20) : '';
+	my $dt_padded = pad(now(1)." ",20);
 
 	my $tid = threads->tid();
-	my $proc_info = $WITH_PROCESS_INFO ? "($$,$tid)" : '';
-	my $proc_info_padded = $WITH_PROCESS_INFO ? pad($proc_info,10) : '';
-
-	my $file_part = "$file\[$line\]";
+	my $pi_padded = $WITH_PROCESS_INFO ? pad("($$,$tid)",10) : '';
+	my $file_padded = pad("$file\[$line\]",$PAD_FILENAMES);
 
     $indent = 1-$indent_level if $indent_level < 0;
 	$indent_level = 0 if $indent_level < 0;
-
 	my $fill = pad("",($indent+$indent_level) * $CHARS_PER_INDENT);
-	my $full_message = $dt_padded.$proc_info_padded.pad($file_part,$PAD_FILENAMES);
-	my $header_len = length($full_message);
-	$full_message .= $fill.$msg;
+
+	my $disp_message = ($DISPLAY_WITH_TIMESTAMPS ? $dt_padded : '').$pi_padded.$file_padded;
+	my $disp_header_len = length($disp_message);
+	$disp_message .= $fill.$msg;
 
 	lock($local_sem) if $USE_SHARED_LOCK_SEM;
 	my $got_sem = waitSTDOUTSemaphore();
 
 	if ($logfile)
 	{
+		my $log_header = ($LOG_WITH_TIMESTAMPS ? $dt_padded : '').$pi_padded.$file_padded;
+		my $log_message = $log_header.$fill.$msg;
+
 		if (open(LOGFILE,">>$logfile"))
 		{
-			print LOGFILE $full_message."\n";
+			print LOGFILE $log_message."\n";
 			close LOGFILE;
 		}
 		else
@@ -586,19 +587,19 @@ sub _output
 		if (1)	# split into indented lines on \rs
 		{
 			my $started = 0;
-			my @lines = split(/\r/,$full_message);
+			my @lines = split(/\r/,$disp_message);
 			for my $line (@lines)
 			{
 				next if !defined($line);
 				$line =~ s/^\n|\n$//g;
-				$text .= pad("",$header_len).$fill."    " if $started;
+				$text .= pad("",$disp_header_len).$fill."    " if $started;
 				$text .= $line."\r\n";
 				$started = 1;
 			}
 		}
 		else
 		{
-			$text = $full_message."\r\n";
+			$text = $disp_message."\r\n";
 		}
 
 		_setColor($color);
@@ -619,7 +620,7 @@ sub _output
 
 	if ($output_listener)
 	{
-		return if !$output_listener->onUtilsOutput($full_message,$color);
+		return if !$output_listener->onUtilsOutput($disp_message,$color);
 	}
 
 	releaseSTDOUTSemaphore() if $got_sem;
