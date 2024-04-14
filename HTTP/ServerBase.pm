@@ -369,6 +369,8 @@ sub new
 	getObjectPref($params,'HTTP_FWD_SSH_PORT',undef);
 	getObjectPref($params,'HTTP_FWD_KEYFILE',undef);
 	getObjectPref($params,'HTTP_FWD_PING_REQUEST',undef);
+	getObjectPref($params,'HTTP_FWD_PING_INTERVAL',undef);
+		# defaults to 300 seconds (5 minutes) if not provided
 
 	getObjectPref($params,'HTTP_DEBUG_PING',undef);
 	getObjectPref($params,'HTTP_FWD_DEBUG_PING',undef);

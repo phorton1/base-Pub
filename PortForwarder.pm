@@ -185,8 +185,17 @@ sub new
 	$params->{FWD_SSH_PORT} ||= $DEFAULT_SSH_PORT;
 	$params->{WIN_SSH_PATH} ||= $DEFAULT_WIN_SSH_PATH;
 	$params->{FWD_PING_REQUEST} ||= '';
-	$dbg_ping = $params->{HTTP_FWD_DEBUG_PING}
-		if defined($params->{HTTP_FWD_DEBUG_PING});
+
+	if (defined($params->{FWD_DEBUG_PING}))
+	{
+		display($dbg_fwd,1,"setting dbg_ping to '$params->{FWD_DEBUG_PING}'");
+		$dbg_ping = $params->{FWD_DEBUG_PING}
+	}
+	if (defined($params->{FWD_PING_INTERVAL}))
+	{
+		display($dbg_fwd,1,"setting PING_INTERVAL to '$params->{FWD_PING_INTERVAL}'");
+		$dbg_ping = $params->{FWD_PING_INTERVAL}
+	}
 
 	if (!$params->{SSL})
 	{
