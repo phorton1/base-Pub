@@ -488,11 +488,11 @@ sub stop
     my ($this) = @_;
     $this->dbg(0,0,"serverBase::stop()");
 
+    $this->{stopping} = 1;
+
 	Pub::PortForwarder::stop();
 		# benign if no portForwarder was created
 		# and/or PortForwarder::start() was not called.
-
-    $this->{stopping} = 1;
 
 	my $TIMEOUT = 3;
 	my $time = time();

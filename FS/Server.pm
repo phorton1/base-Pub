@@ -68,9 +68,6 @@ my $notify_all:shared = shared_clone({});
 	# each message has a list of connections that have sent it
 	# and the main server thread reaps the ones that done.
 my $active_connections = shared_clone({});
-my $port_forwarder;
-
-
 
 
 
@@ -94,14 +91,20 @@ sub new
 	getObjectPref($params,'FS_SSL_CERT_FILE',undef,!$params->{FS_SSL});
 	getObjectPref($params,'FS_SSL_KEY_FILE',undef,!$params->{FS_SSL});
 
+	getObjectPref($params,'FS_DO_FORWARD',undef);
+
 	getObjectPref($params,'FS_FWD_PORT',undef);
-	getObjectPref($params,'FS_FWD_USER',undef,!$params->{FS_FWD_PORT});
-	getObjectPref($params,'FS_FWD_SERVER',undef,!$params->{FS_FWD_PORT});
-	getObjectPref($params,'FS_FWD_SSH_PORT',undef,!$params->{FS_FWD_PORT});
-	getObjectPref($params,'FS_FWD_KEYFILE',undef,!$params->{FS_FWD_PORT});
+	getObjectPref($params,'FS_FWD_USER',undef);
+	getObjectPref($params,'FS_FWD_SERVER',undef);
+	getObjectPref($params,'FS_FWD_SSH_PORT',undef);
+	getObjectPref($params,'FS_FWD_KEYFILE',undef);
+
+	getObjectPref($params,'FS_FWD_PING_REQUEST',undef);
+		# drives ping.  Will just be the word "PING"
+	getObjectPref($params,'FS_FWD_PING_INTERVAL',undef);
 
 	getObjectPref($params,'FS_DEBUG_PING',undef);
-	getObjectPref($params,'FS_FWD_DEBUG_PING',undef,!$params->{FS_FWD_PORT});
+	getObjectPref($params,'FS_FWD_DEBUG_PING',undef);
 
 	# hardwired portForwarder and FS::ServerSession parameters:
 
@@ -163,8 +166,9 @@ sub stop
     my $time = time();
     $this->{stopping} = 1;
 
-	Pub::PortForwarder::stop() if $port_forwarder;
-	$port_forwarder = undef;
+	Pub::PortForwarder::stop();
+		# benign if no portForwarder was created
+		# and/or PortForwarder::start() was not called.
 
     while ($this->{running} && time() < $time + $TIMEOUT)
     {
@@ -238,7 +242,7 @@ sub serverThread
 	# forward the Port if asked to
 	# Pub::ForwardPort start() is re-entrant
 
-	if ($this->{FS_FWD_PORT})
+	if ($this->{FS_DO_FORWARD})
 	{
 		# the PortForwarder needs the SSL parameters from preferences
 		# so that it can do a standard HTTP PING.
@@ -246,8 +250,7 @@ sub serverThread
 		# so that portForwder can use them.
 
 		my $fwd_params = copyParamsWithout($this,"FS_");
-		$port_forwarder = Pub::PortForwarder->new($fwd_params);
-		Pub::PortForwarder::start() if $port_forwarder;
+		Pub::PortForwarder::start() if Pub::PortForwarder->new($fwd_params);
 	}
 
     # loop accepting connectons from clients

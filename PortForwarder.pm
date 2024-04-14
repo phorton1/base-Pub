@@ -443,7 +443,7 @@ sub checkStart
 		$text =~ /remote port forwarding failed/ ||
 		$text =~ /Host key verification failed/)
 	{
-		error("FWD($this->{PORT} to $this->{FWD_PORT}) not available! restarting in $FWD_START_TIME_FAIL seconds ....");
+		error("FWD($this->{PORT} to $this->{FWD_PORT}) not available!");
 		LOG(0,"");
 		LOG(0,$text);
 		LOG(0,"");
@@ -466,12 +466,13 @@ sub checkStart
 sub stopSelf
 {
 	my ($this,$msg,$restart_time) = @_;
-	error("FWD($this->{PORT} to $this->{FWD_PORT}) $msg!! restarting in $restart_time seconds");
+	$this->{fail_count}++;
+	error("FWD($this->{PORT} to $this->{FWD_PORT}) fail($this->{fail_count}) $msg!! restarting in $restart_time seconds");
 	kill 9, $this->{pid};	# JIC it's still running
 
 	if ($this->{FWD_CRITICAL_RETRIES})
 	{
-		$this->{fail_count}++;
+
 		if ($this->{fail_count} >= $this->{FWD_CRITICAL_RETRIES})
 		{
 			error("FWD_CRITICAL_RETRIES($this->{fail_count}) - Rebooting or Restarting Service");
