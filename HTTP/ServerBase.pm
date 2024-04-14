@@ -395,6 +395,7 @@ sub new
 	getObjectPref($params,'HTML_USE_INCLUDES', undef);
 
 	getObjectPref($params,'HTTP_ALLOW_REBOOT', undef);
+		# also allows 'shutdown' command
 	getObjectPref($params,'HTTP_RESTART_SERVICE', undef);
 	getObjectPref($params,'HTTP_GIT_UPDATE', undef);
 
@@ -1089,6 +1090,12 @@ sub handle_request
 		return http_ok($request,"");
 	}
 
+	elsif ($uri eq "/shutdown" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
+	{
+		LOG(0,"Shutting down the rPi");
+		system("sudo reboot");
+		return html_ok($request,"Shutting down the Server");
+	}
 	elsif ($uri eq "/reboot" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
 	{
 		LOG(0,"Rebooting the rPi");
