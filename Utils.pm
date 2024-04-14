@@ -545,7 +545,7 @@ sub _output
     $call_level ||= 0;
     my ($indent,$file,$line,$tree) = get_indent($call_level+1);
 
-	my $dt_padded = pad(now(1)." ",20);
+	my $dt_padded = pad(now(0,1)." ",20);
 
 	my $tid = threads->tid();
 	my $pi_padded = $WITH_PROCESS_INFO ? pad("($$,$tid)",10) : '';
@@ -905,11 +905,14 @@ sub now
 	my ($gm_time, $with_date) = @_;
 	$with_date ||= 0;
     my @time_parts = $gm_time ? gmtime() : localtime();
-	my $time =
+	my $time = $with_date ?
+		($time_parts[5]+1900).'-'.
+		pad2($time_parts[4]+1).'-'.
+		pad2($time_parts[3]).' ' : '';
+	$time .=
 		pad2($time_parts[2]).':'.
 		pad2($time_parts[1]).':'.
 		pad2($time_parts[0]);
-	$time = today().' '.$time if $with_date;
     return $time;
 }
 
