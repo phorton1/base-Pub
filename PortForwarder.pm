@@ -195,7 +195,7 @@ sub new
 	if (defined($params->{FWD_PING_INTERVAL}))
 	{
 		display($dbg_fwd,1,"setting PING_INTERVAL to '$params->{FWD_PING_INTERVAL}'");
-		$dbg_ping = $params->{FWD_PING_INTERVAL}
+		$FWD_PING_INTERVAL = $params->{FWD_PING_INTERVAL}
 	}
 
 	if (!$params->{SSL})
