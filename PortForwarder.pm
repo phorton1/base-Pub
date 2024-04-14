@@ -7,6 +7,11 @@
 # An instance of the object is created for each forwarded port,
 # and then the global Pub::PortForwarder::start() method is called
 # which starts a thread that connects and monitors the ports.
+# Although the API allows for multiple ports to be forwarded,
+# in practice, only a single port is forwarded per application,
+# and the isThreadRunning() method and shared $thread_runnning
+# boolean is synonymous with a port being forwarded.
+#
 #
 # Requires substantial external setup on a server somewhere.
 # Does not use SSH passwords; uses a key file only.
@@ -107,6 +112,13 @@ my $ssh_stderr = gensym();
 	# these variables are global, but are only passed to the forked
 	# ssh run by open3, and so they are not really for our address space.
 
+
+sub isThreadRunning
+	# in practice, this is synonymous with
+	# a port being forwarded.
+{
+	return $thread_running;
+}
 
 # on Windows I have a plethora of ssh.exe's to chose from
 # the default by path is C:\MinGW\msys\1.0\bin\ssh

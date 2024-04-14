@@ -207,7 +207,6 @@ my $DEFAULT_MAX_THREADS = 10;
 	# If the user doesn't specify
 
 
-my $port_forwarder;
 my $accept_queue = Thread::Queue->new;
 my $closed_queue = Thread::Queue->new;
 my $kept_open_queue:shared = shared_clone({});
@@ -358,13 +357,18 @@ sub new
 	getObjectPref($params,'HTTP_DEBUG_SSL',0,!$params->{HTTP_SSL});
 	getObjectPref($params,'HTTP_SSL_CERT_FILE',undef,!$params->{HTTP_SSL});
 	getObjectPref($params,'HTTP_SSL_KEY_FILE',undef,!$params->{HTTP_SSL});
+
+	# HTTP_DO_FORWARD triggers forwarding so that
+	# the HTTP_FWD_PORT pref can stay unchanged
+
+	getObjectPref($params,'HTTP_DO_FORWARD',undef);
 	getObjectPref($params,'HTTP_FWD_PORT',undef);
-	getObjectPref($params,'HTTP_FWD_USER',undef,!$params->{HTTP_FWD_PORT});
-	getObjectPref($params,'HTTP_FWD_SERVER',undef,!$params->{HTTP_FWD_PORT});
-	getObjectPref($params,'HTTP_FWD_SSH_PORT',undef,!$params->{HTTP_FWD_PORT});
-	getObjectPref($params,'HTTP_FWD_KEYFILE',undef,!$params->{HTTP_FWD_PORT});
+	getObjectPref($params,'HTTP_FWD_USER',undef);
+	getObjectPref($params,'HTTP_FWD_SERVER',undef);
+	getObjectPref($params,'HTTP_FWD_SSH_PORT',undef);
+	getObjectPref($params,'HTTP_FWD_KEYFILE',undef);
 	getObjectPref($params,'HTTP_DEBUG_PING',undef);
-	getObjectPref($params,'HTTP_FWD_DEBUG_PING',undef,!$params->{HTTP_FWD_PORT});
+	getObjectPref($params,'HTTP_FWD_DEBUG_PING',undef);
 
 	getObjectPref($params,'HTTP_DEBUG_SERVER',0);
 	getObjectPref($params,'HTTP_DEBUG_REQUEST',0);
@@ -471,6 +475,11 @@ sub stop
 {
     my ($this) = @_;
     $this->dbg(0,0,"serverBase::stop()");
+
+	Pub::PortForwarder::stop();
+		# benign if no portForwarder was created
+		# and/or PortForwarder::start() was not called.
+
     $this->{stopping} = 1;
 
 	my $TIMEOUT = 3;
@@ -483,9 +492,6 @@ sub stop
 	$this->{running} = 0;
     $this->dbg(0,1,"serverBase::stop() finished");
 }
-
-
-
 
 
 
@@ -521,16 +527,15 @@ sub serverThread
 	# forward the Port if asked to
 	# Pub::ForwardPort start() is re-entrant
 
-	if ($this->{HTTP_FWD_PORT})
+	if ($this->{HTTP_DO_FORWARD})
 	{
 		# the PortForwarder needs the SSL parameters from preferences
 		# so that it can do a standard HTTP PING.
-		# Here we duplicate the FS parameters, removing the FS_ prefix
-		# so that portForwder can use them.
+		# Here we duplicate the HTTP parameters, removing the HTTP_ prefix
+		# so that portForwder can use them, and call start() if new() works.
 
 		my $fwd_params = copyParamsWithout($this,"HTTP_");
-		$port_forwarder = Pub::PortForwarder->new($fwd_params);
-		Pub::PortForwarder::start() if $port_forwarder;
+		Pub::PortForwarder::start() if Pub::PortForwarder->new($fwd_params);
 	}
 
     #--------------------------------------
@@ -561,7 +566,7 @@ sub serverThread
 			# the unnessecary lookup of the peer_host, which probably
 			# uses DNS, was taking a lot of time.
 			#
-			# Second, in copy-pazte programming from someone else, that
+			# Second, in copy-paste programming from someone else, that
 			# I didn't really understand, I had a "if ($sock == $socket)"
 			# check arouond the whole block, which *seemed* to cause
 			# disconnects.
@@ -1093,7 +1098,7 @@ sub handle_request
 	elsif ($uri eq "/shutdown_system" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
 	{
 		LOG(0,"Shutting down the rPi");
-		system("sudo reboot");
+		system("sudo shutdown");
 		return html_ok($request,"Shutting down the Server");
 	}
 	elsif ($uri eq "/reboot" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
@@ -1154,9 +1159,36 @@ sub handle_request
 		}
 	}
 
+	# PORT FORWARDING TOGGLE
+
+	elsif ($uri =~ /^\/forward_(start|stop)/)
+	{
+		# Handled as a modification to the prefs followed by a service restart
+		# The HTTP_FWD_PORT is stored persistently in pref IOT_USE_FWD_PORT
+
+		my $port = '';
+		my $command = $1;
+		my $is_forwarded = Pub::PortForwarder::isThreadRunning();
+
+		LOG(0,"FORWARD_COMMAND($command) is_forwarded($is_forwarded)");
+
+		return http_error($request,"PortForwarder is already running")
+			if $command eq 'start' && $is_forwarded;
+		return http_error($request,"PortForwarder is not running")
+			if $command eq 'stop' && !$is_forwarded;
+
+		setPref('HTTP_DO_FORWARD',$command eq 'start' ? 1 : 0);
+		writePrefs();
+
+		# service will be restarted only $AS_SERVICE
+		# must be restarted manually for testing from command lline
+
+		restartService( $this->{HTTP_RESTART_SERVICE});
+		return html_ok($request,"$uri restarting Service");
+	}
+
 
 	# FALL THROUGH TO GENERIC FILE REQUESTS
-
     # don't allow .. addressing
 
     if ($uri =~ /\.\./)

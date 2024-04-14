@@ -70,6 +70,7 @@ BEGIN
 
 		initPrefs
 		writePrefs
+		getAllPrefs
 
 		getPref
 		getPrefDecrypted
@@ -94,6 +95,12 @@ my $pref_defaults:shared = shared_clone({});
 #---------------------------------------
 # accessors
 #---------------------------------------
+
+sub getAllPrefs
+{
+	return $prefs;
+}
+
 
 sub getPref
 {
@@ -285,9 +292,8 @@ sub writePrefs
 					$new_line = $lead_white.$left.' = '.$value.$comment;
 				}
 			}
-
-			$text .= $new_line."\n";
 		}
+		$text .= $new_line."\n";
 	}
 
 	my $extra_added = 0;
