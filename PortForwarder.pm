@@ -12,18 +12,26 @@
 # and the isThreadRunning() method and shared $thread_runnning
 # boolean is synonymous with a port being forwarded.
 #
-#
 # Requires substantial external setup on a server somewhere.
 # Does not use SSH passwords; uses a key file only.
 # May need to be run from command line to enter password first time.
 #
-# Ping is implemented as sending a somewhat standard single line
-# requst to the server, typically of the form:
+# Ping is implemented/driven by sending a somewhat standard single
+# line requst to the server, typically of the form:
 #
-#	GET /PING HTTP/1.1
+#	FWD_PING_REQUEST = GET /PING HTTP/1.1
 #
 # Any servers that need to stay alive using ping must respond
-# to the request line they pass in.
+# to the request line they pass in and return a non-blank response.
+#
+# In specific cases (myIOTServer running on the rPi) port forwarding
+# is considered a critical function and FWD_CRITICAL_RETRIES=20 is
+# passed in.  Note that this can result in boot loops if there is
+# a problem with the rPi SDCard, or unexpected reboots, for example,
+# while listening to music (if HTTP_DO_FORWARD *and* FWD_CRITICAL_RETRIES
+# are both turned on). Note also that do not consider the fileServer to
+# be a 'critcal' process. If the myIOTServer succeeds in forwarding
+# a port we can always reboot the rPi remotely as needed.
 
 
 package Pub::PortForwarder;
@@ -33,6 +41,7 @@ use threads;
 use threads::shared;
 use Pub::Utils;
 use Pub::Prefs;
+use Pub::ServiceMain;
 use LWP::UserAgent;
 use IPC::Open3;
 use IO::Socket::SSL;
@@ -47,6 +56,8 @@ my $dbg_kill = 0;
 my $dbg_ping = 1;		# ping failures are hard to thoroughly test
 
 
+
+
 # These parameters are generally useful, but available
 # via exports if clients want to modify them.
 
@@ -56,6 +67,8 @@ our $FWD_TIMEOUT = 30;
 	# STATE_STARTING ports timeout after this many seconds
 our $FWD_CHECK_INTERVAL = 15;	   # 60;
 	# check pid and/or ping STATE_SUCCESS ports every this many seconds
+our $FWD_PING_INTERVAL = 300;
+	# Do a ping test every this often seconds
 our $FWD_PING_TIMEOUT = 10;
 	# how long to wait for ping response
 	# set to zero to disable ping testing
@@ -120,6 +133,7 @@ sub isThreadRunning
 	return $thread_running;
 }
 
+
 # on Windows I have a plethora of ssh.exe's to chose from
 # the default by path is C:\MinGW\msys\1.0\bin\ssh
 # OpenSSL 1.0.0 29 Mar 2010 which does not support the -E (logfile) option
@@ -146,6 +160,7 @@ sub new
 	#	FWD_KEYFILE			= keyfile for SSH
 	#	WIN_SSH_PATH		= path to ssh.exe if is_win()
 	#	FWD_PING_REQUEST	= optional "GET /PING HTTP/1.1" or similar
+	#	FWD_DEBUG_PING      = optional $dbg_ping value from prefs file
 	#
 	# Plus if SSL, to do a standard HTTP Ping:
 	#	SSLP
@@ -153,14 +168,25 @@ sub new
 	#	SSL_KEY_FILE}
 	#	SSL_CA_FILE}
 	#	DEBUG_SSL}
+	#
+	# Critical processes can add
+	#
+	#	FWD_CRITICAL_RETRIES = 20
+	#
+	# and the rPi will reboot, or Windows will restart the service
+	# after that number of failures
 {
 	my ($class,$params) = @_;
+
+
 
 	display_hash($dbg_fwd+1,0,"PortForwarder::new()",$params);
 
 	$params->{FWD_SSH_PORT} ||= $DEFAULT_SSH_PORT;
 	$params->{WIN_SSH_PATH} ||= $DEFAULT_WIN_SSH_PATH;
 	$params->{FWD_PING_REQUEST} ||= '';
+	$dbg_ping = $params->{HTTP_FWD_DEBUG_PING}
+		if defined($params->{HTTP_FWD_DEBUG_PING});
 
 	if (!$params->{SSL})
 	{
@@ -175,6 +201,7 @@ sub new
 	$this->{state} = $FWD_STATE_NONE;
 	$this->{start_time} = time() + $FWD_START_TIME_INITIAL;
 	$this->{ssh_output_file} = "$temp_dir/port.$this->{PORT}.$this->{FWD_PORT}.txt";
+	$this->{fail_count} = 0;
 
 	$this->{ssh_exe} = 'ssh';
 	if (is_win())
@@ -216,7 +243,7 @@ sub stop
 		{
 			if ($fwd->{pid})
 			{
-				LOG(-1,"Killing fwd($fwd->{PORT} to $fwd->{FWD_PORT} pid=$fwd->{pid}");
+				LOG(-1,"Killing fwd($fwd->{PORT} to $fwd->{FWD_PORT}) pid=$fwd->{pid}");
 				kill 9, $fwd->{pid};
 				undef $fwd;
 			}
@@ -296,11 +323,13 @@ sub threadBody
 
 				# If the process appears to be running, try a ping
 
-				elsif ($fwd->{FWD_PING_REQUEST} && $FWD_PING_TIMEOUT)
+				elsif ($fwd->{FWD_PING_REQUEST} &&
+					   $now > $fwd->{ping_time} + $FWD_PING_INTERVAL)
 				{
 					return if $stopping;
 					$fwd->stopSelf("PING FAILED",$FWD_START_TIME_PING_FAIL)
 						if !$fwd->doPing();
+					$fwd->{ping_time} = time();
 				}
 				return;
 			}
@@ -400,7 +429,8 @@ sub checkStart
 	display($dbg_fwd,0,"FWD_CHECK_START($this->{PORT}:$this->{FWD_PORT})");
 	display($dbg_fwd+1,0,"fwd_text=$text");
 
-	if ($text =~ /remote port forwarding failed/ ||
+	if ($this->{FWD_TEST_FAILURES} ||	# testing failures
+		$text =~ /remote port forwarding failed/ ||
 		$text =~ /Host key verification failed/)
 	{
 		error("FWD($this->{PORT} to $this->{FWD_PORT}) not available! restarting in $FWD_START_TIME_FAIL seconds ....");
@@ -428,6 +458,18 @@ sub stopSelf
 	my ($this,$msg,$restart_time) = @_;
 	error("FWD($this->{PORT} to $this->{FWD_PORT}) $msg!! restarting in $restart_time seconds");
 	kill 9, $this->{pid};	# JIC it's still running
+
+	if ($this->{FWD_CRITICAL_RETRIES})
+	{
+		$this->{fail_count}++;
+		if ($this->{fail_count} >= $this->{FWD_CRITICAL_RETRIES})
+		{
+			error("FWD_CRITICAL_RETRIES($this->{fail_count}) - Rebooting or Restarting Service");
+			Pub::ServiceMain::doRebootMachine();
+			while (1) { sleep(1) };
+		}
+	}
+
 	$this->{pid} = 0;
 	$this->{state} = $FWD_STATE_FAIL;
 	$this->{start_time} = time() + $restart_time;
@@ -465,7 +507,7 @@ sub doPing
 	my $host = $this->{FWD_SERVER};
     my $port = $this->{FWD_PORT};
 	my $host_port = "$host:$port";
-	display($dbg_ping,0,"doPing($host_port)");
+	display($dbg_ping,0,"doPing($host_port) request($this->{FWD_PING_REQUEST})");
 
 	$this->{in_ping} = 1;
 	my $save_debug = $IO::Socket::SSL::DEBUG;
@@ -504,7 +546,7 @@ sub doPing
 		goto END_PING;
     }
 
-	my $packet = $this->{FWD_PING_REQUEST}."\r\n";
+	my $packet = $this->{FWD_PING_REQUEST}."\r\n\r\n";
 	my $len = length($packet);
 	my $bytes = syswrite($sock,$packet);
 	if ($bytes != $len)
@@ -524,7 +566,7 @@ sub doPing
 	# The reply *should* contain 'OK'
 	# But we accept any response from the server
 
-	display($dbg_ping,0,"doPing($host_port) got $line");
+	display($dbg_ping,0,"doPing($host_port) got '$line'");
 
 END_PING:
 

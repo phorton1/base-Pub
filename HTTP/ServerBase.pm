@@ -259,7 +259,7 @@ sub HTTP_LOG
 	if (open OUTPUT_FILE,">>$this->{LOGFILE}")
 	{
 		my $tid = threads->tid();;
-		my $dt = pad(now(1)." ".$login_name,28);
+		my $dt = pad(now(0,1)." ".$login_name,28);
 		my ($indent,$file,$line,$tree) = Pub::Utils::get_indent($call_level+1,0);
 		my $header = "($tid,$indent_level)$file\[$line\]";
 
@@ -362,13 +362,23 @@ sub new
 	# the HTTP_FWD_PORT pref can stay unchanged
 
 	getObjectPref($params,'HTTP_DO_FORWARD',undef);
+
 	getObjectPref($params,'HTTP_FWD_PORT',undef);
 	getObjectPref($params,'HTTP_FWD_USER',undef);
 	getObjectPref($params,'HTTP_FWD_SERVER',undef);
 	getObjectPref($params,'HTTP_FWD_SSH_PORT',undef);
 	getObjectPref($params,'HTTP_FWD_KEYFILE',undef);
+	getObjectPref($params,'HTTP_FWD_PING_REQUEST',undef);
+
 	getObjectPref($params,'HTTP_DEBUG_PING',undef);
 	getObjectPref($params,'HTTP_FWD_DEBUG_PING',undef);
+
+	getObjectPref($params,'HTTP_FWD_CRITICAL_RETRIES',undef);
+	getObjectPref($params,'HTTP_FWD_TEST_FAILURES',undef);
+		# not prefaced with HTTP_, the myIOTServer is the only
+		# 'critical' function that will reboot if it fails more
+		# than a certain number of times.
+
 
 	getObjectPref($params,'HTTP_DEBUG_SERVER',0);
 	getObjectPref($params,'HTTP_DEBUG_REQUEST',0);
@@ -824,7 +834,7 @@ sub clientRequest
 
 		my $is_ping = $method eq 'PING' || ($method =~ /get/i && $uri eq "/PING") ? 1 : 0;
 		$this->HTTP_LOG($request,0,"request($request_num) $method $uri $dbg_from")
-			if !$is_ping || $$this->{HTTP_DEBUG_PING};
+			if !$is_ping || $this->{HTTP_DEBUG_PING};
 
 		# prep the socket
 

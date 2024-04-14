@@ -87,6 +87,21 @@ sub doRestartService
 }
 
 
+sub doRebootMachine
+	# added for portForwarder critical timeout
+{
+	LOG(0,"REBOOTING MACHINE $service_name SERVICE AS_SERVICE=$AS_SERVICE");
+	if (is_win())
+	{
+		return if !$AS_SERVICE;
+		kill 9, $$;		# 9 == SIGKILL
+	}
+	else
+	{
+		system("sudo reboot");
+	}
+}
+
 
 
 sub main_loop
