@@ -53,8 +53,8 @@ my $DEBUG_PING_SSL = 0;
 
 my $dbg_fwd = 0;		# -1 for pid, details
 my $dbg_kill = 0;
-my $dbg_ping = 1;		# ping failures are hard to thoroughly test
-
+my $dbg_ping:shared = 1;		# ping failures are hard to thoroughly test
+	# $dbg_ping must be shared to be set in ctor from thread
 
 
 
@@ -67,8 +67,9 @@ our $FWD_TIMEOUT = 30;
 	# STATE_STARTING ports timeout after this many seconds
 our $FWD_CHECK_INTERVAL = 15;	   # 60;
 	# check pid and/or ping STATE_SUCCESS ports every this many seconds
-our $FWD_PING_INTERVAL = 300;
+our $FWD_PING_INTERVAL:shared = 300;
 	# Do a ping test every this often seconds
+	# has to be shared to be set from ctor in thread
 our $FWD_PING_TIMEOUT = 10;
 	# how long to wait for ping response
 	# set to zero to disable ping testing
