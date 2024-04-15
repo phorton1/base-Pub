@@ -246,8 +246,10 @@ sub new
 	$params->{FWD_START_TIME_TIMEOUT} 		||= $DEFAULT_START_TIME_TIMEOUT;
 	$params->{FWD_START_TIME_DIED} 			||= $DEFAULT_START_TIME_DIED;
 	$params->{FWD_START_TIME_PING_FAIL} 	||= $DEFAULT_START_TIME_PING_FAIL;
-	$params->{FWD_KEEP_ALIVE}				= $DEFAULT_KEEP_ALIVE
+	$params->{FWD_KEEP_ALIVE} = $DEFAULT_KEEP_ALIVE
 		if !defined($params->{FWD_KEEP_ALIVE});
+	$params->{FWD_DEBUG_PING} = $default_dbg_ping
+		if !defined($params->{FWD_DEBUG_PING});
 
 	if (!$params->{SSL})
 	{
