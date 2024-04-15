@@ -93,24 +93,35 @@ sub new
 
 	getObjectPref($params,'FS_DO_FORWARD',undef);
 
-	getObjectPref($params,'FS_FWD_PORT',undef);
-	getObjectPref($params,'FS_FWD_USER',undef);
-	getObjectPref($params,'FS_FWD_SERVER',undef);
-	getObjectPref($params,'FS_FWD_SSH_PORT',undef);
-	getObjectPref($params,'FS_FWD_KEYFILE',undef);
+	# getObjectPref($params,'FS_FWD_PORT',undef);
+	# getObjectPref($params,'FS_FWD_USER',undef);
+	# getObjectPref($params,'FS_FWD_SERVER',undef);
+	# getObjectPref($params,'FS_FWD_SSH_PORT',undef);
+	# getObjectPref($params,'FS_FWD_KEYFILE',undef);
+	# getObjectPref($params,'FS_FWD_PING_REQUEST',undef);
+	# 	# drives ping.  Will just be the word "PING"
+	# getObjectPref($params,'FS_FWD_PING_INTERVAL',undef);
+	# getObjectPref($params,'FS_DEBUG_PING',undef);
+	# getObjectPref($params,'FS_FWD_DEBUG_PING',undef);
+	# $params->{FS_FWD_PING_REQUEST} ||= $PROTOCOL_PING if $params->{FS_FWD_PORT};
+	# 	hardwired portForwarder and FS::ServerSession parameters:
 
-	getObjectPref($params,'FS_FWD_PING_REQUEST',undef);
-		# drives ping.  Will just be the word "PING"
-	getObjectPref($params,'FS_FWD_PING_INTERVAL',undef);
-
-	getObjectPref($params,'FS_DEBUG_PING',undef);
-	getObjectPref($params,'FS_FWD_DEBUG_PING',undef);
-
-	# hardwired portForwarder and FS::ServerSession parameters:
-
-	$params->{FS_FWD_PING_REQUEST} = $PROTOCOL_PING if $params->{FS_FWD_PORT};
 	$params->{SEND_EXIT} = 1;
 		# whether to send an EXIT on shutdown
+
+	# Any other prefs that start with FS_
+
+	my $all_prefs = getAllPrefs();
+	for my $key (sort keys %$all_prefs)
+	{
+		next if $key !~ /^FS_/;
+		my $value = $all_prefs->{$key};
+		my $exists = $params->{$key};
+		$params->{$key} = $value
+			if (defined($value) && !defined($exists))
+	}
+
+
 
 	# IO::Socket:SSL::DEBUG gets set to the highest
 	# value specified by any packages:

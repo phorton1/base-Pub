@@ -349,7 +349,10 @@ sub new
     my ($class,$params) = @_;
 	$params ||= {};
 
+	# params with default values
+
 	getObjectPref($params,'HTTP_SERVER_NAME','ServerBase('.getMachineId().')');
+	getObjectPref($params,'HTTP_MAX_THREADS',$DEFAULT_MAX_THREADS);
 
 	getObjectPref($params,'HTTP_SSL',0);
 	getObjectPref($params,'HTTP_PORT',undef);
@@ -358,64 +361,14 @@ sub new
 	getObjectPref($params,'HTTP_SSL_CERT_FILE',undef,!$params->{HTTP_SSL});
 	getObjectPref($params,'HTTP_SSL_KEY_FILE',undef,!$params->{HTTP_SSL});
 
-	# HTTP_DO_FORWARD triggers forwarding so that
-	# the HTTP_FWD_PORT pref can stay unchanged
-
-	getObjectPref($params,'HTTP_DO_FORWARD',undef);
-
-	getObjectPref($params,'HTTP_FWD_PORT',undef);
-	getObjectPref($params,'HTTP_FWD_USER',undef);
-	getObjectPref($params,'HTTP_FWD_SERVER',undef);
-	getObjectPref($params,'HTTP_FWD_SSH_PORT',undef);
-	getObjectPref($params,'HTTP_FWD_KEYFILE',undef);
-	getObjectPref($params,'HTTP_FWD_PING_REQUEST',undef);
-	getObjectPref($params,'HTTP_FWD_PING_INTERVAL',undef);
-		# defaults to 300 seconds (5 minutes) if not provided
-
-	getObjectPref($params,'HTTP_DEBUG_PING',undef);
-	getObjectPref($params,'HTTP_FWD_DEBUG_PING',undef);
-
-	getObjectPref($params,'HTTP_FWD_CRITICAL_RETRIES',undef);
-	getObjectPref($params,'HTTP_FWD_TEST_FAILURES',undef);
-		# not prefaced with HTTP_, the myIOTServer is the only
-		# 'critical' function that will reboot if it fails more
-		# than a certain number of times.
-
+	getObjectPref($params,'HTTP_DOCUMENT_ROOT','');
+	getObjectPref($params,'HTTP_DEFAULT_LOCATION','index.html');
+	getObjectPref($params,'HTTP_GET_EXT_RE','html|js|css|jpg|png|ico');
+	getObjectPref($params,'HTTP_SCRIPT_EXT_RE',undef);
 
 	getObjectPref($params,'HTTP_DEBUG_SERVER',0);
 	getObjectPref($params,'HTTP_DEBUG_REQUEST',0);
 	getObjectPref($params,'HTTP_DEBUG_RESPONSE',0);
-	getObjectPref($params,'HTTP_DEBUG_QUIET_RE',undef);
-	getObjectPref($params,'HTTP_DEBUG_LOUD_RE',undef);
-	getObjectPref($params,'HTTP_LOGFILE',undef);
-
-	getObjectPref($params,'HTTP_AUTH_FILE',undef);
-	getObjectPref($params,'HTTP_AUTH_REALM',undef);
-	getObjectPref($params,'HTTP_AUTH_ENCRYPTED',undef);
-
-	getObjectPref($params,'HTTP_MAX_THREADS',$DEFAULT_MAX_THREADS);
-
-	getObjectPref($params,'HTTP_DOCUMENT_ROOT','');
-	getObjectPref($params,'HTTP_DEFAULT_LOCATION','index.html');
-	getObjectPref($params,'HTTP_FAVICON',undef);
-	getObjectPref($params,'HTTP_GET_EXT_RE','html|js|css|jpg|png|ico');
-	getObjectPref($params,'HTTP_SCRIPT_EXT_RE',undef);
-
-	getObjectPref($params,'HTTP_MINIFIED_JS',undef);
-	getObjectPref($params,'HTTP_MINIFIED_CSS',undef);
-
-	getObjectPref($params,'HTTP_KEEP_ALIVE',undef);
-	getObjectPref($params,'HTTP_ZIP_RESPONSES',undef);
-	getObjectPref($params,'HTTP_AUTH_FILE',undef);
-
-	getObjectPref($params,'HTML_USE_INCLUDES', undef);
-
-	getObjectPref($params,'HTTP_ALLOW_REBOOT', undef);
-		# also allows 'shutdown' command
-	getObjectPref($params,'HTTP_RESTART_SERVICE', undef);
-	getObjectPref($params,'HTTP_GIT_UPDATE', undef);
-
-	display_hash(0,0,"Pub::ServerBase::new()",$params);
 
 	# HTTP_DEFAULT_HEADERS
 	# you may override the entire set of default headers
@@ -434,6 +387,56 @@ sub new
 
 	getDefHeadersPref($params,'');
 
+	getObjectPref($params,'HTTP_DO_FORWARD',undef);
+		# HTTP_DO_FORWARD triggers forwarding so that
+		# the HTTP_FWD_PORT pref can stay unchanged
+
+
+	# Add any other prefs that start with HTTP_
+	# Which allows for easier addition to portForwarder, for instance,
+	# but which means that documentation is a hassle.
+	#
+	#	getObjectPref($params,'HTTP_FWD_PORT',undef);
+	#	getObjectPref($params,'HTTP_FWD_USER',undef);
+	#	getObjectPref($params,'HTTP_FWD_SERVER',undef);
+	#	getObjectPref($params,'HTTP_FWD_SSH_PORT',undef);
+	#	getObjectPref($params,'HTTP_FWD_KEYFILE',undef);
+	#	getObjectPref($params,'HTTP_FWD_PING_REQUEST',undef);
+	#	getObjectPref($params,'HTTP_FWD_PING_INTERVAL',undef);
+	#	getObjectPref($params,'HTTP_DEBUG_PING',undef);
+	#	getObjectPref($params,'HTTP_FWD_DEBUG_PING',undef);
+	#	getObjectPref($params,'HTTP_FWD_CRITICAL_RETRIES',undef);
+	#	getObjectPref($params,'HTTP_FWD_TEST_FAILURES',undef);
+    #
+	#	getObjectPref($params,'HTTP_FAVICON',undef);
+	#	getObjectPref($params,'HTTP_DEBUG_QUIET_RE',undef);
+	#	getObjectPref($params,'HTTP_DEBUG_LOUD_RE',undef);
+	#	getObjectPref($params,'HTTP_LOGFILE',undef);
+	#	getObjectPref($params,'HTTP_AUTH_FILE',undef);
+	#	getObjectPref($params,'HTTP_AUTH_REALM',undef);
+	#	getObjectPref($params,'HTTP_AUTH_ENCRYPTED',undef);
+	#	getObjectPref($params,'HTTP_MINIFIED_JS',undef);
+	#	getObjectPref($params,'HTTP_MINIFIED_CSS',undef);
+	#	getObjectPref($params,'HTTP_KEEP_ALIVE',undef);
+	#	getObjectPref($params,'HTTP_ZIP_RESPONSES',undef);
+	#	getObjectPref($params,'HTTP_AUTH_FILE',undef);
+	#	getObjectPref($params,'HTML_USE_INCLUDES', undef);
+	#	getObjectPref($params,'HTTP_ALLOW_REBOOT', undef);
+	#		# also allows 'shutdown' command
+	#	getObjectPref($params,'HTTP_RESTART_SERVICE', undef);
+	#	getObjectPref($params,'HTTP_GIT_UPDATE', undef);
+
+	my $all_prefs = getAllPrefs();
+	for my $key (sort keys %$all_prefs)
+	{
+		next if $key !~ /^HTTP_/;
+		my $value = $all_prefs->{$key};
+		my $exists = $params->{$key};
+		$params->{$key} = $value
+			if (defined($value) && !defined($exists))
+	}
+
+	display_hash(0,0,"Pub::ServerBase::new()",$params);
 
 	# check required parameters
 
@@ -450,7 +453,6 @@ sub new
 
 	$this->{HTTP_DEBUG_PING} ||= $OVERRIDE_DEBUG_PING;
 	$this->{HTTP_MAX_THREADS} ||= $DEFAULT_MAX_THREADS;
-	# $this->{HTTP_FWD_PING_REQUEST} = "TODO PING" if $this->{HTTP_FWD_PORT};
 
     $this->{running} = 0;
     $this->{stopping} = 0;

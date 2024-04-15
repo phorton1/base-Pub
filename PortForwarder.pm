@@ -2,7 +2,13 @@
 #-----------------------------------------------------
 # Pub::PortForwarder.pm
 #-----------------------------------------------------
+# TODO: Single Thread for each port
+# TODO: SSH only cleanup
+#
 # See old documentation in My::IOT::PortForwarder.pm
+# Requires substantial external setup on a server somewhere.
+# Does not use SSH passwords; uses a key file only.
+# SSH may need to be run from command line to enter password first time.
 #
 # An instance of the object is created for each forwarded port,
 # and then the global Pub::PortForwarder::start() method is called
@@ -12,17 +18,51 @@
 # and the isThreadRunning() method and shared $thread_runnning
 # boolean is synonymous with a port being forwarded.
 #
-# Requires substantial external setup on a server somewhere.
-# Does not use SSH passwords; uses a key file only.
-# May need to be run from command line to enter password first time.
+# SSH KEEPALIVE INTERVAL
 #
-# Ping is implemented/driven by sending a somewhat standard single
-# line requst to the server, typically of the form:
+# The default /etc/sshd_config on my server has "KeepAlive yes"
+# which requires the client to send packets every so often or it
+# will timeout.  I *think* the timeout is about 287 seconds on
+# my server.  Adding the following to the SSH command line will
+# cause SSH itself to send out 'keepalive' packets every 60 seconds
+# to avert this inactivity timeout.
+#
+# 		-o ServerAliveInterval=60
+#
+# The SSH client will close the connection if it does not get a
+# response from the server. There is also a parameter (default=3)
+# for the number of times the client should send a packet without
+# getting a response:
+#
+# 		-o ServerAliveCountMax=10
+#
+# To test this failure mode, I set ServerAliveInterval to 320,
+# well over my server's keepalive interval and turned off Ping.
+# As expected, after about 5 mintues the connection failed,
+# and the portForwarder restarted.
+#
+# If the ServerAliveInterval is not provided, or incorrectly
+# set to greater than the Server's keepalive interval, then
+# Ping can be used as a substitute to prevent the SSH session
+# from ending.
+#
+# PING
+#
+# Ping provides an additional layer of keepalive detection.
+# It is turned on and off by the FWD_PING_REQUEST parameter,
+# which is a single line that will be sent to the server,
+# typically of the form:
 #
 #	FWD_PING_REQUEST = GET /PING HTTP/1.1
 #
-# Any servers that need to stay alive using ping must respond
-# to the request line they pass in and return a non-blank response.
+# Ping succeeds if anything is returned from the server. A typical
+# HTTP Server returns a 200 ok response with a line 'PING OK'.
+#
+# Ping will also satisfy the SSH keepalive requirements, and
+# hence the default interval is 60 seconds, well under the
+# SSH timeout on my server.
+#
+# CRITICAL RETRIES
 #
 # In specific cases (myIOTServer running on the rPi) port forwarding
 # is considered a critical function and FWD_CRITICAL_RETRIES=20 is
@@ -32,6 +72,12 @@
 # are both turned on). Note also that do not consider the fileServer to
 # be a 'critcal' process. If the myIOTServer succeeds in forwarding
 # a port we can always reboot the rPi remotely as needed.
+#
+# DEBUGGING
+#
+# Note that you can look at "$temp_dir/port.$this->{PORT}.$this->{FWD_PORT}.txt"
+# to see the results of the SSH forwarding command.  Most other debugging centers
+# around Ping. See parameters below for more info.
 
 
 package Pub::PortForwarder;
@@ -48,62 +94,21 @@ use IO::Socket::SSL;
 use Symbol qw(gensym);
 use POSIX "sys_wait_h";
 
-my $DEBUG_PING_SSL = 0;
+
 
 
 my $dbg_fwd = 0;		# -1 for pid, details
 my $dbg_kill = 0;
-my $dbg_ping:shared = 1;		# ping failures are hard to thoroughly test
+my $default_dbg_ping = 1;		# ping failures are hard to thoroughly test
 	# $dbg_ping must be shared to be set in ctor from thread
 
-
-
-# These parameters are generally useful, but available
-# via exports if clients want to modify them.
-
-our $FWD_REFRESH_INTERVAL = 1;
-	# check status of STATE_STARTING ports every this many seconds
-our $FWD_TIMEOUT = 30;
-	# STATE_STARTING ports timeout after this many seconds
-our $FWD_CHECK_INTERVAL = 15;	   # 60;
-	# check pid and/or ping STATE_SUCCESS ports every this many seconds
-our $FWD_PING_INTERVAL:shared = 300;
-	# Do a ping test every this often seconds
-	# has to be shared to be set from ctor in thread
-our $FWD_PING_TIMEOUT = 10;
-	# how long to wait for ping response
-	# set to zero to disable ping testing
-	# must be significantly smaller than FWD_CHECK_INTERVAL
-
-# startup times.
-# ports are started synchronously, one after another, never asynchronously
-# failures schedule a restart according to the following constants
-
-our $FWD_START_TIME_INITIAL = 3;		# initial start after new()
-our $FWD_START_TIME_FAIL = 30;			# restart time after a STATE_NONE SSH failure
-our $FWD_START_TIME_TIMEOUT = 30;		# restart time after a STATE_STARTING timeout
-our $FWD_START_TIME_DIED = 30;			# restart time after a STATE_SUCCESS lost PID
-our $FWD_START_TIME_PING_FAIL = 30;		# restart time after a STATE_SUCCESS ping failure
 
 
 
 BEGIN
 {
  	use Exporter qw( import );
-	our @EXPORT = qw(
-
-		$FWD_REFRESH_INTERVAL
-		$FWD_TIMEOUT
-		$FWD_CHECK_INTERVAL
-		$FWD_PING_TIMEOUT
-
-		$FWD_START_TIME_INITIAL
-		$FWD_START_TIME_FAIL
-		$FWD_START_TIME_TIMEOUT
-		$FWD_START_TIME_DIED
-		$FWD_START_TIME_PING_FAIL
-
-	);
+	our @EXPORT = qw();
 }
 
 
@@ -150,53 +155,99 @@ sub isThreadRunning
 my $DEFAULT_SSH_PORT = 22;		# standard default SSH port
 my $DEFAULT_WIN_SSH_PATH = 'C:\Program Files\Git\usr\bin';
 
+my $DEFAULT_REFRESH_INTERVAL = 1;
+	# check status of STATE_STARTING ports every this many seconds
+my $DEFAULT_TIMEOUT = 30;
+	# STATE_STARTING ports timeout after this many seconds
+my $DEFAULT_CHECK_INTERVAL = 15;	   # 60;
+	# check pid and/or ping STATE_SUCCESS ports every this many seconds
+my $DEFAULT_PING_INTERVAL = 60;
+	# Do a ping test every this often seconds
+my $DEFAULT_PING_TIMEOUT = 10;
+	# how long to wait for ping response
+	# set to zero to disable ping testing
+	# must be significantly smaller than FWD_CHECK_INTERVAL
+my $DEFAULT_KEEP_ALIVE = 60;
+	# default for -o ServerAliveInterval
+
+
+# startup times.
+# ports are started synchronously, one after another, never asynchronously
+# failures schedule a restart according to the following constants
+
+my $DEFAULT_START_TIME_INITIAL 	= 3;		# initial start after new()
+my $DEFAULT_START_TIME_FAIL 	= 30;		# restart time after a STATE_NONE SSH failure
+my $DEFAULT_START_TIME_TIMEOUT 	= 30;		# restart time after a STATE_STARTING timeout
+my $DEFAULT_START_TIME_DIED 	= 30;		# restart time after a STATE_SUCCESS lost PID
+my $DEFAULT_START_TIME_PING_FAIL = 30;		# restart time after a STATE_SUCCESS ping failure
+
+
+
 
 sub new
-	# Params:
+	# Required Params:
 	#	PORT			 	= the port to be forwarded
 	#	FWD_PORT			= the port to forward to
 	#	FWD_USER			= user name on host
 	#	FWD_SERVER			= host to forward to
-	#	FWD_SSH_PORT		= SSH port on host
+	#	FWD_SSH_PORT		= SSH port on host (default 22)
 	#	FWD_KEYFILE			= keyfile for SSH
-	#	WIN_SSH_PATH		= path to ssh.exe if is_win()
-	#	FWD_PING_REQUEST	= optional "GET /PING HTTP/1.1" or similar
-	#	FWD_DEBUG_PING      = optional $dbg_ping value from prefs file
+	#	SSL					= 1 (now required)
+	#	SSL_CERT_FILE		= path to the SSL certificate
+	#	SSL_KEY_FILE		= path to the SSL key file
+	#	SSL_CA_FILE			= path to the CA certificate
 	#
-	# Plus if SSL, to do a standard HTTP Ping:
-	#	SSLP
-	#	SSL_CERT_FILE
-	#	SSL_KEY_FILE}
-	#	SSL_CA_FILE}
-	#	DEBUG_SSL}
+	# Common Optional Params
 	#
-	# Critical processes can add
+	#	FWD_KEEP_ALIVE     = $DEFAULT_KEEP_ALIVE see above
+	# 	FWD_PING_REQUEST   = single line request; turns Ping on and off
+	# 	FWD_CRITICAL_RETRIES = 20
+    # 		if set, this will reboot the rPi or restart a windows service
+	#		after given number of failures. Requires ServiceMain setup
+	#       with appropriate {SERVICE} member on linux.
 	#
-	#	FWD_CRITICAL_RETRIES = 20
+	# Debugging Params
 	#
-	# and the rPi will reboot, or Windows will restart the service
-	# after that number of failures
+	#	FWD_DEBUG_PING 	= -1		# uses display() $dbg_var semantics
+	#	FWD_TEST_FAILURES = 0/1 	# will fail the connect for retry testing
+	#	FWD_DEBUG_PING_SSL = 1..3	# will set global SSL debug var temporariliy;
+	#		# the SSL Debuging output is not in logfiles
+	# 		# you must run as NO_SERVICE from command line to see them
+	#
+	# Defaults
+	#
+	#		FWD_PING_INTERVAL  = 60
+	#		FWD_PING_TIMEOUT   = 10
+	#
+	#		FWD_REFRESH_INTERVAL = 1
+	#		FWD_TIMEOUT 		 = 30
+	#		FWD_CHECK_INTERVAL   = 15
+	#
+	#		FWD_START_TIME_INITIAL 	= 3;
+	#		FWD_START_TIME_FAIL 	= 30;
+	#		FWD_START_TIME_TIMEOUT 	= 30;
+	#		FWD_START_TIME_DIED 	= 30;
+	#		FWD_START_TIME_PING_FAIL = 30;
 {
 	my ($class,$params) = @_;
 
 
-
 	display_hash($dbg_fwd+1,0,"PortForwarder::new()",$params);
 
-	$params->{FWD_SSH_PORT} ||= $DEFAULT_SSH_PORT;
-	$params->{WIN_SSH_PATH} ||= $DEFAULT_WIN_SSH_PATH;
-	$params->{FWD_PING_REQUEST} ||= '';
-
-	if (defined($params->{FWD_DEBUG_PING}))
-	{
-		display($dbg_fwd,1,"setting dbg_ping to '$params->{FWD_DEBUG_PING}'");
-		$dbg_ping = $params->{FWD_DEBUG_PING}
-	}
-	if (defined($params->{FWD_PING_INTERVAL}))
-	{
-		display($dbg_fwd,1,"setting PING_INTERVAL to '$params->{FWD_PING_INTERVAL}'");
-		$FWD_PING_INTERVAL = $params->{FWD_PING_INTERVAL}
-	}
+	$params->{FWD_SSH_PORT} 				||= $DEFAULT_SSH_PORT;
+	$params->{WIN_SSH_PATH} 				||= $DEFAULT_WIN_SSH_PATH;
+	$params->{FWD_PING_INTERVAL}  			||= $DEFAULT_PING_INTERVAL;
+	$params->{FWD_PING_TIMEOUT}   			||= $DEFAULT_PING_TIMEOUT;
+	$params->{FWD_REFRESH_INTERVAL} 		||= $DEFAULT_REFRESH_INTERVAL;
+	$params->{FWD_TIMEOUT} 		 			||= $DEFAULT_TIMEOUT;
+	$params->{FWD_CHECK_INTERVAL}   		||= $DEFAULT_CHECK_INTERVAL;
+	$params->{FWD_START_TIME_INITIAL} 		||= $DEFAULT_START_TIME_INITIAL;
+	$params->{FWD_START_TIME_FAIL} 			||= $DEFAULT_START_TIME_FAIL;
+	$params->{FWD_START_TIME_TIMEOUT} 		||= $DEFAULT_START_TIME_TIMEOUT;
+	$params->{FWD_START_TIME_DIED} 			||= $DEFAULT_START_TIME_DIED;
+	$params->{FWD_START_TIME_PING_FAIL} 	||= $DEFAULT_START_TIME_PING_FAIL;
+	$params->{FWD_KEEP_ALIVE}				= $DEFAULT_KEEP_ALIVE
+		if !defined($params->{FWD_KEEP_ALIVE});
 
 	if (!$params->{SSL})
 	{
@@ -209,7 +260,7 @@ sub new
 	$this->{pid} = 0;
 	$this->{check_time} = 0;
 	$this->{state} = $FWD_STATE_NONE;
-	$this->{start_time} = time() + $FWD_START_TIME_INITIAL;
+	$this->{start_time} = time() + $this->{FWD_START_TIME_INITIAL};
 	$this->{ssh_output_file} = "$temp_dir/port.$this->{PORT}.$this->{FWD_PORT}.txt";
 	$this->{fail_count} = 0;
 
@@ -296,7 +347,7 @@ sub threadBody
 	# outer timing logic is redundant in threaded version
 
 	my $now = time();
-	if ($now > $fwd_check_time + $FWD_REFRESH_INTERVAL)
+	if ($now > $fwd_check_time + 1)	# $this->{FWD_REFRESH_INTERVAL)
 	{
 		$fwd_check_time = $now;
 
@@ -318,7 +369,7 @@ sub threadBody
 		for my $fwd (values %$forwards)
 		{
 			if ($fwd->{state} == $FWD_STATE_SUCCESS &&
-				$now > $fwd->{check_time} + $FWD_CHECK_INTERVAL)
+				$now > $fwd->{check_time} + $fwd->{FWD_CHECK_INTERVAL})
 			{
 				$fwd->{check_time} = $now;
 				return if $stopping;
@@ -328,16 +379,16 @@ sub threadBody
 
 				if ($rslt)	# -$rslt == -1 || $rslt == $fwd_pid)
 				{
-					$fwd->stopSelf("died",$FWD_START_TIME_DIED);
+					$fwd->stopSelf("died",$fwd->{FWD_START_TIME_DIED});
 				}
 
 				# If the process appears to be running, try a ping
 
 				elsif ($fwd->{FWD_PING_REQUEST} &&
-					   $now > $fwd->{ping_time} + $FWD_PING_INTERVAL)
+					   $now > $fwd->{ping_time} + $fwd->{FWD_PING_INTERVAL})
 				{
 					return if $stopping;
-					$fwd->stopSelf("PING FAILED",$FWD_START_TIME_PING_FAIL)
+					$fwd->stopSelf("PING FAILED",$fwd->{FWD_START_TIME_PING_FAIL})
 						if !$fwd->doPing();
 					$fwd->{ping_time} = time();
 				}
@@ -384,8 +435,11 @@ sub startSSH
 	my @fwd_params;
 	push @fwd_params,$this->{ssh_exe};
 	push @fwd_params,('-i',$this->{FWD_KEYFILE});
+	push @fwd_params,'-v';
+	push @fwd_params,"-o ServerAliveInterval=$this->{FWD_KEEP_ALIVE}"
+		if $this->{FWD_KEEP_ALIVE};
+
 	push @fwd_params,(
-		'-v',					# verbose
 		'-E',					# output to logfile
 		$use_output_file,
 		'-N',					# do not execute a command (use for port forwarding)
@@ -420,8 +474,8 @@ sub startSSH
 
 	if (!$this->{pid})
 	{
-		error("Could not start FORWARD port: $! - retrying in $FWD_START_TIME_FAIL seconds");
-		$this->{start_time} = time() + $FWD_START_TIME_FAIL;
+		error("Could not start FORWARD port: $! - retrying in $this->{FWD_START_TIME_FAIL} seconds\ncommand=".join(' ',@fwd_params));
+		$this->{start_time} = time() + $this->{FWD_START_TIME_FAIL};
 		return;
 	}
 
@@ -447,7 +501,7 @@ sub checkStart
 		LOG(0,"");
 		LOG(0,$text);
 		LOG(0,"");
-		$this->stopSelf("CONNECT FAILURE",$FWD_START_TIME_FAIL);
+		$this->stopSelf("CONNECT FAILURE",$this->{FWD_START_TIME_FAIL});
 	}
 	elsif ($text =~ /remote forward success/)
 	{
@@ -456,9 +510,9 @@ sub checkStart
 		$this->{check_time} = time();
 		$this->{ping_time} = time();
 	}
-	elsif (time() > $this->{initial_time} + $FWD_TIMEOUT)
+	elsif (time() > $this->{initial_time} + $this->{FWD_TIMEOUT})
 	{
-		$this->stopSelf("CONNECT TIMEOUT",$FWD_START_TIME_TIMEOUT);
+		$this->stopSelf("CONNECT TIMEOUT",$this->{FWD_START_TIME_TIMEOUT});
 	}
 }
 
@@ -518,7 +572,7 @@ sub doPing
 	my $host = $this->{FWD_SERVER};
     my $port = $this->{FWD_PORT};
 	my $host_port = "$host:$port";
-	display($dbg_ping,0,"doPing($host_port) request($this->{FWD_PING_REQUEST})");
+	display($this->{FWD_DEBUG_PING},0,"doPing($host_port) request($this->{FWD_PING_REQUEST})");
 
 	$this->{in_ping} = 1;
 	my $save_debug = $IO::Socket::SSL::DEBUG;
@@ -527,7 +581,7 @@ sub doPing
 		PeerAddr => $host_port,
         PeerPort => "http($port)",
         Proto    => 'tcp',
-		Timeout  => $FWD_PING_TIMEOUT );
+		Timeout  => $this->{FWD_PING_TIMEOUT} );
 
 	if ($this->{SSL})
 	{
@@ -537,7 +591,7 @@ sub doPing
 		# note that we cannot turn off server SSL debugging
 		# which is in another thread ...
 
-		$IO::Socket::SSL::DEBUG = $DEBUG_PING_SSL;
+		$IO::Socket::SSL::DEBUG = $this->{DEBUG_PING_SSL} || 0;
 		push @params, (
 			SSL_cert_file => $this->{SSL_CERT_FILE},
 			SSL_key_file => $this->{SSL_KEY_FILE},
@@ -569,7 +623,7 @@ sub doPing
 	}
 
 	$sock->flush();
-	display($dbg_ping+1,0,"getting line from $host_port");
+	display($this->{FWD_DEBUG_PING},0,"getting line from $host_port");
 	$line = <$sock> || '';
 	$line =~ s/\s+$//;
 	$sock->close();
@@ -577,7 +631,7 @@ sub doPing
 	# The reply *should* contain 'OK'
 	# But we accept any response from the server
 
-	display($dbg_ping,0,"doPing($host_port) got '$line'");
+	display($this->{FWD_DEBUG_PING},0,"doPing($host_port) got '$line'");
 
 END_PING:
 
