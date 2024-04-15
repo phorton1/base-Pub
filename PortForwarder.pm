@@ -199,6 +199,7 @@ sub new
 	#
 	# Common Optional Params
 	#
+	#	FWD_SHOW_PARAMS	   = 0/1  - show the FWD parameters in ctor
 	#	FWD_KEEP_ALIVE     = $DEFAULT_KEEP_ALIVE see above
 	# 	FWD_PING_REQUEST   = single line request; turns Ping on and off
 	# 	FWD_CRITICAL_RETRIES = 20
@@ -256,6 +257,9 @@ sub new
 		error("attempt to forward non-SSL port($params->{PORT})");
 		return;
 	}
+
+	display_hash(0,0,"FWD PARAMS",$params)
+		if $params->{FWD_SHOW_PARAMS};
 
 	my $this = shared_clone($params);
 
