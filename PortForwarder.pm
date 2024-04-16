@@ -515,6 +515,7 @@ sub checkStart
 		$this->{state} = $FWD_STATE_SUCCESS;
 		$this->{check_time} = time();
 		$this->{ping_time} = time();
+		$this->{fail_count} = 0;
 	}
 	elsif (time() > $this->{initial_time} + $this->{FWD_TIMEOUT})
 	{
