@@ -1182,7 +1182,7 @@ sub handle_request
 
 		my $port = '';
 		my $command = $1;
-		my $is_forwarded = Pub::PortForwarder::isThreadRunning();
+		my $is_forwarded = $this->{HTTP_DO_FORWARD} ? 1 : 0;
 
 		LOG(0,"FORWARD_COMMAND($command) is_forwarded($is_forwarded)");
 
