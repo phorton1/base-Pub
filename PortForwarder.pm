@@ -2,9 +2,6 @@
 #-----------------------------------------------------
 # Pub::PortForwarder.pm
 #-----------------------------------------------------
-# TODO: Single Thread for each port
-# TODO: SSH only cleanup
-#
 # See old documentation in My::IOT::PortForwarder.pm
 # Requires substantial external setup on a server somewhere.
 # Does not use SSH passwords; uses a key file only.
@@ -113,31 +110,32 @@ BEGIN
 
 
 
-my $FWD_STATE_NONE = 0;
-my $FWD_STATE_STARTING = 1;
-my $FWD_STATE_SUCCESS = 2;
-my $FWD_STATE_FAIL = 3;
+my $FWD_STATE_NONE 		= 0;
+my $FWD_STATE_STARTING 	= 1;
+my $FWD_STATE_SUCCESS 	= 2;
+my $FWD_STATE_FAIL 		= 3;
+
 
 my $forwards = shared_clone({});
+my $stopping:shared = 0;
+
+# these variables are not shared, but are set during a thread,
+# and so they are really thread-specific
 
 my $pf_thread;
-my $fwd_check_time = 0;
-my $stopping:shared = 0;
-my $thread_running:shared = 0;
-
 my $ssh_stdin;
 my $ssh_stdout;
 my $ssh_stderr = gensym();
-	# these variables are global, but are only passed to the forked
-	# ssh run by open3, and so they are not really for our address space.
 
 
-sub isThreadRunning
-	# in practice, this is synonymous with
-	# a port being forwarded.
-{
-	return $thread_running;
-}
+#	my $fwd_check_time = 0;
+
+#	sub isThreadRunning
+#		# in practice, this is synonymous with
+#		# a port being forwarded.
+#	{
+#		return $thread_running;
+#	}
 
 
 # on Windows I have a plethora of ssh.exe's to chose from
@@ -232,7 +230,6 @@ sub new
 {
 	my ($class,$params) = @_;
 
-
 	display_hash($dbg_fwd+1,0,"PortForwarder::new()",$params);
 
 	$params->{FWD_SSH_PORT} 				||= $DEFAULT_SSH_PORT;
@@ -279,25 +276,12 @@ sub new
 
 	bless $this,$class;
 	$forwards->{$this->{PORT}} = $this;
+
+	display($dbg_fwd,0,"PortForwarder($this->{PORT}:$this->{FWD_PORT}) starting thread");
+	$pf_thread = threads->create(\&portForwardThread,$this);
+	$pf_thread->detach();
+
 	return $this;
-}
-
-
-
-sub start
-{
-	if ($pf_thread)
-	{
-		display($dbg_fwd,0,"PortForwarder thread already started");
-	}
-	else
-	{
-		display($dbg_fwd,0,"PortForwarder starting thread");
-		$pf_thread = threads->create(\&portForwardThread);
-		$pf_thread->detach();
-	}
-	display($dbg_fwd,0,"PortForwarder::start() returning 1");
-	return 1;
 }
 
 
@@ -315,108 +299,87 @@ sub stop
 				undef $fwd;
 			}
 		}
-		$forwards = {};
-	}
 
-	if ($thread_running)
-	{
-		my $STOP_THREAD_TIMEOUT = 3;
+		my $STOP_PF_TIMEOUT = 3;
 		my $time = time();
-		while ($thread_running && time() <= $time + $STOP_THREAD_TIMEOUT)
+		my $num = scalar(keys %$forwards);
+		while ($num && time() <= $time + $STOP_PF_TIMEOUT)
 		{
-			display($dbg_fwd-1,0,"Waiting for PortForwardThread to stop");
+			display($dbg_fwd-1,0,"Waiting for $num portForwards to stop");
 			sleep(1);
+			$num = scalar(keys %$forwards)
 		}
-		LOG(-1,"PortforwardeThread ".($thread_running?"NOT STOPPED!!":"STOPPED"));
+		LOG(-1,"portForwarder ".($num?"NOT STOPPED($num)!!":"STOPPED"));
 	}
 }
 
 
 sub portForwardThread
 {
-	$thread_running = 1;
-	LOG(-1,"portForwardThread started");
+	my ($this) = @_;
+	display($dbg_fwd,0,"portForwardThread($this->{PORT}:$this->{FWD_PORT}) started");
 	while (!$stopping)
 	{
-		threadBody();
-		sleep(1);
+		$this->threadBody();
+		sleep($this->{FWD_REFRESH_INTERVAL});
 	}
-	$thread_running = 0;
-	threads->exit();
+	display($dbg_fwd,0,"portForwardThread($this->{PORT}:$this->{FWD_PORT}) terminating");
+	delete $forwards->{$this->{PORT}};
 }
 
 
 sub threadBody
 {
-	return if $stopping;
-
-	# outer timing logic is redundant in threaded version
-
+	my ($this) = @_;
 	my $now = time();
-	if ($now > $fwd_check_time + 1)	# $this->{FWD_REFRESH_INTERVAL)
+
+	# if starting, check the result file
+
+	if ($this->{state} == $FWD_STATE_STARTING)
 	{
-		$fwd_check_time = $now;
+		return if $stopping;
+		$this->checkStart();
+		return;
+	}
 
-		# check any that are starting
-		# this loop gets priority to serialize the starts
+	# check if died
 
-		for my $fwd (values %$forwards)
+	if ($this->{state} == $FWD_STATE_SUCCESS &&
+		$now > $this->{check_time} + $this->{FWD_CHECK_INTERVAL})
+	{
+		$this->{check_time} = $now;
+		return if $stopping;
+		my $rslt = waitpid($this->{pid},WNOHANG);
+			# returns 0 for still running, the pid if stopped, or -1 on error
+		display($dbg_fwd+1,-1,"FWD_PID($this->{PORT}:$this->{FWD_PORT}) waitpid($this->{pid})=$rslt");
+
+		if ($rslt)	# -$rslt == -1 || $rslt == $fwd_pid)
 		{
-			if ($fwd->{state} == $FWD_STATE_STARTING)
-			{
-				return if $stopping;
-				$fwd->checkStart();
-				return;
-			}
+			$this->stopSelf("died",$this->{FWD_START_TIME_DIED});
 		}
 
-		# check if any have died
+		# If the process appears to be running, try a ping
 
-		for my $fwd (values %$forwards)
+		elsif ($this->{FWD_PING_REQUEST} &&
+			   $now > $this->{ping_time} + $this->{FWD_PING_INTERVAL})
 		{
-			if ($fwd->{state} == $FWD_STATE_SUCCESS &&
-				$now > $fwd->{check_time} + $fwd->{FWD_CHECK_INTERVAL})
-			{
-				$fwd->{check_time} = $now;
-				return if $stopping;
-				my $rslt = waitpid($fwd->{pid},WNOHANG);
-					# returns 0 for still running, the pid if stopped, or -1 on error
-				display($dbg_fwd+1,-1,"FWD_PID($fwd->{PORT}:$fwd->{FWD_PORT}) waitpid($fwd->{pid})=$rslt");
-
-				if ($rslt)	# -$rslt == -1 || $rslt == $fwd_pid)
-				{
-					$fwd->stopSelf("died",$fwd->{FWD_START_TIME_DIED});
-				}
-
-				# If the process appears to be running, try a ping
-
-				elsif ($fwd->{FWD_PING_REQUEST} &&
-					   $now > $fwd->{ping_time} + $fwd->{FWD_PING_INTERVAL})
-				{
-					return if $stopping;
-					$fwd->stopSelf("PING FAILED",$fwd->{FWD_START_TIME_PING_FAIL})
-						if !$fwd->doPing();
-					$fwd->{ping_time} = time();
-				}
-				return;
-			}
+			return if $stopping;
+			$this->stopSelf("PING FAILED",$this->{FWD_START_TIME_PING_FAIL})
+				if !$this->doPing();
+			$this->{ping_time} = time();
 		}
+		return;
+	}
 
-		# finally if any are ready to start, give those priority
+	# finally, start if needed
 
-		for my $fwd (values %$forwards)
-		{
-			if ($fwd->{start_time} && $now > $fwd->{start_time})
-			{
-				return if $stopping;
-				$fwd->startSSH();
-				return;
-			}
-		}
+	if ($this->{start_time} && $now > $this->{start_time})
+	{
+		return if $stopping;
+		$this->startSSH();
+		return;
 	}
 }
-
-
 
 
 sub startSSH

@@ -494,7 +494,7 @@ sub stop
 
 	Pub::PortForwarder::stop();
 		# benign if no portForwarder was created
-		# and/or PortForwarder::start() was not called.
+		# or already stopping
 
 	my $TIMEOUT = 3;
 	my $time = time();
@@ -549,7 +549,7 @@ sub serverThread
 		# so that portForwder can use them, and call start() if new() works.
 
 		my $fwd_params = copyParamsWithout($this,"HTTP_");
-		Pub::PortForwarder::start() if Pub::PortForwarder->new($fwd_params);
+		Pub::PortForwarder->new($fwd_params);
 	}
 
     #--------------------------------------
