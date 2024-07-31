@@ -97,7 +97,7 @@ our $PROTOCOL_CHOWN  	= "CHOWN";
 my $DEFAULT_MODE_DIR = '750';
 my $DEFAULT_MODE_EXE = '750';
 my $DEFAULT_MODE_FILE = '640';
-my $DEFAULT_EXE_RE = '\.(pm|pl|cgi)$';	# |^.*\/(prh_deny|prh_daily|prh_monitor|fileServer)$';
+my $DEFAULT_EXE_RE = '\.(pm|pl|cgi|py)$';	# |^.*\/(prh_deny|prh_daily|prh_monitor|fileServer)$';
 
 
 #------------------------------------------------
