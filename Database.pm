@@ -377,7 +377,7 @@ sub getFieldNames
 	# returns an array of field names for a given table
 	# can be called directly with $this==undef and $defs
 {
-	my ($this,$table,$defs) = @_;
+	my ($this,$table,$defs,$no_id_field) = @_;
 	display($dbg_defs,0,"getFieldNames($table,"._def($defs).")".($this?'':" this(undef)"));
     $defs ||= $this->{database_def} if $this;
 	my $fields = $defs->{$table};
@@ -386,6 +386,7 @@ sub getFieldNames
 	for my $field (@$fields)
 	{
 		my ($name) = split(/\s+/,$field,2);
+		next if $no_id_field && $name eq 'id';
 		display($dbg_defs+1,1,"name=$name");
 		push @retval,$name;
 	}

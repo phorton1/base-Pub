@@ -22,6 +22,25 @@ our $NUM_PER_INSERT = 400;
 our $DBG_SHOW_EVERY = 100000;
 	# how often to show record insert debugging
 
+
+#	sub bad_bytes
+#		# shows bad bytes in database char fields
+#	{
+#		my ($text) = @_;
+#		my $bytes = '';
+#		my $length = length($text);
+#		for (my $i=0; $i<$length; $i++)
+#		{
+#			my $c = substr($text,$i,1);
+#			my $bad = ord($c) == 0xff || ord($c) <= 0x1f;
+#			my $add = sprintf(" %s%02x%s ",$bad?"*":"",ord($c),$bad?"*":"");
+#			$bytes .= $add;
+#		}
+#		return $bytes;
+#	}
+
+
+
 sub exportTableRecords
 	# cannot fail
 	# works with a list of records from the given table
@@ -42,13 +61,14 @@ sub exportTableRecords
 		return 1;
 	}
 
-	my @fields = $this->getFieldNames($table);
-    my $types = $this->getFieldStorageTypes($table);
+	my $fields = $this->getFieldNames($table,undef,1);
+		# undef=use defs from $this; 1==no id field
+		# NOT exporting the auto-increment ID field
+		# shift @fields if $fields[0] eq 'id';
+    my $defs = $this->getFieldDefs($table);
 
 	# using alternate approach to identifying and
-	# NOT exporting the auto-increment ID field
 
-	shift @fields if $fields[0] eq 'id';
 
 	my $num = 0;
 	my $num_this = 0;
@@ -67,15 +87,17 @@ sub exportTableRecords
 			}
 			print $ofile ";\n" if $num_this;
 			print $ofile "\n";
-			print $ofile "INSERT INTO $table (".join(",",@fields).") VALUES";
+			print $ofile "INSERT INTO $table (".join(",",@$fields).") VALUES";
 			$num_this = 0;
         }
 
         my $values = "";
-        for my $field (@fields)
+        for my $field (@$fields)
         {
             my $value = $rec->{$field};
-			if ($types->{$field} eq 'STRING')
+
+			# quote CHAR or VARCHAR database field types
+			if ($defs->{$field}->{type} =~ /CHAR/)
 			{
 	            $value = '' if !defined($value);
 				$value =~ s/'/''/g;
@@ -146,13 +168,12 @@ sub exportTable
         return;
     }
 
-	my @fields = $this->getFieldNames($table);
-    my $types = $this->getFieldStorageTypes($table);
+	my $fields = $this->getFieldNames($table,undef,1);
+		# undef=use defs from $this; 1==no id field
+		# NOT exporting the auto-increment ID field
+		# shift @fields if $fields[0] eq 'id';
+    my $defs = $this->getFieldDefs($table);
 
-	# using alternate approach to identifying and
-	# NOT exporting the auto-increment ID field
-
-	shift @fields if $fields[0] eq 'id';
 
 	my $num = 0;
 	my $num_this = 0;
@@ -177,7 +198,7 @@ sub exportTable
 
 			print $ofile ";\n" if $num_this;
 			print $ofile "\n";
-			print $ofile "INSERT INTO $table (".join(",",@fields).") VALUES";
+			print $ofile "INSERT INTO $table (".join(",",@$fields).") VALUES";
 			$num_this = 0;
         }
 
@@ -185,37 +206,22 @@ sub exportTable
 		my $debug_field = '';
 		my $debug_value = '';
 
-        for my $field (@fields)
+        for my $field (@$fields)
         {
             my $value = $rec->{$field};
 
-			if (!$debug_field)
-			{
-				$debug_field = $field;
-				$debug_value = $value;
-			}
-
-			if ($types->{$field} eq 'STRING')
+			# quote CHAR or VARCHAR database field types
+			if ($defs->{$field}->{type} =~ /CHAR/)
 			{
 	            $value = '' if !defined($value);
 
-				# 2023-07-12 - THE RE WAS WRONG AND MESSED UP EXPORT OF BAGS starting on last build!
-				# 	 I had not built and tested this before.  The RE was [0x00-0x1f] and
-				# 	 should have been [\x00-\x1f].  So, starting with the build, backups stopped
-				# 	 working (v833).  Tested and built a new one with v834.  I am debating whether
-				#    to leave this line, or remove it.  If it works it is safer than not having it.
-				# 2023-04-15 - found guia 1054135815 with several carriage returns in the description
-				#    at first it looked like it came from ebox, but that was not the case.  Maybe the android stuff?
-				#    I fixed the database record, but still not sure where it came from
-				#    This untested line of code is intended to remove them from backups them jic.
+				# remove unprintable characters
 
-				my $old_value = $value;
 				if ($value =~ s/[\x00-\x1f]|\xff//g)
 				{
-					warning(0,0,"REMOVED ILLEGAL CHARS in backup $table $debug_field($debug_value): $field='$value' bytes=".bad_bytes($old_value));
+					warning(0,0,"REMOVED ILLEGAL CHARS in backup $table $field='$value'");
 				}
-
-
+                
 				$value =~ s/'/''/g;
 	            $value = "'$value'";
 			}
