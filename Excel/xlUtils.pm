@@ -21,6 +21,9 @@ BEGIN
 		$XLS_JUST_RIGHT
 
 		xlsGetValue
+		xlsGetFormula
+		xlsGetHyperlink
+
 		xlsSetValue
 		xlsSetNumberFormat
 		xlsSetJustification
@@ -50,6 +53,32 @@ sub xlsGetValue
 	$val =~ s/\s+$//g;
 	$val =~ s/^\s+//g;
 	return $val;
+}
+
+
+sub xlsGetFormula
+	# only returns anything if the 'Formula' starts with an equals sign,
+	# as Excel will return the value in lieu of an actual formula.
+{
+    my ($sheet,$row,$col) = @_;
+    my $formula = $sheet->Cells($row, $col)->{Formula};
+	$formula = '' if !defined($formula) || $formula !~ /^=/;
+	return $formula;
+}
+
+
+sub xlsGetHyperlink
+	# returns the Hyperlink object if one exists.
+	# Client may use $link->{Address} to see the link,
+	# or any of the other properties on the link.
+	# See https://learn.microsoft.com/en-us/office/vba/api/excel.hyperlink
+	# also for the methods, including "Delete()" to remove the link.
+{
+    my ($sheet,$row,$col) = @_;
+    my $link = '';
+	my $links = $sheet->Cells($row, $col)->{Hyperlinks};
+	$link = $links->Item(1) if $links && $links->{Count};
+	return $link;
 }
 
 
