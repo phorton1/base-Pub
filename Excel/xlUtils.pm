@@ -167,27 +167,32 @@ sub utilToBgrColor
 #---------------------------------
 
 sub xlsRowToHash
+	# gets a row of an excel table into a hash record
+	# given a densly populated header row ...
 {
-	my ($sheet,$row,$field_names) = @_;
-	my $col = 1;
+	my ($sheet,$header_row,$row) = @_;
 	my $rec = {};
-	for my $field (@$field_names)
+	my $col = 1;
+	my $field = xlsGetValue($sheet,$header_row,$col);
+	while ($field)
 	{
 		$rec->{$field} = xlsGetValue($sheet,$row,$col) || '';
 		$col++;
+		$field = xlsGetValue($sheet,$header_row,$col);
 	}
 	return $rec;
 }
 
 
 sub xlsHashToRow
-	# converts a hash to an excel row.
-	# if the value starts with '=' it is set as a formula
+	# converts a hash to an excel row when the hash keys
+	# match the excel header_row field names.
 {
-	my ($sheet,$row,$rec,$field_names) = @_;
+	my ($sheet,$header_row,$row,$rec) = @_;
 
 	my $col = 1;
-	for my $field (@$field_names)
+	my $field = xlsGetValue($sheet,$header_row,$col);
+	while ($field)
 	{
 		my $val = $rec->{$field};
 		$val = '' if !defined($val);
@@ -195,6 +200,7 @@ sub xlsHashToRow
 			xlsSetFormula($sheet,$row,$col,$val) :
 			xlsSetValue($sheet,$row,$col,$val);
 		$col++;
+		$field = xlsGetValue($sheet,$header_row,$col);
 	}
 }
 
