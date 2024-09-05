@@ -26,10 +26,10 @@ BEGIN
 
 
 
-sub new
+sub open
 {
 	my ($class,$xl,$dir,$bookname) = @_;
-	display($dbg_book,0,"Book::new($dir,$bookname)");
+	display($dbg_book,0,"Book::open($dir,$bookname)");
 
 	my $this = {
 		xl => $xl,
@@ -79,14 +79,31 @@ sub new
 
 sub getSheet
 {
-	my ($this,$sheet_num) = @_;
+	my ($this,$sheet_name_or_num) = @_;
 	return error("No workbook in getSheet")
 		if !$this->{workbook};
 
-	my $sheet = $this->{workbook}->Sheets($sheet_num);
+	my $sheet;
+	if ($sheet_name_or_num !~ /^\d+$/)
+	{
+		my $count = $this->{workbook}->{Sheets}->Count();
+		for my $sheet_num (1..$count)
+		{
+			my $s = $this->{workbook}->Sheets($sheet_num);
+			if ($s->{name} eq $sheet_name_or_num)
+			{
+				$sheet = $s;
+				last;
+			}
+		}
+	}
+	else
+	{
+		$sheet = $this->{workbook}->Sheets($sheet_name_or_num);
+	}
 	if (!$sheet)
 	{
-		$this->errorMsg("Could not get book($this->{bookname}) sheet($sheet_num)");
+		$this->errorMsg("Could not get book($this->{bookname}) sheet($sheet_name_or_num)");
 		return '';
 	}
 	return $sheet;

@@ -130,9 +130,7 @@ sub xlsSetBold
 sub xlsSetFormula
 {
     my ($sheet,$row,$col,$formula) = @_;
-	my $rc = xlrc($row,$col);
-	# display(0,0,"row($row,$col) range($rc)");
-	$sheet->Range($rc)->{Formula} = $formula;
+	$sheet->Cells($row, $col)->{Formula} = $formula;
 }
 
 

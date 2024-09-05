@@ -123,7 +123,7 @@ sub openBook
 {
 	my ($this,$dir,$bookname) = @_;
 	display($dbg_xl,0,"openBook($dir,$bookname)");
-	my $book = Pub::Excel::Book->new($this,$dir,$bookname);
+	my $book = Pub::Excel::Book->open($this,$dir,$bookname);
 	return $book;
 }
 
