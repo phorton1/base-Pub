@@ -26,7 +26,7 @@
 #			# will show for these.
 #	HTTP_DEBUG_LOUD_RE => ''
 #			# This RE can be used to debug particular URIS
-#			# by effectively decreawing their debug levels by 2
+#			# by effectively decreasing their debug levels by 2
 
 #   HTTP_DEBUG_PING 	=> 0/1			default(0) optional - shows ping debugging at DEBUG_SERVER level
 #
@@ -1246,11 +1246,19 @@ sub handle_request
 		$text = processBody($text,$request,$this,$doc_root)
 			if $ext eq 'html';
 
+		# caching in the browser can be turned on by two different methods,
+		# (a) HTML_USE_INCLUDES is a scheme used by artisan/inventory/ebay/etc apps
+		#     that adds a date-time stamp to the file_names which is beyond the scope
+		#     of this comment to fully explain (and doesn't appear to be setup for
+		#	  images in this code!)
+		# (b) myIOT adds a "cache=1" query parameter to static css and js files
+		#     in index.html and widgets.
+
+		my $use_cache = $this->{HTML_USE_INCLUDES} || $request->{params}->{cache};
+
 		my $ext_headers = $this->{"HTTP_DEFAULT_HEADERS_".uc($ext)};
 		my $response = Pub::HTTP::Response->new($request,$text,200,$mime_type,$ext_headers);
-		$response->setAsCached() if
-			$ext =~ /js|css/ &&
-			$this->{HTML_USE_INCLUDES};
+		$response->setAsCached() if $use_cache && $ext =~ /js|css/;
 
 		return $response;
 	}

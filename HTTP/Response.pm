@@ -266,9 +266,9 @@ sub setAsCached
 {
 	my ($this) = @_;
 	delete $this->{headers}->{pragma};
-	delete $this->{headers}->{pragma};
+	delete $this->{headers}->{expires};
 	my $forever = 2147483648;
-	$this->{headers}->{'cache-control'} = "max-age=$forever, immutable";
+	$this->{headers}->{'cache-control'} = "public, max-age=2147483648, immutable";
 }
 
 
