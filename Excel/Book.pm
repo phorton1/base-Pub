@@ -30,6 +30,7 @@ sub open
 {
 	my ($class,$xl,$dir,$bookname) = @_;
 	display($dbg_book,0,"Book::open($dir,$bookname)");
+	display($dbg_book,1,"xl=$xl excel=$xl->{excel} Workbooks="._def($xl->{excel}->Workbooks));
 
 	my $this = {
 		xl => $xl,
@@ -42,6 +43,7 @@ sub open
 		ui_started => 0 };
 	bless $this,$class;
 
+	
 	for (my $i=1; $i<=$xl->{excel}->Workbooks->Count(); $i++)
 	{
 		my $book = $xl->{excel}->Workbooks($i);
@@ -73,6 +75,7 @@ sub open
 	}
 
 	$this->{opened_dirty} = $this->{workbook}->{saved} ? 0 : 1;
+	display($dbg_book,0,"Opened Book($bookname)");
 	return $this;
 }
 

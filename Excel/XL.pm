@@ -42,6 +42,7 @@ BEGIN
 {
  	use Exporter qw( import );
 	our @EXPORT = qw (
+		enumerateOLEProperties
 	);
 	push @EXPORT,@Pub::Excel::xlUtils::EXPORT;
 
@@ -144,6 +145,33 @@ sub calculations
 
 
 
+
+
+
+sub enumerateOLEProperties
+	# debugging method to enumerate OLE object's properites
+	# which I used to figure out how to get end of range
+	# in apps/inventory/invExcel.pm
+{
+	my ($obj) = @_;
+	print "OLE object's properties:\n";
+	for my $key (sort keys %$obj)
+	{
+		my $value;
+
+		eval {$value = $obj->{$key} };
+		$value = "***Exception***" if $@;
+
+		$value = "<undef>" unless defined $value;
+
+		$value = '['.Win32::OLE->QueryObjectType($value).']'
+			if UNIVERSAL::isa($value,'Win32::OLE');
+
+		$value = '('.join(',',$value).')' if ref $value eq 'ARRAY';
+
+		printf "%s %s %s\n", $key, '.' x (40-length($key)), $value;
+	}
+}
 
 
 1;
