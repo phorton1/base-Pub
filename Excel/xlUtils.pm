@@ -174,7 +174,9 @@ sub xlsRowToHash
 	my $field = xlsGetValue($sheet,$header_row,$col);
 	while ($field)
 	{
-		$rec->{$field} = xlsGetValue($sheet,$row,$col) || '';
+		my $val = xlsGetValue($sheet,$row,$col);
+		$val = '' if !defined($val);
+		$rec->{$field} = $val;
 		$col++;
 		$field = xlsGetValue($sheet,$header_row,$col);
 	}
