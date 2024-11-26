@@ -199,10 +199,10 @@ my $app_frame;
 	# in multi-threaded WX apps, this is a weird scalar and
 	# cannot be used directly from threads
 
-our $temp_dir        = '';
-our $data_dir        = '';
-our $logfile         = '';
-our $resource_dir    = '';
+our $temp_dir:shared        = '';
+our $data_dir:shared        = '';
+our $logfile:shared         = '';
+our $resource_dir:shared    = '';
 
 our $CHARS_PER_INDENT = 2;
 our $LOG_WITH_TIMESTAMPS = 1;
