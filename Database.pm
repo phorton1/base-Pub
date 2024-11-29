@@ -101,7 +101,7 @@ our $dbg_do   		= 1;		# 0..1 db_do()
 
 our $dbg_create 	= 0;		# 0..2 createTable() && createDatabase()
 our $dbg_insert 	= 1;		# 0..2 insert_record()
-our $dbg_update 	= 1;		# 0..2 update_record()
+our $dbg_update 	= 0;		# 0..1 update_record() 0=show call, -1=show the record
 our $dbg_bind    	= 1;		# 0..2 binding
 
 our $dbg_exists     = 1;		# 0..1 databaseExists()
@@ -366,6 +366,17 @@ sub disconnect
     return 1;
 }
 
+
+sub commit
+{
+	my ($this) = @_;
+	return $this->{dbh}->commit();
+}
+sub rollback
+{
+	my ($this) = @_;
+	return $this->{dbh}->rollback();
+}
 
 
 
@@ -659,7 +670,9 @@ sub update_record
     my ($this,$table,$rec,$id_field,$id_value,$subset) = @_;
 	$subset ||= 0;
 
-    display_hash($dbg_update,0,"update_record($table,$id_field,"._def($id_value).",$subset)",$rec);
+	$dbg_update < 0 ?
+		display_hash($dbg_update,0,"update_record($table,$id_field,"._def($id_value).",$subset)",$rec) :
+		display($dbg_update,0,"update_record($table,$id_field,"._def($id_value).",$subset)");
 
 	my $table_def = $this->getFieldDefsArray($table);
 	return if !$table_def;
@@ -668,7 +681,7 @@ sub update_record
 
 	$id_field ||= $table_def->[0]->{name};
     $id_value = $rec->{$id_field} if !defined($id_value);
-    display($dbg_update,1,"id_field=$id_field id_value=$id_value");
+    display($dbg_update+1,2,"updatge id_field=$id_field id_value=$id_value");
 
 	# Build the Bind data
 
@@ -735,7 +748,7 @@ sub execute
         error("Cannot execute query($query): $errstr");
 		$this->{errstr} = $errstr;
         $sth->finish();
-        return;
+        return undef;
     }
 
 	return $sth;
