@@ -645,7 +645,8 @@ sub insert_record
         $vstring .= ',' if $vstring;
         $vstring .= '?';
 
-		my $val = $rec->{$field};
+		my $val = $rec->{$field} || '';
+			# prh added the || '' for sparse ebay inventory records
 		$val = '0' if !$val && $def->{type} =~ /INTEGER|FLOAT/;
 
 		display($dbg_bind+1,2,"$field='"._def($val)."'");
