@@ -14,7 +14,8 @@ use threads::shared;
 use Pub::Utils;
 
 
-my $dbg_book = 0;
+my $dbg_book = -2;
+	# Set to -2 to try to find problem using this AS_SERVICE
 
 
 BEGIN
@@ -30,7 +31,7 @@ sub open
 {
 	my ($class,$xl,$dir,$bookname) = @_;
 	display($dbg_book,0,"Book::open($dir,$bookname)");
-	display($dbg_book,1,"xl=$xl excel=$xl->{excel} Workbooks="._def($xl->{excel}->Workbooks));
+	display($dbg_book,1,"xl=$xl excel=$xl->{excel} version=$xl->{excel}->{version} Workbooks="._def($xl->{excel}->Workbooks));
 
 	my $this = {
 		xl => $xl,
@@ -43,6 +44,16 @@ sub open
 		ui_started => 0 };
 	bless $this,$class;
 
+	# AS_SERVICE: this loop fails to see an open RhapsodyInventory.xlsm
+	# file, whereas from a DosBox it sees it and returns it.
+	
+	# SAW: https://stackoverflow.com/questions/60304877/excel-ole-automation-in-a-windows-service
+	# and TRIED TO create two empty folders
+	#	C:\Windows\System32\config\systemprofile
+	#	C:\Windows\SysWOW64\config\systemprofile\
+	# But first I had to (a) run /SysWow64/explorer.exe as an administrator,
+	#	then (b) 'grant' myself 'permanent access' to the /config folder,
+	#   where (c) I found those folders already existed
 	
 	for (my $i=1; $i<=$xl->{excel}->Workbooks->Count(); $i++)
 	{
@@ -60,10 +71,24 @@ sub open
 	{
 		my $filename = "$dir\\$bookname";
 		display($dbg_book,1,"opening $filename");
+
 		$this->{workbook} = $xl->{excel}->Workbooks->Open($filename);
+			# AS_SERVICE: this fails, in a DosBox, if the $bookname
+			# was not already open, it opens properly here.
+
 		if (!$this->{workbook})
 		{
-			error("Could not open $filename");
+			if ($dbg_book >= 0)
+			{
+				error("Could not open $filename");
+			}
+			else
+			{
+				my $error = Win32::OLE->LastError();
+				error("Could not open($filename): $error");
+
+			}
+
 			return;
 		}
 		$this->{opened} = 1;
