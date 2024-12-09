@@ -100,7 +100,7 @@ our $dbg_exec   	= 1;		# 0..1 execute()
 our $dbg_do   		= 1;		# 0..1 db_do()
 
 our $dbg_create 	= 0;		# 0..2 createTable() && createDatabase()
-our $dbg_insert 	= 1;		# 0..2 insert_record()
+our $dbg_insert 	= 1;		# 0 = show record
 our $dbg_update 	= 0;		# 0..1 update_record() 0=show call, -1=show the record
 our $dbg_bind    	= 1;		# 0..2 binding
 
