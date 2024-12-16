@@ -108,6 +108,7 @@ BEGIN
 		pathOf
 		filenameFromWin
 		getFileTime
+		getFileSize
 		getTimestamp
 		setTimestamp
         getTextFile
@@ -1064,9 +1065,17 @@ sub printVarToFile
 sub getFileTime
 {
 	my ($filename) = @_;
-	my @stats = stat($filename);
-	my $mtime = $stats[9];
+	my @stat = stat($filename);
+	my $mtime = $stat[9];
 	return $mtime || 0;
+}
+
+sub getFileSize
+{
+	my ($filename) = @_;
+	my @stat = stat($filename);
+	my $file_size = $stat[7];
+	return $file_size || 0;
 }
 
 
