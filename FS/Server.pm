@@ -243,9 +243,10 @@ sub serverThread
         return;
     }
 
+	$ACTUAL_SERVER_PORT = $server_socket->sockport();
 	if (!$this->{FS_PORT})
 	{
-		$ACTUAL_SERVER_PORT = $server_socket->sockport();
+
 		$this->{FS_PORT} = $ACTUAL_SERVER_PORT;
 		warning($dbg_server,0,"SERVER STARTED ON ACTUAL_PORT($ACTUAL_SERVER_PORT)");
 	}
