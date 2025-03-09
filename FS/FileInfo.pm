@@ -150,6 +150,9 @@ sub fromText
 		is_dir => 0,
 	});
 
+	display(0,0,"size($this->{size}) ts($this->{ts}) mode($this->{mode}) owner($this->{owner}) group($this->{group}) entry($this->{entry})");
+
+
 	$this->{is_dir} = 1 if $this->{entry} =~ s/\/$//;
 	$this->{entry} = '/' if $this->{is_dir} && !$this->{entry};
 
@@ -158,8 +161,8 @@ sub fromText
 	#	if $this->{is_dir} && $this->{size};
 	return error("bad FS::FileInfo size($this->{size}) for file: $text",$call_level)
 		if !$this->{is_dir} && $this->{size} !~ /^\d+$/;
-	return error("bad FS::FileInfo timestamp($this->{ts}): $text",$call_level)
-		if $this->{ts} !~ /^[\s\d\-\:]+$/;
+	# 		PRH		return error("bad FS::FileInfo timestamp($this->{ts}): $text",$call_level)
+	# 		PRH			if $this->{ts} !~ /^[\s\d\-\:]+$/;
 
 	$this->{entries} = shared_clone({}) if $this->{is_dir};
 	display($dbg_info+1,0,"fromText=".toText($this,1));
