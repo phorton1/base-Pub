@@ -71,8 +71,8 @@ sub json_error
 }
 sub json_response
 {
-    my ($request,$data) = @_;
-    return Pub::HTTP::Response->new($request,$data,200,'application/json');
+    my ($request,$data,$force_quotes) = @_;
+    return Pub::HTTP::Response->new($request,$data,200,'application/json',undef,$force_quotes);
 }
 
 
@@ -140,11 +140,12 @@ sub new
     #
     # Note that the hash must be in shared memory!
 {
-    my ($class,$request,$content,$code,$content_type,$addl_headers) = @_;
+    my ($class,$request,$content,$code,$content_type,$addl_headers,$force_quotes) = @_;
 
 	$content ||= '';
 	$code ||= 200;
 	$content_type ||= '';
+	$force_quotes ||= 0;
 
     my $server = $request->{server};
     my $this = $class->SUPER::new($server);
@@ -228,7 +229,7 @@ sub new
     {
         if (ref($content) && $content_type eq 'application/json')
         {
-            $content = my_encode_json($content);
+            $content = my_encode_json($content,$force_quotes);
             my $txt = "new() encoded_json_length=".length($content);
             $this->dbg(2,1,$txt);
         }

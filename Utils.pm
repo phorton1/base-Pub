@@ -1475,17 +1475,18 @@ sub my_decode_json
 sub my_encode_json
 	# return my json representation of an object
 {
-	my ($obj) = @_;
+	my ($obj,$force_quotes) = @_;
 	my $response = '';
-
-	display($dbg_json,0,"json obj=$obj ref=".ref($obj),1);
+	$force_quotes ||= 0;
+	
+	display($dbg_json,0,"my_encode_json force_quotes($force_quotes) obj=$obj ref=".ref($obj),1);
 
 	if ($obj =~ /ARRAY/)
 	{
 		for my $ele (@$obj)
 		{
 			$response .= "," if (length($response));
-			$response .= my_encode_json($ele)."\n";
+			$response .= my_encode_json($ele,$force_quotes)."\n";
 		}
 		return "[". $response . "]";
 	}
@@ -1497,12 +1498,12 @@ sub my_encode_json
 			my $val = $$obj{$k};
 			$val = '' if (!defined($val));
 
-			display($dbg_json,1,"json hash($k) = $val = ".ref($val),1);
+			display($dbg_json+1,1,"json hash($k) = $val = ".ref($val),1);
 
 			if (ref($val))
 			{
-				display($dbg_json,0,"json recursing");
-				$val = my_encode_json($val);
+				display($dbg_json+1,0,"json recursing");
+				$val = my_encode_json($val,$force_quotes);
 			}
 			else
 			{
@@ -1520,10 +1521,15 @@ sub my_encode_json
 
 				$val =~ s/\\/\\\\/g;
 				$val =~ s/"/\\"/g;
+
+				# users who force quotes must parseInts()
+				# and handle true/false themselves in JS
+				
 				$val = '"'.$val.'"'
-					if $val ne '0' &&
+					if $force_quotes || (
+					   $val ne '0' &&
 					   $val !~ /^(true|false)$/ &&
-					   $val !~ /^[1-9]\d*$/;
+					   $val !~ /^[1-9]\d*$/);
 
 					# don't quote boolean or 'real' integer values
 					#	that are either 0 or dont start with 0
