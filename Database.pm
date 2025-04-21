@@ -674,7 +674,7 @@ sub update_record
 
 	$dbg_update < 0 ?
 		display_hash($dbg_update,0,"update_record($table,$id_field,"._def($id_value).",$subset)",$rec) :
-		display($dbg_update,0,"update_record($table,$id_field,"._def($id_value).",$subset)");
+		display($dbg_update,0,"update_record($table,"._def($id_field).","._def($id_value).",$subset)");
 
 	my $table_def = $this->getFieldDefsArray($table);
 	return if !$table_def;
