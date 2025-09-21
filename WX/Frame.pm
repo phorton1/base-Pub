@@ -487,9 +487,11 @@ sub setCurrentPane
 		}
 	}
 
-	# set the member
+	# set the member and call activation method
 
 	$this->{current_pane} = $found;
+	$found->onActivate() if $found && $found->can("onActivate");
+
 
 	# implement a pending_populate scheme.
 	# this is called anytime the window comes into focus
