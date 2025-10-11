@@ -125,7 +125,7 @@ sub showError
 
 sub new
 {
-	my ($class, $parent) = @_;
+	my ($class, $parent, $rect) = @_;
 
 	# has to go somewhere
 
@@ -136,7 +136,6 @@ sub new
 
 	Pub::WX::AppConfig::initialize();
 
-	my $rect;
 	my $config;
 
 	display($dbg_sr+1,0,"Pub::WX::Frame::new() how_restore=$how_restore");
@@ -295,8 +294,15 @@ sub DESTROY
 	# short returning
 {
 	my ($this) = @_;
-	display($dbg_frame,0,"DESTROY Pub::WX::Frame");
-	setAppFrame(undef);
+
+	# this gets called when exiting threads so we only
+	# do this bit if its the main thread
+	
+	if (threads->tid == 1)
+	{
+		display($dbg_frame,0,"DESTROY Pub::WX::Frame");
+		setAppFrame(undef);
+	}
 	return;
 }
 
