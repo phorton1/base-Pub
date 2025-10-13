@@ -84,6 +84,7 @@ BEGIN
 		display_bytes
 		display_rect
 		setOutputListener
+		clearConsole
 
 		_def
 		_lim
@@ -494,6 +495,19 @@ sub setOutputListener
 }
 
 
+sub clearConsole
+	# Added at switch to win11.
+	# Linux version not implemented yet.
+	# $CONSOLE-Cls() stopped clearing the scrollback buffer in win11.
+	# Shelling out to 'cls' from the command line does.
+{
+	if (is_win())
+	{
+		$CONSOLE->Cls() if $CONSOLE;	# old, JIC
+		system("cls");					# required starting win11
+	}
+}
+
 
 sub get_indent
 {
@@ -535,9 +549,6 @@ sub _setColor
 		printf "\033[%dm",$utils_color_to_ansi->{$utils_color};
 	}
 }
-
-
-
 
 
 sub _output
