@@ -599,7 +599,7 @@ sub _output
 		if (1)	# split into indented lines on \rs
 		{
 			my $started = 0;
-			my @lines = split(/\r/,$disp_message);
+			my @lines = split(/\r|\n/,$disp_message);
 			for my $line (@lines)
 			{
 				next if !defined($line);
@@ -1244,6 +1244,11 @@ sub mergeHash
 {
 	my ($h1,$h2) = @_;
 	return if (!defined($h2));
+	if ($h1 !~ /HASH/ || $h2 !~ /HASH/)
+	{
+		error("Not a hash h1("._def($h1).") h2("._def($h2).")",1);
+		return {};
+	}
 	foreach my $k (keys(%$h2))
 	{
         next if (!defined($$h2{$k}));
