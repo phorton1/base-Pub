@@ -700,9 +700,10 @@ sub display_hash
 {
 	my ($level,$indent,$title,$hash) = @_;
 	return if !display($level,$indent,$title,1);
-	if (!$hash) # || ref($hash) !~ /HASH/)
+	$hash ||= 'undef';
+	if ($hash !~ /HASH/) # || ref($hash) !~ /HASH/)
 	{
-		display($level,$indent+1,"NO HASH ref(".ref($hash).")",1);
+		display($level,$indent+1,"NO HASH ref("._def($hash).") in display_hash($title)",1);
 		return;
 	}
 	for my $k (sort(keys(%$hash)))
