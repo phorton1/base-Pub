@@ -81,6 +81,7 @@ BEGIN
 		warning
 		display
     	display_hash
+		display_record
 		display_bytes
 		display_rect
 		setOutputListener
@@ -713,6 +714,98 @@ sub display_hash
 	}
 	return 1;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+sub display_record
+{
+	my ($dbg_level,$indent,$title,$obj,$level) = @_;
+	return if $dbg_level > $debug_level;
+	$level ||= 0;
+
+	my $text;
+	my $retval = '';
+	display(0,$indent,$title) if !$level;
+
+	if ($obj =~ /ARRAY/)
+	{
+		$retval .= indent($level)."[\n";
+		for my $ele (@$obj)
+		{
+			$retval .= display_record($dbg_level,$indent,'',$ele,$level+1,1);
+		}
+
+		$retval .= indent($level)."]\n";
+	}
+	elsif ($obj =~ /HASH/)
+	{
+		$retval .= indent($level)."{\n";
+		for my $k (keys(%$obj))
+		{
+			my $val = $obj->{$k};
+			$retval .= indent($level+1)."$k =>";
+			$retval .= display_record($dbg_level,$indent,'',$val,$level+2,0);
+		}
+		$retval .= indent($level)."}\n";
+	}
+	else
+	{
+		my @lines = split(/\n/,$obj);
+		for my $line (@lines)
+		{
+			$retval .= indent($level)."'$line'\n";
+		}
+	}
+
+	print $retval if !$level;
+	return $retval;
+}
+
+
+sub indent
+{
+	my ($level) = @_;
+	$level = 0 if $level < 0;
+	my $txt = '';
+	while ($level--) {$txt .= "  ";}
+	return $txt;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 sub display_bytes
