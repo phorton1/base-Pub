@@ -29,11 +29,11 @@ use Pub::WX::Dialogs;
 use base qw(Wx::Frame Pub::WX::FrameBase);
 
 
-my $dbg_frame = 0;
+my $dbg_frame = 1;
     # 0 = main lifecycle events
 	# -1 = main pane events
 	# -2 = all details
-my $dbg_sr = 0;
+my $dbg_sr = 1;
     # 0 = show saveState() and restoreState() calls
 	# -1 = show details
 

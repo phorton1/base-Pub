@@ -11,7 +11,7 @@ use Error qw(:try);
 use Wx qw(wxOK wxICON_EXCLAMATION);
 use Pub::Utils;
 
-my $dbg_main = 0;
+my $dbg_main = 1;
 
 use sigtrap 'handler', \&onSignal, 'normal-signals';
     # $SIG{INT} = \&onSignal; only catches ^c

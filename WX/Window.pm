@@ -39,7 +39,7 @@ use Wx::Event qw(EVT_CHILD_FOCUS EVT_CLOSE);
 use Pub::Utils;
 use base qw(Wx::Window);
 
-my $debug_aw = 0;
+my $debug_aw = 1;
 
 
 sub MyWindow

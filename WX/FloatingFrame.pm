@@ -15,7 +15,7 @@ use Pub::WX::Resources;
 use Pub::WX::FrameBase;
 use base qw(Wx::Frame Pub::WX::FrameBase);
 
-my $dbg_ff = 0;
+my $dbg_ff = 1;
 	# 0 = lifecyle
 	# -1 = operations
 

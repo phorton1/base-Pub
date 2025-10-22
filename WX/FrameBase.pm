@@ -18,7 +18,7 @@ use base 'Wx::EvtHandler';
 
 
 
-our $dbg_fb = -2;
+our $dbg_fb = 1;
 
 
 sub FrameBase

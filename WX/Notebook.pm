@@ -50,7 +50,7 @@ use base 'Wx::AuiNotebook';
 	# the DESTROY methods are not when the thread exits
 
 
-my $dbg_nb = 0;
+my $dbg_nb = 1;
 	# 0 = show minimal notebook lifecycle
 	# -1 = show operations
 my $dbg_sr = 1;
