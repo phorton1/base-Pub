@@ -177,6 +177,8 @@ BEGIN
 		$CONSOLE
 
 		$USE_SHARED_LOCK_SEM
+		$local_stdout_sem
+		
 		createSTDOUTSemaphore
 		openSTDOUTSemaphore
 		waitSTDOUTSemaphore
@@ -418,7 +420,7 @@ sub setStandardCavaResourceDir
 # theorertically xplat, but not published as such
 
 our $USE_SHARED_LOCK_SEM:shared = 0;
-my $local_sem:shared = 0;
+our $local_stdout_sem:shared = 0;
 
 # win32 only
 
@@ -451,26 +453,7 @@ sub openSTDOUTSemaphore
 sub waitSTDOUTSemaphore
 	# returns 1 if they got it, 0 if timeout
 {
-
 	return $STD_OUT_SEM->wait($SEMAPHORE_TIMEOUT) if $STD_OUT_SEM;
-	return 1;
-
-	if (!$local_sem)
-	{
-		$local_sem++;
-		return 1;
-	}
-	my $start = time();
-	while ($local_sem && time() < $start + $SEMAPHORE_TIMEOUT)
-	{
-		sleep(0.01);
-	}
-	if ($local_sem)
-	{
-		print "\n\nSTDOUT SEMAPHORE TIMEOUT !!!\n\n";
-		return 0;
-	}
-	$local_sem++;
 	return 1;
 }
 
@@ -478,7 +461,6 @@ sub waitSTDOUTSemaphore
 sub releaseSTDOUTSemaphore
 {
 	$STD_OUT_SEM->release() if $STD_OUT_SEM;
-	# $local_sem--;
 }
 
 
@@ -572,7 +554,7 @@ sub _output
 	my $disp_header_len = length($disp_message);
 	$disp_message .= $fill.$msg;
 
-	lock($local_sem) if $USE_SHARED_LOCK_SEM;
+	lock($local_stdout_sem) if $USE_SHARED_LOCK_SEM;
 	my $got_sem = waitSTDOUTSemaphore();
 
 	if ($logfile)
@@ -699,7 +681,7 @@ sub warning
 
 sub display_hash
 {
-	my ($level,$indent,$title,$hash) = @_;
+	my ($level,$indent,$title,$hash,$ignore_field_re) = @_;
 	return if !display($level,$indent,$title,1);
 	$hash ||= 'undef';
 	if ($hash !~ /HASH/) # || ref($hash) !~ /HASH/)
@@ -709,6 +691,7 @@ sub display_hash
 	}
 	for my $k (sort(keys(%$hash)))
 	{
+		next if $ignore_field_re && $k =~ $ignore_field_re;
 		my $val = _def($hash->{$k});
 		return if !display($level,$indent+1,"$k = '$val'",1);
 	}
@@ -717,20 +700,9 @@ sub display_hash
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 sub display_record
 {
-	my ($dbg_level,$indent,$title,$obj,$level) = @_;
+	my ($dbg_level,$indent,$title,$obj,$skip_re,$level,$use_indent) = @_;
 	return if $dbg_level > $debug_level;
 	$level ||= 0;
 
@@ -738,34 +710,31 @@ sub display_record
 	my $retval = '';
 	display(0,$indent,$title) if !$level;
 
-	if ($obj =~ /ARRAY/)
+	if ($obj && $obj =~ /ARRAY/)
 	{
 		$retval .= indent($level)."[\n";
 		for my $ele (@$obj)
 		{
-			$retval .= display_record($dbg_level,$indent,'',$ele,$level+1,1);
+			$retval .= display_record($dbg_level,$indent,'',$ele,$skip_re,$level+1,1);
 		}
 
 		$retval .= indent($level)."]\n";
 	}
-	elsif ($obj =~ /HASH/)
+	elsif ($obj && $obj =~ /HASH/)
 	{
 		$retval .= indent($level)."{\n";
-		for my $k (keys(%$obj))
+		for my $k (sort keys(%$obj))
 		{
+			next if $skip_re && $k =~ /$skip_re/;
 			my $val = $obj->{$k};
-			$retval .= indent($level+1)."$k =>";
-			$retval .= display_record($dbg_level,$indent,'',$val,$level+2,0);
+			$retval .= indent($level+1).pad($k,12)." =>";
+			$retval .= display_record($dbg_level,$indent,'',$val,$skip_re,$level+2,0);
 		}
 		$retval .= indent($level)."}\n";
 	}
 	else
 	{
-		my @lines = split(/\n/,$obj);
-		for my $line (@lines)
-		{
-			$retval .= indent($level)."'$line'\n";
-		}
+		$retval .= ($use_indent?indent($level):'')." '"._def($obj)."'\n";
 	}
 
 	print $retval if !$level;
