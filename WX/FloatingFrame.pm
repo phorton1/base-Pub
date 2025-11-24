@@ -38,6 +38,9 @@ sub new
 
 	$this->FrameBase($app_frame,$this,$page);
 	$app_frame->addFloatingFrame($instance,$this);
+
+	my $title = $app_frame->GetLabel();
+	$this->SetLabel($title."-$instance");
     return $this;
 }
 
