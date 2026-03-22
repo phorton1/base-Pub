@@ -1,33 +1,59 @@
 #!/usr/bin/perl
-#------------------------------------------------------
+#-------------------------------------------------------------------------
 # Pub::WX::Window
-#------------------------------------------------------
-# add-in base class for windows that are added to Pub::WX::Notbooks
+#-------------------------------------------------------------------------
+# Mixin base class for Panes -- the content windows that live as tabs
+# inside a Pub::WX::Notebook.
 #
-# It's easy to create a new window that corresponds to a command.
-# Just add the id's to the resources in the range for window-commands
-# and use the window, and create it in the application frame
-# onCreatePane() method.
+# "Pane" is this codebase's term for what Wx documentation calls a
+# "page" (a notebook tab).  See the full terminology note in
+# Pub::WX::FrameBase.
 #
-# Similarly, it's easy to create a window that is associated
-# with some user data (i.e. client_num or filename).  Just
-# provide a getConfigStr() method that returns the data
-# associated with the window, and call the constructor
-# with the config_str.
+# A Pane is logically owned by the AppFrame ({panes} list) for its
+# entire lifetime, regardless of which Notebook it is physically
+# parented to at any given moment.  This includes Panes that live in
+# a toolbar-style Notebook on the AppFrame -- they are in {panes} and
+# participate in closeOK() on application shutdown, just like any other
+# Pane.  Toolbar Panes should therefore not carry dirty state that
+# requires user prompting, since the user does not think of them as
+# documents.
 #
-# Multiple instance windows are trickier.
-# The pm file for the window should have a static instance_number.
-# The first instance number should be 1.
-# Pass that instance number into the Pub::WX::Window::become() method.
+# Panes can be reparented -- dragged from the AppFrame's content Notebook
+# into a FloatingFrame's Notebook and back -- without changing their
+# logical ownership.
 #
-#    The window ID passed in is the 'base' ID of the window
-#    so you should be sure to reserve a range in mbeResources.pm
 #
-#    There must be an explicit command event handler in mbeManager.pm
-#    and mbeManagerMisc.pm to instantiate a new one. It is no longer
-#    a simple ranged window command.
+# CREATING A PANE
 #
-#    The data element must be set to the instance data as well.
+# Derive from both Wx::Window (or a subclass) and Pub::WX::Window.
+# After SUPER::new(), call MyWindow($frame,$book,$id,$label,$data).
+# MyWindow() adds the Pane to the Notebook as a tab, registers it in
+# the AppFrame's {panes} list, and sets up EVT_CLOSE and EVT_CHILD_FOCUS.
+#
+#
+# WHAT DERIVED CLASSES SHOULD OVERRIDE
+#
+#   getDataForIniFile()  Return a scalar, hash, or array to be JSON-
+#                        encoded and stored in the ini file.  It will be
+#                        decoded and passed back as $data to the
+#                        constructor on restore.  Default returns ''.
+#
+#   saveThisPane()       Return 0 to exclude this Pane from save/restore.
+#                        Default returns 1.
+#
+#   closeOK()            Called before closing this Pane.  Return 0 to
+#                        block (e.g. unsaved changes), 1 to allow and
+#                        continue, -1 to allow and abandon all remaining
+#                        dirty checks.  Default returns 1.
+#
+#   autoClose()          Return 0 if this Pane should be exempt from
+#                        CLOSE_ALL_PANES and CLOSE_OTHER_PANES menu
+#                        events -- i.e. it is a persistent Pane that
+#                        the user does not expect to be dismissed by
+#                        those commands.  Default returns 1 (closeable).
+#                        NOTE: autoClose() is not yet checked by
+#                        Pub::WX::Frame::onCloseWindows() -- that is a
+#                        known gap to be addressed in the machinery.
 
 
 package Pub::WX::Window;

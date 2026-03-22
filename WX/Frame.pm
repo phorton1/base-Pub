@@ -1,12 +1,72 @@
 #!/usr/bin/perl
-#---------------------------------------------------------------------
-# There is a one to one correlation between frames and notebooks
-# A frame is the main frame and has it's 'book'
-# all other frames are floating, and have their 'book'
-# The only time I need to know about multiple notebooks is in save/restore
-# but really, the notebook data is subservient to the frame data.
-# I'm getting rid of {notebooks}
-
+#-------------------------------------------------------------------------
+# Pub::WX::Frame
+#-------------------------------------------------------------------------
+# The AppFrame -- the application's main OS window and the logical owner
+# of everything in the system.  See Pub::WX::FrameBase for the full
+# description of the application shape and terminology conventions.
+#
+# Pub::WX::Frame is special among frames in three ways:
+#   1. It has a main menu (File, View, Edit, etc)
+#   2. It logically owns all Panes system-wide via {panes}, including
+#      those currently displayed in FloatingFrames
+#   3. Closing it ends the entire application
+#
+#
+# KEY MEMBERS
+#
+#   {manager}  - Wx::AuiManager for this frame (see FrameBase)
+#   {book}     - The primary content Notebook (see FrameBase)
+#   {panes}    - Arrayref of ALL Panes in the system, across all frames
+#                and Notebooks.  "Pane" here means a content window
+#                (a tab), not a Wx AuiManager pane.  See FrameBase.
+#   {frames}   - Hashref of all FloatingFrames keyed by instance number.
+#                Populated by addFloatingFrame() when a FloatingFrame is
+#                created; cleared by deleteFloatingFrame() when it closes.
+#   {running}  - Set to 1 after full initialization, cleared at shutdown.
+#                Guards event handlers against firing during teardown.
+#
+#
+# CLOSING BEHAVIOR
+#
+# onCloseWindows() iterates {panes} and calls closeOK() on each Pane.
+# A Pane returning 0 blocks the close.  Returning -1 allows close and
+# skips remaining closeOK() calls (abandon all).
+#
+# NOTE: Pub::WX::Frame::onCloseWindows() does not currently implement
+# the autoClose() mechanism that My::WX had, which allowed individual
+# Panes to declare themselves exempt from CLOSE_ALL_PANES events (e.g.
+# a persistent toolbar Pane that should not be dismissed by Close All).
+# That is a known gap to be addressed in the machinery.
+#
+#
+# SAVE AND RESTORE STATE
+#
+# saveState() and restoreState() persist the window layout across
+# sessions via the ini file (Pub::WX::AppConfig).  The AppFrame and
+# each FloatingFrame are saved as numbered entries (0 = AppFrame,
+# 1..N = FloatingFrames in instance order):
+#
+#   rect_N              x,y,w,h of the OS window
+#   book_N              NUM_PANES,<AuiNotebook perspective string>
+#   book_N_pane_M       window_id,<json data from getDataForIniFile()>
+#   pers_N              <AuiManager perspective string>
+#
+# AppFrame toolbook notebooks are saved separately by name:
+#
+#   book_tb_$name       toolbook notebook tab state (e.g. book_tb_category_tb)
+#   book_tb_$name_pane_M  toolbook pane entries
+#
+# The AppFrame AuiManager perspective (pers_0) captures toolbook positions
+# within the frame, so no separate pers entry is needed per toolbook.
+#
+# On restore, each saved Pane is recreated via createPane(id,book,data),
+# then the Notebook and AuiManager perspectives are loaded to recover
+# tab order and docking layout.
+#
+# Call setHowRestore($RESTORE_ALL) before new() to opt in.
+# Default is $RESTORE_NONE (no save/restore).
+#
 
 package Pub::WX::Frame;
 use strict;
@@ -353,6 +413,28 @@ sub deleteFloatingFrame
 }
 
 
+sub getNotebook
+	# Returns the Pub::WX::Notebook for the given name.
+	# Pass 'content' (or undef) for the primary content notebook ({book}).
+	# Pass a toolbook name (e.g. 'category_tb') for a toolbook notebook.
+{
+	my ($this, $name) = @_;
+	return $this->{book} if !$name || $name eq 'content';
+	return $this->{toolbooks}{$name};
+}
+
+
+sub getNotebookForPane
+	# Returns the correct Pub::WX::Notebook for a given pane id by
+	# consulting pane_data.  Apps with toolbooks must call this in their
+	# createPane() override to route panes to the right notebook.
+	# See songManager.pm createPane() for an example.
+{
+	my ($this, $id) = @_;
+	my $pane_info = $resources->{pane_data}{$id};
+	my $nb_name = $pane_info ? $pane_info->[1] : 'content';
+	return $this->getNotebook($nb_name);
+}
 
 
 
@@ -529,12 +611,22 @@ sub saveFrame
 	display_rect($dbg_sr+1,0,"saveFrame($num) rect_$num=",$rect);
 	writeConfigRect("rect_$num",$rect);
 
-	# have the Notebook store its information
+	# save the content notebook
 
 	$frame->{book}->saveBook($num);
 
-	# save the manager perpective
-	# manager perspectives are black boxes that we pass pack in restore
+	# save toolbook notebook tab state (AppFrame only)
+
+	if ($frame->{toolbooks})
+	{
+		for my $name (sort keys %{$frame->{toolbooks}})
+		{
+			$frame->{toolbooks}{$name}->saveBook("tb_$name");
+		}
+	}
+
+	# save the manager perspective
+	# manager perspectives are black boxes that we pass back in restore
 
 	my $perspective = $frame->{manager}->SavePerspective();
 	display($dbg_sr+1,1,"writing pers_$num=$perspective'");
@@ -571,12 +663,22 @@ sub restoreFrame
 	my ($frame,$num) = @_;
 	$frame->{book}->restoreBook($num);
 
+	# restore toolbook notebook tab state (AppFrame only)
+
+	if ($frame->{toolbooks})
+	{
+		for my $name (sort keys %{$frame->{toolbooks}})
+		{
+			$frame->{toolbooks}{$name}->restoreBook("tb_$name");
+		}
+	}
+
 	# restore the manager perspective
 
 	my $manager_pers = readConfig("pers_$num");
 	display($dbg_sr+1,1,"manager->LoadPerspective($manager_pers)");
 	$frame->{manager}->LoadPerspective($manager_pers);
-    $frame->{manager}->Update();
+	$frame->{manager}->Update();
 }
 
 

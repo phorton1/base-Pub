@@ -22,6 +22,8 @@ BEGIN
         $ID_SEPARATOR
         $CLOSE_ALL_PANES
         $CLOSE_OTHER_PANES
+        getToolbook
+        getToolbookById
     );
 }
 
@@ -50,6 +52,30 @@ our $resources = {
     view_menu    => \@view_menu,
     command_data => \%command_data,
 };
+
+
+sub getToolbook
+    # Returns the toolbook hashref with the given name, or undef.
+{
+    my ($name) = @_;
+    return unless $resources->{toolbooks};
+    for my $tb (@{$resources->{toolbooks}})
+    {
+        return $tb if $tb->{name} eq $name;
+    }
+}
+
+
+sub getToolbookById
+    # Returns the toolbook hashref with the given command_id, or undef.
+{
+    my ($id) = @_;
+    return unless $resources->{toolbooks};
+    for my $tb (@{$resources->{toolbooks}})
+    {
+        return $tb if $tb->{command_id} == $id;
+    }
+}
 
 
 1;

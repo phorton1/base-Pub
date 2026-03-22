@@ -2,22 +2,34 @@
 #-------------------------------------------------------------------------
 # Pub::WX::Notebook
 #-------------------------------------------------------------------------
-# A Pub::WX::Notebook is a container (control) that holds Pub::WX::Windows,
-# and which presents a tab bar at the top.
+# A Wx::AuiNotebook subclass that serves as the tab container for Panes
+# (content windows).  Every frame -- AppFrame and FloatingFrame alike --
+# has at least one of these as its primary content Notebook, stored as
+# {book} in the frame.
 #
-# It is derived from a Wx::AuiNotebook, which is turn derived from
-# Wx::Control, which is basically just a window.
+# Each Notebook is registered with its frame's AuiManager under a stable
+# name that appears in the perspective string saved to the ini file.
+# Content notebooks use the name 'content'; toolbook notebooks use their
+# declared name from $resources->{toolbooks}.  See Pub::WX::FrameBase.
 #
-# There is a one to one relationship between a Pub::WX::Notebook is and
-# a Pub::WX::Frame or Pub::WX::FloatingFrame, both of which are derived
-# from Pub::WX::Frame and Pub::WX::FrameBase. Pub::WX::FrameBase
-# is derived from Wx::EventHandler, and provides a common object that
-# gives each frame in our system a Wx::AuiManager and a Pub::WX::Notebook.
 #
-# The Pub::WX::Frame is special in that has a system menu, contains
-# functionality, but most importantly, structurally, it keeps hashes
-# and a hash by instance, {frames}, of all the Pub::WX::FloatingFrames,
-# and a list of all the Pub::WX::Windows in the entire system.
+# RELATIONSHIP TO AuiManager
+#
+# The Notebook itself is a Wx "pane" in the AuiManager sense -- it is
+# one of the things the AuiManager positions and manages within the frame.
+# Do not confuse this with the Panes (content windows / tabs) that live
+# inside the Notebook.  See the terminology note in Pub::WX::FrameBase.
+#
+#
+# SAVE AND RESTORE
+#
+# saveBook(N) and restoreBook(N) are called by Pub::WX::Frame during
+# saveState() and restoreState().  They write and read the book_N and
+# book_N_pane_M ini file entries.  Each saved Pane contributes its
+# window id and the data returned by getDataForIniFile().  On restore,
+# createPane() is called for each, then LoadPerspective() recovers the
+# tab order.
+#
 
 
 package Pub::WX::Notebook;
@@ -58,39 +70,60 @@ my $dbg_sr = 1;
 
 
 sub new
+    # Creates a Pub::WX::Notebook registered with the frame's AuiManager.
+    # For content notebooks (the primary tab area of any frame), call as:
+    #   Pub::WX::Notebook->new($app_frame, $float_frame)
+    # For toolbook notebooks (docked side panels on the AppFrame), pass the
+    # toolbook hashref from $resources->{toolbooks} as a third argument:
+    #   Pub::WX::Notebook->new($app_frame, undef, $toolbook)
+    # $toolbook is optional; omitting it creates a standard content notebook.
 {
-	my ($class,$app_frame,$float_frame) = @_;
+	my ($class, $app_frame, $float_frame, $toolbook) = @_;
 	$float_frame ||= '';
- 	warning($dbg_nb,0,"Notebook::new() float_frame=$float_frame");
+	warning($dbg_nb,0,"Notebook::new() float_frame=$float_frame toolbook=".($toolbook?$toolbook->{name}:'none'));
 
 	# create the notebook
 
 	my $frame = $float_frame ? $float_frame : $app_frame;
-	my $this = $class->SUPER::new( $frame, -1, [-1, -1], [300, 300],
+	my $style =
 		wxAUI_NB_TAB_SPLIT |
 		wxAUI_NB_TAB_EXTERNAL_MOVE |
 		wxAUI_NB_SCROLL_BUTTONS |
-		wxAUI_NB_CLOSE_ON_ACTIVE_TAB |
-		wxAUI_NB_TAB_MOVE );
+		wxAUI_NB_TAB_MOVE;
+	$style |= wxAUI_NB_CLOSE_ON_ACTIVE_TAB if !$toolbook;
 
-	$this->{frame} = $frame;
-    $this->{app_frame} = $app_frame;
+	my $this = $class->SUPER::new($frame, -1, [-1, -1], [300, 300], $style);
+
+	$this->{frame}       = $frame;
+	$this->{app_frame}   = $app_frame;
 	$this->{is_floating} = $float_frame;
-	$this->{manager} = $frame->{manager};
+	$this->{manager}     = $frame->{manager};
+	$this->{name}        = $toolbook ? $toolbook->{name} : 'content';
 
 	# add it to the aui manager
 
 	my $pane = Wx::AuiPaneInfo->new
-		->Name('blah')
+		->Name($this->{name})
 		->Row(1)
 		->Position(1)
-		->CenterPane
 		->Dockable
 		->Floatable
 		->Movable
-		->Resizable
-		->CloseButton
-		->MinimizeButton;
+		->Resizable;
+
+	if ($toolbook)
+	{
+		my $dir = $toolbook->{direction} || 'left';
+		$pane->Left()   if $dir eq 'left';
+		$pane->Right()  if $dir eq 'right';
+		$pane->Top()    if $dir eq 'top';
+		$pane->Bottom() if $dir eq 'bottom';
+		$pane->Gripper();
+	}
+	else
+	{
+		$pane->CenterPane->CloseButton->MinimizeButton;
+	}
 
 	$this->{manager}->AddPane($this, $pane);
 	$this->{manager}->Update();
@@ -345,7 +378,6 @@ sub saveBook
 		writeConfig($config_id,$str);
 	}
 
-	my $count = $this->GetPageCount();
     my $book_pers = "$pane_num,".$this->SavePerspective();
 	display($dbg_sr,1,"Writing book_$num=$book_pers");
 	writeConfig("book_$num",$book_pers);
@@ -400,7 +432,7 @@ sub restoreBook
 	}
 
 	display($dbg_sr,1,"calling LoadPerspective($book_pers)");
-	$this->LoadPerspective($book_pers);
+	$this->LoadPerspective($book_pers) if $book_pers;
 	display($dbg_sr,0,"$this restoreBook($num) finished");
 }
 
