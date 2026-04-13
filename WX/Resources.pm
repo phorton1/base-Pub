@@ -27,7 +27,8 @@ BEGIN
     );
 }
 
-# APPS get any IDs over 200
+# APPS must not use IDs less than 200, which
+# are reserved for system use.
 
 our (
     $ID_SEPARATOR,
@@ -38,8 +39,8 @@ our (
 
 
 my @view_menu = (
-	$CLOSE_ALL_PANES,
-	$CLOSE_OTHER_PANES );
+	$CLOSE_ALL_PANES,		# will be disabled if no panes are open
+	$CLOSE_OTHER_PANES );	# will be disabled if less than 2 panes are opencd ..
 
 my %command_data = (
 	$CLOSE_ALL_PANES    => ['Close All',		'Close all open windows' ],
