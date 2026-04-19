@@ -214,7 +214,7 @@ sub onPaint
 
 	# Erase background using virtual coords
 	$dc->SetPen(wxTRANSPARENT_PEN);
-	$dc->SetBrush(Wx::Brush->new(wxWHITE, wxSOLID));
+	$dc->SetBrush(Wx::Brush->new($this->GetBackgroundColour(), wxSOLID));
 	$dc->DrawRectangle($ux, $uy, $uw, $uh);
 
 	$dc->SetBackgroundMode(wxTRANSPARENT);
