@@ -69,11 +69,14 @@ sub new
 	$this->{LINE_HEIGHT} = 16;
 	$this->{CHAR_WIDTH}  = 7;
 
-	$this->{drag_start}  = '';
-	$this->{drag_alt}    = 0;
-	$this->{in_drag}     = 0;
-	$this->{drag_end}    = '';
-	$this->{scroll_inc}  = 0;
+	$this->{drag_start}   = '';
+	$this->{drag_alt}     = 0;
+	$this->{in_drag}      = 0;
+	$this->{drag_end}     = '';
+	$this->{scroll_inc}   = 0;
+	$this->{on_motion}     = undef;
+	$this->{on_link_click} = undef;
+	$this->{link_regions}  = [];
 
 	$this->SetBackgroundColour(wxWHITE);
 	$this->SetBackgroundStyle(wxBG_STYLE_CUSTOM);
@@ -97,14 +100,44 @@ sub new
 sub clearContent
 {
 	my ($this) = @_;
-	$this->{content} = [];
-	$this->{width}   = 0;
-	$this->{height}  = 0;
-	$this->{drag_start} = '';
-	$this->{drag_end}   = '';
-	$this->{in_drag}    = 0;
+	$this->{content}      = [];
+	$this->{width}        = 0;
+	$this->{height}       = 0;
+	$this->{drag_start}   = '';
+	$this->{drag_end}     = '';
+	$this->{in_drag}      = 0;
+	$this->{link_regions} = [];
 	$this->Scroll(0, 0);
 	$this->SetVirtualSize($LEFT_MARGIN, 0);
+}
+
+
+sub setMotionCallback
+{
+	my ($this, $cb) = @_;
+	$this->{on_motion} = $cb;
+}
+
+sub setLinkClickCallback
+{
+	my ($this, $cb) = @_;
+	$this->{on_link_click} = $cb;
+}
+
+sub _hitTestLinks
+{
+	my ($this, $ux, $uy) = @_;
+	my $lh  = $this->{LINE_HEIGHT};
+	my $cw  = $this->{CHAR_WIDTH};
+	my $li  = int($uy / $lh);
+	my $col = int(($ux - $LEFT_MARGIN) / $cw);
+	for my $lr (@{$this->{link_regions} // []})
+	{
+		return $lr if $lr->{line} == $li
+		           && $col >= $lr->{start}
+		           && $col <= $lr->{end};
+	}
+	return undef;
 }
 
 
@@ -470,6 +503,19 @@ sub onMouse
 	{
 		$this->_refreshDrag([$ux, $uy]);
 		$this->_handleScroll($sx, $sy);
+	}
+
+	if (!$lclick && !$rclick && !$lup && !$dragging)
+	{
+		if ($this->{on_motion})
+		{
+			$this->{on_motion}->($this, $ux, $uy);
+		}
+	}
+	elsif ($lclick && !$shift && $this->{on_link_click})
+	{
+		my $lr = $this->_hitTestLinks($ux, $uy);
+		$this->{on_link_click}->($this, $lr) if $lr;
 	}
 
 	$event->Skip();
