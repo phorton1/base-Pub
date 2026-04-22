@@ -87,6 +87,13 @@ BEGIN
 		setOutputListener
 		clearConsole
 
+		enableOutputRing
+		clearOutputRing
+		pushOutputRing
+		getOutputRingSeq
+		getOutputRingSince
+		getOutputRingTail
+
 		_def
 		_lim
 		_plim
@@ -471,6 +478,73 @@ sub releaseSTDOUTSemaphore
 
 my $output_listener;
 
+my $ring_enabled  :shared = 0;
+my $ring_buf      :shared;
+my $ring_seq      :shared = 0;
+my $ring_size     :shared = 0;
+my $ring_overflow :shared = 0;
+
+
+sub enableOutputRing
+	# Call once at app startup to activate the ring buffer.
+	# Off by default â€” has no effect on apps that don't call this.
+{
+	my ($size) = @_;
+	$ring_size    = $size || 2000;
+	$ring_buf     = shared_clone([]);
+	$ring_enabled = 1;
+}
+
+sub clearOutputRing
+	# Discard all buffered entries and reset the overflow counter.
+{
+	return unless $ring_enabled;
+	lock($ring_seq);
+	$ring_buf      = shared_clone([]);
+	$ring_overflow = 0;
+}
+
+sub pushOutputRing
+	# Push one entry.  Called by _output(), printConsole(), and c_print()
+	# so that all console output lands in the same interleaved buffer.
+{
+	my ($text,$color) = @_;
+	return unless $ring_enabled;
+	lock($ring_seq);
+	push @$ring_buf, shared_clone({
+		seq   => ++$ring_seq,
+		color => $color || 0,
+		text  => $text,
+	});
+	if (@$ring_buf > $ring_size)
+	{
+		shift @$ring_buf;
+		$ring_overflow++;
+	}
+}
+
+sub getOutputRingSeq  { return $ring_seq }
+
+sub getOutputRingSince
+	# Returns (current_seq, entries_aref, overflow_count) for entries after $since.
+{
+	my ($since) = @_;
+	lock($ring_seq);
+	my @entries = grep { $_->{seq} > $since } @$ring_buf;
+	return ($ring_seq, \@entries, $ring_overflow);
+}
+
+sub getOutputRingTail
+	# Returns (current_seq, entries_aref, overflow_count) for the last $n entries.
+{
+	my ($n) = @_;
+	lock($ring_seq);
+	my $count  = scalar @$ring_buf;
+	my $start  = $count > $n ? $count - $n : 0;
+	my @entries = @{$ring_buf}[$start .. $count - 1];
+	return ($ring_seq, \@entries, $ring_overflow);
+}
+
 
 sub setOutputListener
 {
@@ -609,6 +683,8 @@ sub _output
 		$CONSOLE->Flush() if $CONSOLE;
 		# sleep(0.1) if $WITH_SEMAPHORES;
 	}
+
+	pushOutputRing($disp_message,$color);
 
 	# calling the output listener we detect for failures
 	# and return up thru the call chain ....
@@ -1586,7 +1662,7 @@ sub my_encode_json
 			}
 			else
 			{
-				# convert high ascii characters (é = 0xe9 = 233 decimal)
+				# convert high ascii characters (ï¿½ = 0xe9 = 233 decimal)
 				# to &#decimal; html encoding.  jquery clients must use
 				# obj.html(s) and NOT obj.text(s) to get it to work
 				#
