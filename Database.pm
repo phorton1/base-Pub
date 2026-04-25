@@ -397,6 +397,7 @@ sub getFieldNames
 	for my $field (@$fields)
 	{
 		my ($name) = split(/\s+/,$field,2);
+		next if $name =~ /^(PRIMARY|UNIQUE|CHECK|FOREIGN)$/i;
 		next if $no_id_field && $name eq 'id';
 		display($dbg_defs+1,1,"name=$name");
 		push @retval,$name;
@@ -459,6 +460,14 @@ sub getFieldDefsArray
 		my $name = shift(@parts);
 		my $def_type = shift(@parts);
 		my $rest = join(' ',@parts);
+
+		# Table-level constraint entry (PRIMARY KEY, UNIQUE, CHECK, FOREIGN KEY).
+		# Pass the whole string through as a raw DDL fragment; skip field processing.
+		if ($name =~ /^(PRIMARY|UNIQUE|CHECK|FOREIGN)$/i)
+		{
+			push @$result, { constraint => 1, create => $field_def, colnum => $colnum++ };
+			next;
+		}
 
 		my $type = $def_type;
 		$type =~ s/$DB_FIELD_TYPE_DATE/$DB_FIELD_DEF_DATE/;
@@ -526,6 +535,7 @@ sub getFieldDefs
 	return if !$table_def;
     for my $def (@$table_def)
     {
+        next if $def->{constraint};
         $result->{$def->{name}} = $def;
     }
 
@@ -554,10 +564,17 @@ sub createTable
 	my $text_defs = '';
 	for my $def (@$table_def)
 	{
-		display($dbg_create,1,pad($def->{name},20)." ".$def->{create});
-
 		$text_defs .= ',' if $text_defs;
-		$text_defs .= "$def->{name} $def->{create}";
+		if ($def->{constraint})
+		{
+			display($dbg_create,1,"[constraint] $def->{create}");
+			$text_defs .= $def->{create};
+		}
+		else
+		{
+			display($dbg_create,1,pad($def->{name},20)." ".$def->{create});
+			$text_defs .= "$def->{name} $def->{create}";
+		}
 	}
 	if (!$this->do("CREATE TABLE $table ($text_defs)"))
 	{
@@ -636,6 +653,7 @@ sub insert_record
 
     for my $def (@$table_def)
     {
+		next if $def->{constraint};
 		next if $def && $def->{auto_increment};
 		    # do not set the magic autoincrement ID
 
@@ -691,6 +709,7 @@ sub update_record
     my $bind_values = [];
     for my $def (@$table_def)
     {
+		next if $def->{constraint};
 		my $field = $def->{name};
         next if ($field eq $id_field);
 
@@ -1149,6 +1168,7 @@ sub exportTableTextFile
 		print OFILE "\n";
 		for my $def (@$table_def)
 		{
+			next if $def->{constraint};
 			next if $def->{auto_increment};
 			my $field_name = $def->{name};
 			my $val = $rec->{$field_name};
