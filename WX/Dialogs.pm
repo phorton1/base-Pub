@@ -183,7 +183,8 @@ use threads::shared;
 use Wx qw(:everything);
 use Wx::Event qw(
 	EVT_CLOSE
-	EVT_BUTTON );
+	EVT_BUTTON
+	EVT_IDLE );
 use Pub::Utils;
 use base qw(Wx::Dialog);
 
@@ -191,36 +192,71 @@ use base qw(Wx::Dialog);
 my $ID_CANCEL = 4567;
 
 
+sub newProgressData
+	# Creates the shared progress data object passed to both new() and API command hashes.
+	# Set {active}=1 before queuing commands; the consumer reads and updates it.
+	# $workers: number of independent services contributing (default: undef = single-service
+	# mode where completion is detected by done >= total).  With $workers, each service
+	# decrements {workers} when its batch is done; dialog closes when {workers} hits 0.
+{
+	my ($total, $workers) = @_;
+	my $data = &threads::shared::share({});
+	$data->{active}    = 0;
+	$data->{total}     = ($total // 0) + 0;
+	$data->{done}      = 0;
+	$data->{cancelled} = 0;
+	$data->{error}     = '';
+	$data->{label}     = '';
+	$data->{workers}   = ($workers + 0) if defined $workers;
+	return $data;
+}
+
+
 sub new
 {
-    my ($class, $parent, $title, $w_cancel, $range, $msg) = @_;
+	my ($class, $parent, $title, $w_cancel, $range_or_data, $msg) = @_;
 	$msg ||= '';
+
+	# $range_or_data: number (old-style range) or shared hashref from newProgressData (new-style)
+	my ($prog_data, $range);
+	if (ref($range_or_data) eq 'HASH')
+	{
+		$prog_data = $range_or_data;
+		$range     = $prog_data->{total} || 1;
+	}
+	else
+	{
+		$range = $range_or_data || 1;
+	}
 
 	$parent = getAppFrame() if !$parent;
 	$parent->Enable(0) if $parent;
 
-    my $this = $class->SUPER::new($parent,-1,$title,[-1,-1],[300,120 + ($w_cancel?40:0)]);
+	my $this = $class->SUPER::new($parent,-1,$title,[-1,-1],[300,120 + ($w_cancel?40:0)]);
 
-	$this->{parent} = $parent;
-    $this->{w_cancel} = $w_cancel;
-    $this->{range} = $range;
-    $this->{msg} = $msg;
-    $this->{done} = 0;
-    $this->{cancelled} = 0;
+	$this->{parent}    = $parent;
+	$this->{w_cancel}  = $w_cancel;
+	$this->{range}     = $range;
+	$this->{msg}       = $msg;
+	$this->{done}      = 0;
+	$this->{cancelled} = 0;
+	$this->{terminal}  = 0;
+	$this->{prog_data} = $prog_data;
 
-    $this->{msg_ctrl} = Wx::StaticText->new($this,-1,$msg,[20,10]);
-    $this->{gauge} = Wx::Gauge->new($this,-1,$range,[20,50],[255,16]);
+	$this->{msg_ctrl} = Wx::StaticText->new($this,-1,$msg,[20,10]);
+	$this->{gauge}    = Wx::Gauge->new($this,-1,$range,[20,50],[255,16]);
 
-    if ($w_cancel)
-    {
-        Wx::Button->new($this,$ID_CANCEL,'Cancel',[200,80],[60,20]);
-        EVT_BUTTON($this,$ID_CANCEL,\&onCancel);
-    }
-    EVT_CLOSE($this,\&onCloseProgressDialog);
+	if ($w_cancel)
+	{
+		$this->{cancel_btn} = Wx::Button->new($this,$ID_CANCEL,'Cancel',[200,80],[60,20]);
+		EVT_BUTTON($this,$ID_CANCEL,\&onCancel);
+	}
+	EVT_CLOSE($this,\&onCloseProgressDialog);
+	EVT_IDLE($this,\&_onIdle) if $prog_data;
 
-    $this->Show();
+	$this->Show();
 	Wx::App::GetInstance()->Yield();
-    return $this;
+	return $this;
 }
 
 
@@ -279,18 +315,113 @@ sub cancelled
 }
 
 
+
+sub _onIdle
+{
+	my ($this, $event) = @_;
+	my $data = $this->{prog_data};
+	return unless $data && $data->{active};
+
+	if ($data->{error})
+	{
+		$this->setTerminal($data->{error});
+		return;
+	}
+	if ($data->{cancelled})
+	{
+		$this->setTerminal('Cancelled by user');
+		return;
+	}
+
+	my $total   = $data->{total}   + 0;
+	my $done    = $data->{done}    + 0;
+	my $workers = exists($data->{workers}) ? $data->{workers} + 0 : undef;
+
+	# Re-range gauge when total has grown since dialog was created
+	if ($total > 0 && $total != $this->{range})
+	{
+		$this->{range} = $total;
+		$this->{gauge}->SetRange($total);
+	}
+
+	# Completion: all workers finished (multi-service), or progress complete (single-service)
+	my $done_flag =
+		(defined $workers && $workers == 0) ||
+		(!defined $workers && $total > 0 && $done >= $total);
+	if ($done_flag)
+	{
+		$data->{active} = 0;
+		$this->Destroy();
+		return;
+	}
+
+	my $label = $data->{label} // '';
+	if ($total == 0)
+	{
+		$this->{gauge}->Pulse();
+		my $msg = $label || 'Starting...';
+		if ($msg ne ($this->{msg} // ''))
+		{
+			$this->{msg} = $msg;
+			$this->{msg_ctrl}->SetLabel($msg);
+			$this->Refresh();
+		}
+	}
+	else
+	{
+		my $msg = $label ? "$label ($done/$total)" : "$done / $total";
+		$this->set($done, $msg);
+	}
+	$event->RequestMore(1);
+}
+
+
+sub setTerminal
+	# Transition dialog to terminal (error/cancel) state: red message, Close button, allow close.
+	# Frame remains disabled until user explicitly closes the dialog.
+{
+	my ($this, $msg) = @_;
+	return if $this->{terminal};
+	$this->{terminal}          = 1;
+	$this->{prog_data}{active} = 0 if $this->{prog_data};
+	$this->{msg_ctrl}->SetForegroundColour(Wx::Colour->new(180, 0, 0));
+	$this->{msg_ctrl}->SetLabel($msg);
+	my $btn = $this->{cancel_btn};
+	$btn->SetLabel('Close') if $btn;
+	$this->Refresh();
+	Wx::App::GetInstance()->Yield();
+}
+
 sub onCloseProgressDialog
 {
-    my ($this,$event) = @_;
-    $event->Veto();
+	my ($this,$event) = @_;
+	if ($this->{terminal})
+	{
+		$this->Destroy();
+	}
+	else
+	{
+		$event->Veto();
+	}
 }
 
 
 sub onCancel
 {
-    my ($this,$event) = @_;
-    $this->{cancelled} = 1;
-    $event->Skip();
+	my ($this,$event) = @_;
+	if ($this->{terminal})
+	{
+		$this->Destroy();
+	}
+	elsif ($this->{prog_data})
+	{
+		$this->{prog_data}{cancelled} = 1;
+	}
+	else
+	{
+		$this->{cancelled} = 1;
+		$event->Skip();
+	}
 }
 
 
