@@ -191,6 +191,20 @@ use base qw(Wx::Dialog);
 
 my $ID_CANCEL = 4567;
 
+my $_active;
+my $_dialog_active :shared = 0;
+my $_force_close   :shared = 0;
+
+sub isActive        { return defined $_active ? 1 : 0; }
+sub isActiveShared  { return $_dialog_active }
+sub setForceClose   { $_force_close = 1 }
+sub forceCloseActive
+{
+	return unless $_force_close && defined $_active;
+	$_force_close = 0;
+	$_active->Destroy();
+}
+
 
 sub newProgressData
 	# Creates the shared progress data object passed to both new() and API command hashes.
@@ -218,11 +232,11 @@ sub new
 	$msg ||= '';
 
 	# $range_or_data: number (old-style range) or shared hashref from newProgressData (new-style)
-	my ($prog_data, $range);
+	my ($progress_data, $range);
 	if (ref($range_or_data) eq 'HASH')
 	{
-		$prog_data = $range_or_data;
-		$range     = $prog_data->{total} || 1;
+		$progress_data = $range_or_data;
+		$range     = $progress_data->{total} || 1;
 	}
 	else
 	{
@@ -235,27 +249,32 @@ sub new
 	my $this = $class->SUPER::new($parent,-1,$title,[-1,-1],[300,120 + ($w_cancel?40:0)]);
 
 	$this->{parent}    = $parent;
+	$this->{title}     = $title;
 	$this->{w_cancel}  = $w_cancel;
 	$this->{range}     = $range;
 	$this->{msg}       = $msg;
 	$this->{done}      = 0;
 	$this->{cancelled} = 0;
 	$this->{terminal}  = 0;
-	$this->{prog_data} = $prog_data;
+	$this->{progress_data} = $progress_data;
 
 	$this->{msg_ctrl} = Wx::StaticText->new($this,-1,$msg,[20,10]);
 	$this->{gauge}    = Wx::Gauge->new($this,-1,$range,[20,50],[255,16]);
 
 	if ($w_cancel)
 	{
-		$this->{cancel_btn} = Wx::Button->new($this,$ID_CANCEL,'Cancel',[200,80],[60,20]);
+		my $lbl = ($progress_data && $progress_data->{cancel_label}) ? $progress_data->{cancel_label} : 'Cancel';
+		$this->{cancel_btn} = Wx::Button->new($this,$ID_CANCEL,$lbl,[200,80],[60,20]);
 		EVT_BUTTON($this,$ID_CANCEL,\&onCancel);
 	}
 	EVT_CLOSE($this,\&onCloseProgressDialog);
-	EVT_IDLE($this,\&_onIdle) if $prog_data;
+	EVT_IDLE($this,\&_onIdle) if $progress_data;
 
 	$this->Show();
+	display(-1, 0, "===== ProgressDialog '$title' STARTED =====", 0, $UTILS_COLOR_LIGHT_MAGENTA);
 	Wx::App::GetInstance()->Yield();
+	$_active = $this;
+	$_dialog_active = 1;
 	return $this;
 }
 
@@ -263,6 +282,9 @@ sub new
 sub Destroy
 {
 	my ($this) = @_;
+	$_active = undef;
+	$_dialog_active = 0;
+	display(-1, 0, "===== ProgressDialog '$this->{title}' FINISHED =====", 0, $UTILS_COLOR_LIGHT_MAGENTA);
 	if ($this->{parent})
 	{
 		$this->{parent}->Enable(1);
@@ -319,7 +341,7 @@ sub cancelled
 sub _onIdle
 {
 	my ($this, $event) = @_;
-	my $data = $this->{prog_data};
+	my $data = $this->{progress_data};
 	return unless $data && $data->{active};
 
 	if ($data->{error})
@@ -329,7 +351,7 @@ sub _onIdle
 	}
 	if ($data->{cancelled})
 	{
-		$this->setTerminal('Cancelled by user');
+		$this->setTerminal($data->{cancel_msg} // 'Cancelled by user');
 		return;
 	}
 
@@ -383,7 +405,7 @@ sub setTerminal
 	my ($this, $msg) = @_;
 	return if $this->{terminal};
 	$this->{terminal}          = 1;
-	$this->{prog_data}{active} = 0 if $this->{prog_data};
+	$this->{progress_data}{active} = 0 if $this->{progress_data};
 	$this->{msg_ctrl}->SetForegroundColour(Wx::Colour->new(180, 0, 0));
 	$this->{msg_ctrl}->SetLabel($msg);
 	my $btn = $this->{cancel_btn};
@@ -413,9 +435,9 @@ sub onCancel
 	{
 		$this->Destroy();
 	}
-	elsif ($this->{prog_data})
+	elsif ($this->{progress_data})
 	{
-		$this->{prog_data}{cancelled} = 1;
+		$this->{progress_data}{cancelled} = 1;
 	}
 	else
 	{
