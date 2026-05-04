@@ -87,7 +87,7 @@ sub exportTableRecords
 			}
 			print $ofile ";\n" if $num_this;
 			print $ofile "\n";
-			print $ofile "INSERT INTO $table (".join(",",@$fields).") VALUES";
+			print $ofile "INSERT OR REPLACE INTO $table (".join(",",@$fields).") VALUES";
 			$num_this = 0;
         }
 
@@ -96,12 +96,18 @@ sub exportTableRecords
         {
             my $value = $rec->{$field};
 
-			# quote CHAR or VARCHAR database field types
-			if ($defs->{$field}->{type} =~ /CHAR/)
+			# quote CHAR, VARCHAR, or TEXT database field types
+			if ($defs->{$field}->{type} =~ /CHAR|TEXT/)
 			{
-	            $value = '' if !defined($value);
-				$value =~ s/'/''/g;
-	            $value = "'$value'";
+				if (!defined($value))
+				{
+					$value = 'NULL';
+				}
+				else
+				{
+					$value =~ s/'/''/g;
+					$value = "'$value'";
+				}
 			}
 			else
 			{
@@ -198,7 +204,7 @@ sub exportTable
 
 			print $ofile ";\n" if $num_this;
 			print $ofile "\n";
-			print $ofile "INSERT INTO $table (".join(",",@$fields).") VALUES";
+			print $ofile "INSERT OR REPLACE INTO $table (".join(",",@$fields).") VALUES";
 			$num_this = 0;
         }
 
@@ -210,8 +216,8 @@ sub exportTable
         {
             my $value = $rec->{$field};
 
-			# quote CHAR or VARCHAR database field types
-			if ($defs->{$field}->{type} =~ /CHAR/)
+			# quote CHAR, VARCHAR, or TEXT database field types
+			if ($defs->{$field}->{type} =~ /CHAR|TEXT/)
 			{
 	            $value = '' if !defined($value);
 
