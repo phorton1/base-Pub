@@ -229,6 +229,11 @@ sub newProgressData
 sub new
 {
 	my ($class, $parent, $title, $w_cancel, $range_or_data, $msg) = @_;
+	if (defined $_active)
+	{
+		warning(0,0,"IMPLEMENTATION/USAGE ERROR: ProgressDialog::new('$title') called while already active — ignoring");
+		return undef;
+	}
 	$msg ||= '';
 
 	# $range_or_data: number (old-style range) or shared hashref from newProgressData (new-style)
