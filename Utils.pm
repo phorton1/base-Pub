@@ -738,7 +738,9 @@ sub error
 	if ($app_frame && !$suppress_show)	# && !threads->tid() ?!?!
 	{
 		my $use_frame = $app_frame eq 1 ? undef : $app_frame;
-		Pub::WX::Frame::showError($use_frame, "Error: ".$msg);
+		ref($use_frame)
+			? $use_frame->showError("Error: ".$msg)
+			: Pub::WX::Frame::showError($use_frame, "Error: ".$msg);
 	}
 
 	return $msg;
