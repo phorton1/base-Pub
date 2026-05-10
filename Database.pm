@@ -978,6 +978,86 @@ sub tableExists
 }
 
 
+sub dropUnusedTableColumns
+	# Remove columns present in the live table but absent from $db_def.
+	# No-op if the table already matches $db_def.  Returns 1 on success, 0 on error.
+	# SQLite: uses CREATE/INSERT/DROP/RENAME (older SQLite lacks ALTER TABLE DROP COLUMN).
+	# PostgreSQL and MySQL: uses ALTER TABLE DROP COLUMN.
+{
+	my ($this, $table) = @_;
+
+	my $defs = $this->getFieldDefsArray($table);
+	return error("dropUnusedTableColumns($table): no def found") if !$defs;
+	my @target_cols = map { $_->{name} } grep { !$_->{constraint} } @$defs;
+	my %target      = map { $_ => 1 } @target_cols;
+
+	my @current_cols;
+	if ($this->isSQLite())
+	{
+		my $rows = $this->get_records("PRAGMA table_info($table)");
+		@current_cols = map { $_->{name} } @{$rows // []};
+	}
+	elsif ($this->isPostgres())
+	{
+		my $rows = $this->get_records(
+			"SELECT column_name FROM information_schema.columns " .
+			"WHERE table_name='$table' AND table_schema='public' " .
+			"ORDER BY ordinal_position");
+		@current_cols = map { $_->{column_name} } @{$rows // []};
+	}
+	elsif ($this->isMySQL())
+	{
+		my $rows = $this->get_records(
+			"SELECT column_name FROM information_schema.columns " .
+			"WHERE table_name='$table' AND table_schema=DATABASE() " .
+			"ORDER BY ordinal_position");
+		@current_cols = map { $_->{column_name} } @{$rows // []};
+	}
+	else
+	{
+		return error("dropUnusedTableColumns($table): unsupported engine=$this->{engine}");
+	}
+
+	my @drop_cols = grep { !$target{$_} } @current_cols;
+	return 1 if !@drop_cols;
+
+	display(0, 0, "dropUnusedTableColumns($table): dropping " . join(', ', @drop_cols));
+
+	if ($this->isSQLite())
+	{
+		my $tmp      = "_new_$table";
+		my $col_list = join(',', @target_cols);
+		my $text_defs = '';
+		for my $def (@$defs)
+		{
+			$text_defs .= ',' if $text_defs;
+			$text_defs .= $def->{constraint} ? $def->{create} : "$def->{name} $def->{create}";
+		}
+		eval
+		{
+			$this->{dbh}->begin_work();
+			$this->do("CREATE TABLE $tmp ($text_defs)");
+			$this->do("INSERT INTO $tmp SELECT $col_list FROM $table");
+			$this->do("DROP TABLE $table");
+			$this->do("ALTER TABLE $tmp RENAME TO $table");
+			$this->commit();
+		};
+		if ($@)
+		{
+			eval { $this->rollback() };
+			return error("dropUnusedTableColumns($table): rebuild failed: $@");
+		}
+	}
+	else
+	{
+		for my $col (@drop_cols)
+		{
+			$this->do("ALTER TABLE $table DROP COLUMN $col")
+				or return error("dropUnusedTableColumns($table): failed to drop '$col'");
+		}
+	}
+	return 1;
+}
 
 
 #----------------------------------------------
