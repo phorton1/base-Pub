@@ -123,6 +123,7 @@ BEGIN
         getTextFile
 		getTextLines
 		printVarToFile
+		writeIfChanged
 		my_mkdir
 
 		encode64
@@ -1211,6 +1212,24 @@ sub printVarToFile
 		print OFILE $var;
 		close OFILE;
 	}
+}
+
+
+sub writeIfChanged
+	# Writes $var to $filename only if the content differs from what's
+	# already on disk (or the file doesn't exist). Preserves the file's
+	# mtime when content is unchanged. Returns 1 if the file was written,
+	# 0 if it was unchanged. Useful for build scripts whose outputs feed
+	# manual local<->server sync workflows where mtime drift matters.
+{
+	my ($filename,$var,$bin_mode) = @_;
+	if (-e $filename)
+	{
+		my $existing = getTextFile($filename,$bin_mode);
+		return 0 if $existing eq $var;
+	}
+	printVarToFile(1,$filename,$var,$bin_mode);
+	return 1;
 }
 
 
