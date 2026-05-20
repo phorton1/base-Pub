@@ -1654,7 +1654,9 @@ sub my_encode_json
 	my ($obj,$force_quotes) = @_;
 	my $response = '';
 	$force_quotes ||= 0;
-	
+
+	return '""' if !defined($obj);
+
 	display($dbg_json,0,"my_encode_json force_quotes($force_quotes) obj=$obj ref=".ref($obj),1);
 
 	if ($obj =~ /ARRAY/)
