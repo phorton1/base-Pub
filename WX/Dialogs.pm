@@ -265,6 +265,10 @@ sub new
 
 	$this->{msg_ctrl} = Wx::StaticText->new($this,-1,$msg,[20,10]);
 	$this->{gauge}    = Wx::Gauge->new($this,-1,$range,[20,50],[255,16]);
+	# Numeric progress count, left-justified at x=20 so it lines up under
+	# the left edge of the bar; kept off the message line so a long label
+	# is not crowded by the running digits.
+	$this->{count_ctrl} = Wx::StaticText->new($this,-1,'',[20,70]);
 
 	if ($w_cancel)
 	{
@@ -343,6 +347,19 @@ sub cancelled
 
 
 
+sub _setCount
+	# Updates the count control under the bar; kept separate from the
+	# message line so the message can carry a clean label.
+{
+	my ($this, $str) = @_;
+	$str //= '';
+	return if !$this->{count_ctrl};
+	return if ($this->{count} // '') eq $str;
+	$this->{count} = $str;
+	$this->{count_ctrl}->SetLabel($str);
+}
+
+
 sub _onIdle
 {
 	my ($this, $event) = @_;
@@ -396,8 +413,8 @@ sub _onIdle
 	}
 	else
 	{
-		my $msg = $label ? "$label ($done/$total)" : "$done / $total";
-		$this->set($done, $msg);
+		$this->_setCount("$done/$total");
+		$this->set($done, $label);
 	}
 	$event->RequestMore(1);
 }
