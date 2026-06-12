@@ -384,6 +384,11 @@ sub getAppFrame
 # Standard directories
 #------------------------------
 
+# Vendor namespace segment, prepended to the packaged roots
+# (My Documents and AppData/Local/Temp) only.  In development
+# /base_data is already a private namespace, so it is not used there.
+my $publisher = 'phorton1';
+
 sub setStandardTempDir
 	# The $temp_dir is not automatically cleaned up.
 	#    if you wanna clean it, do it yourself
@@ -394,7 +399,7 @@ sub setStandardTempDir
 {
 	my ($app_name) = @_;
 	$temp_dir = is_win() && $Cava::Packager::PACKAGED ?
-		filenameFromWin($ENV{USERPROFILE})."/AppData/Local/Temp" :
+		filenameFromWin($ENV{USERPROFILE})."/AppData/Local/Temp/$publisher" :
 		"/base_data/temp";
 	$temp_dir .= "/$app_name" if $app_name;
 	my_mkdir($temp_dir) if !-d $temp_dir;
@@ -405,7 +410,7 @@ sub setStandardDataDir
 {
 	my ($app_name) = @_;
 	$data_dir = is_win() && $Cava::Packager::PACKAGED ?
-		filenameFromWin($ENV{USERPROFILE})."/Documents" :
+		filenameFromWin($ENV{USERPROFILE})."/Documents/$publisher" :
 		"/base_data/data";
 	$data_dir .= "/$app_name" if $app_name;
 	my_mkdir($data_dir) if !-d $data_dir;
