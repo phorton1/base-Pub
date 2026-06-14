@@ -42,10 +42,10 @@ folders is typically **/base_data/data/Service_or_App_name** and
 **/base_data/temp/Service_or_App_name**.
 
 Apps and Services that are Cava::Packaged for delivery of Windows
-installers typically use the standard User's Documents and Temp
+installers typically use the standard User's Documents and AppData/Local
 folders with the Service_or_App_name:
 
-	$ENV{USERPROFILE}."/AppData/Local/Temp".$service_or_app_name
+	$ENV{USERPROFILE}."/AppData/Local".$service_or_app_name
 	$ENV{USERPROFILE}."/Documents".$service_or_app_name
 
 so that they do not need to create any new, or have any other

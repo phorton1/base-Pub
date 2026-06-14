@@ -385,7 +385,7 @@ sub getAppFrame
 #------------------------------
 
 # Vendor namespace segment, prepended to the packaged roots
-# (My Documents and AppData/Local/Temp) only.  In development
+# (My Documents and AppData/Local) only.  In development
 # /base_data is already a private namespace, so it is not used there.
 my $publisher = 'phorton1';
 
@@ -399,7 +399,7 @@ sub setStandardTempDir
 {
 	my ($app_name) = @_;
 	$temp_dir = is_win() && $Cava::Packager::PACKAGED ?
-		filenameFromWin($ENV{USERPROFILE})."/AppData/Local/Temp/$publisher" :
+		filenameFromWin($ENV{USERPROFILE})."/AppData/Local/$publisher" :
 		"/base_data/temp";
 	$temp_dir .= "/$app_name" if $app_name;
 	my_mkdir($temp_dir) if !-d $temp_dir;

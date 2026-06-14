@@ -45,7 +45,7 @@ sub new
 
 setStandardTempDir('fileServer');
 	# /base_data/temp/fileServer
-	# or Cava Packaged $ENV{USERPROFILE}."/AppData/Local/Temp/fileServer"
+	# or Cava Packaged $ENV{USERPROFILE}."/AppData/Local/fileServer"
 setStandardDataDir('fileServer');
 	# /base_data/data/fileServer
 	# or Cava Packaged ENV{USERPROFILE}."/Documents/fileServer"
