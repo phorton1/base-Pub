@@ -193,7 +193,7 @@ BEGIN
 		releaseSTDOUTSemaphore
 
 		$resource_dir
-		setStandardCavaResourceDir
+		setStandardResourceDir
 
 		execNoShell
 		execExplorer
@@ -417,13 +417,21 @@ sub setStandardDataDir
 }
 
 
-sub setStandardCavaResourceDir
-	# you pass in the development/local path
-	# and it is totally replaced if PACKAGED
+sub setStandardResourceDir
+	# you pass in the development/local path; when PACKAGED on Windows it is
+	# totally replaced by the Cava-resolved path.  On Linux (and Windows dev)
+	# there is no Cava, so the passed source-tree path is used as-is.
 {
 	my ($res_dir) = @_;
-	Cava::Packager::SetResourcePath($res_dir);
-	$resource_dir = filenameFromWin(Cava::Packager::GetResourcePath());
+	if (is_win() && $Cava::Packager::PACKAGED)
+	{
+		Cava::Packager::SetResourcePath($res_dir);
+		$resource_dir = filenameFromWin(Cava::Packager::GetResourcePath());
+	}
+	else
+	{
+		$resource_dir = $res_dir;
+	}
 }
 
 
