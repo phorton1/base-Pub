@@ -41,6 +41,125 @@ our $DBG_SHOW_EVERY = 100000;
 
 
 
+#------------------------------------
+# text literal encoding (shared)
+#------------------------------------
+
+sub _sqlTextLiteral
+	# Return a SQL literal for a DEFINED CHAR/TEXT value, safe to drop
+	# straight into a VALUES(...) list.  Callers handle undef themselves
+	# (exportTable uses '', exportTableRecords uses NULL) to preserve
+	# their historical semantics.
+	#
+	# The whole point is that the returned literal NEVER contains a raw
+	# newline, so every exported record stays on ONE physical line and
+	# importDatabase's "one line == one record" reader needs no changes.
+{
+	my ($this,$value) = @_;
+
+	# Fast path: values with no control chars and no 0xFF byte produce
+	# byte-for-byte the historical '...' output -- so pre-existing
+	# backups re-export identically and the common case pays nothing.
+
+	if ($value !~ /[\x00-\x1f\xff]/)
+	{
+		$value =~ s/'/''/g;
+		return "'$value'";
+	}
+
+	# Slow path.  We preserve only TAB, LF and CR (\t \n \r); every other
+	# control char and the 0xFF byte is still stripped (with a warning),
+	# exactly as before -- char()-encoding those is not byte-faithful
+	# (NUL and 0xFF especially) and they are not needed to keep the
+	# record on one physical line.
+
+	if ($value =~ s/[\x00-\x08\x0b\x0c\x0e-\x1f\xff]//g)
+	{
+		warning(0,0,"REMOVED ILLEGAL CHARS in backup (kept tab/lf/cr)");
+	}
+
+	# If nothing we preserve remains, fall back to the plain literal
+	# (again byte-identical to the historical output).
+
+	if ($value !~ /[\x09\x0a\x0d]/)
+	{
+		$value =~ s/'/''/g;
+		return "'$value'";
+	}
+
+	# Build an engine-appropriate concatenation, emitting each preserved
+	# control char via the engine's char()/chr() function and each run of
+	# ordinary text as a quoted literal.
+
+	my $is_mysql = $this->isMySQL();
+	my $is_pg    = $this->isPostgres();
+
+	my @parts;
+	my $run = '';
+	my $len = length($value);
+	for (my $i=0; $i<$len; $i++)
+	{
+		my $c = substr($value,$i,1);
+		my $o = ord($c);
+		if ($o == 0x09 || $o == 0x0a || $o == 0x0d)
+		{
+			if (length($run))
+			{
+				(my $q = $run) =~ s/'/''/g;
+				push @parts,"'$q'";
+				$run = '';
+			}
+			push @parts,
+				$is_mysql ? "CHAR($o USING utf8mb4)" :
+				$is_pg    ? "chr($o)" :
+							"char($o)";
+		}
+		else
+		{
+			$run .= $c;
+		}
+	}
+	if (length($run))
+	{
+		(my $q = $run) =~ s/'/''/g;
+		push @parts,"'$q'";
+	}
+
+	return $is_mysql ?
+		"CONCAT(".join(",",@parts).")" :
+		join("||",@parts);
+}
+
+
+sub _insertPrefix
+	# engine-specific leading clause for the backup INSERT statements.
+	# All three engines START with INSERT so importDatabase's /^INSERT/
+	# statement trigger keeps working unchanged.
+{
+	my ($this) = @_;
+	return $this->isSQLite() ? "INSERT OR REPLACE INTO" : "INSERT INTO";
+}
+
+
+sub _insertSuffix
+	# engine-specific trailing upsert clause.  It is printed on the SAME
+	# physical line as the final value tuple (right before the ';'), so
+	# importDatabase's per-line record count is unaffected.
+	#
+	# SQLite   : none (INSERT OR REPLACE already upserts)
+	# Postgres : ON CONFLICT DO NOTHING (no reliable conflict target,
+	#            since the auto-increment 'id' PK is not exported)
+	# MySQL    : ON DUPLICATE KEY UPDATE col=VALUES(col),...
+{
+	my ($this,$fields) = @_;
+	return " ON CONFLICT DO NOTHING" if $this->isPostgres();
+	return " ON DUPLICATE KEY UPDATE ".
+		join(",", map { "$_=VALUES($_)" } @$fields)
+		if $this->isMySQL();
+	return "";
+}
+
+
 sub exportTableRecords
 	# cannot fail
 	# works with a list of records from the given table
@@ -85,9 +204,9 @@ sub exportTableRecords
 			{
 				display(0,1,"record($num/$num_recs)");
 			}
-			print $ofile ";\n" if $num_this;
+			print $ofile $this->_insertSuffix($fields).";\n" if $num_this;
 			print $ofile "\n";
-			print $ofile "INSERT OR REPLACE INTO $table (".join(",",@$fields).") VALUES";
+			print $ofile $this->_insertPrefix()." $table (".join(",",@$fields).") VALUES";
 			$num_this = 0;
         }
 
@@ -99,15 +218,8 @@ sub exportTableRecords
 			# quote CHAR, VARCHAR, or TEXT database field types
 			if ($defs->{$field}->{type} =~ /CHAR|TEXT/)
 			{
-				if (!defined($value))
-				{
-					$value = 'NULL';
-				}
-				else
-				{
-					$value =~ s/'/''/g;
-					$value = "'$value'";
-				}
+				$value = defined($value) ?
+					$this->_sqlTextLiteral($value) : 'NULL';
 			}
 			else
 			{
@@ -125,7 +237,7 @@ sub exportTableRecords
 		$num_this++;
     }
 
-	print $ofile ";\n" if $num_this;
+	print $ofile $this->_insertSuffix($fields).";\n" if $num_this;
 	print $ofile "\n";
 
 	LOG(1,"finished exporting $table");
@@ -202,9 +314,9 @@ sub exportTable
 				}
 			}
 
-			print $ofile ";\n" if $num_this;
+			print $ofile $this->_insertSuffix($fields).";\n" if $num_this;
 			print $ofile "\n";
-			print $ofile "INSERT OR REPLACE INTO $table (".join(",",@$fields).") VALUES";
+			print $ofile $this->_insertPrefix()." $table (".join(",",@$fields).") VALUES";
 			$num_this = 0;
         }
 
@@ -219,17 +331,8 @@ sub exportTable
 			# quote CHAR, VARCHAR, or TEXT database field types
 			if ($defs->{$field}->{type} =~ /CHAR|TEXT/)
 			{
-	            $value = '' if !defined($value);
-
-				# remove unprintable characters
-
-				if ($value =~ s/[\x00-\x1f]|\xff//g)
-				{
-					warning(0,0,"REMOVED ILLEGAL CHARS in backup $table $field='$value'");
-				}
-                
-				$value =~ s/'/''/g;
-	            $value = "'$value'";
+				$value = defined($value) ?
+					$this->_sqlTextLiteral($value) : "''";
 			}
 			else
 			{
@@ -247,7 +350,7 @@ sub exportTable
 		$num_this++;
     }
 
-	print $ofile ";\n" if $num_this;
+	print $ofile $this->_insertSuffix($fields).";\n" if $num_this;
 	print $ofile "\n";
 
     if ($DBI::err)
