@@ -500,6 +500,34 @@ sub findPane
 }
 
 
+# Open-pane registry -- a :shared mirror of which content panes are open, keyed
+# "windowId:instance" => label.  Maintained in addPane/removePane so it captures
+# EVERY open/close: manual, programmatic, and startup restore all funnel through
+# addPane (via Pub::WX::Window::MyWindow).  Being :shared, it is readable from ANY
+# thread WITHOUT the frame object -- e.g. a headless HTTP test harness on a worker
+# thread that cannot touch Wx.  It is agnostic about which window classes are
+# multi-instance: the window itself does not know (MyWindow normalizes an
+# unassigned instance to 0); only the app frame assigns instance numbers, so
+# singletons register as "id:0" and app-numbered panes as "id:1"..N.
+our %open_panes :shared;
+
+sub _paneKey
+{
+	my ($pane) = @_;
+	return $pane->GetId().':'.($pane->{instance} // 0);
+}
+
+# getOpenPanes() -- PACKAGE function (not a method): a plain (unshared) copy of
+# the registry, { "id:instance" => label }.  Callable from any thread since it
+# touches only the :shared hash, never the frame object.
+sub getOpenPanes
+{
+	lock(%open_panes);
+	my %copy = %open_panes;
+	return \%copy;
+}
+
+
 sub addPane
 	# set pane into list of all panes, and make it current
 {
@@ -507,6 +535,7 @@ sub addPane
 	push @{$this->{panes}},$pane;
 	display($dbg_frame+1,0,"added $pane");
 	$this->setCurrentPane($pane);
+	{ lock(%open_panes); $open_panes{_paneKey($pane)} = $pane->{label} // ''; }
 }
 
 
@@ -514,6 +543,7 @@ sub removePane
 {
 	my ($this,$del_pane) = @_;
 	display($dbg_frame+1,0,"removing $del_pane from frame::panes");
+	{ lock(%open_panes); delete $open_panes{_paneKey($del_pane)}; }
 
 	if (_def($del_pane) eq _def($this->{current_pane}))
 	{
