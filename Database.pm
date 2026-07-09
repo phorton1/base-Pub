@@ -196,9 +196,20 @@ sub standard_params
 		$out_params->{password} ||= getPrefDecrypted($pref_id.'_PASS');
 	}
 
-	# $params->{sqlite_unicode} = 1 if isSQLite($params);
-	$out_params->{sqlite_string_mode} = DBD::SQLite::Constants::DBD_SQLITE_STRING_MODE_BYTES()
-		if !is_win();
+	# SQLite string handling.  DEFAULT: exact bytes in == bytes out (BYTES mode on
+	# Linux/Mac; on Windows the byte-equivalent 1252 default).  A caller that stores
+	# real UTF-8 text AND hands it to a Unicode GUI can opt IN with utf8 => 1, which
+	# enables sqlite_unicode (decode-on-read / encode-on-write, cross-platform -- the
+	# DBD_SQLITE_STRING_MODE_* constants are Linux-only here, so sqlite_unicode is the
+	# portable switch).  Default OFF keeps every existing caller byte-identical.
+	if (isSQLite($out_params) && $out_params->{utf8})
+	{
+		$out_params->{sqlite_unicode} = 1;
+	}
+	elsif (!is_win())
+	{
+		$out_params->{sqlite_string_mode} = DBD::SQLite::Constants::DBD_SQLITE_STRING_MODE_BYTES();
+	}
 
 	# all postgress and mySQL databases are lowercased
 
