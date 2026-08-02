@@ -206,6 +206,75 @@ our $OVERRIDE_DEBUG_PING = 0;
 my $DEFAULT_MAX_THREADS = 10;
 	# If the user doesn't specify
 
+my $MAX_MAX_THREADS = 12;
+	# AN UPPER BOUND, BECAUSE THREADS ARE ADDRESS SPACE.  These are 32 bit
+	# perls, so a process has about 2 GB to address, and every ithread
+	# clones the interpreter into it - measured at 27 MB per thread in a
+	# loaded application, steady from 4 threads to 40.  A few dozen is
+	# therefore not a large number here, it is most of the budget.
+	#
+	# No consumer asks for more than 5 today, so this clamps nothing that
+	# exists; it is here so that a later one cannot quietly ask for
+	# something the process cannot survive.  Note that it is NOT what
+	# prevents the failure guarded against in start(): a server asking for
+	# its usual four can still get nothing, because being last to ask
+	# matters more than how much is asked for.
+
+
+# THE BIND OUTCOME, PUBLISHED WHERE THE MAIN THREAD CAN SEE IT.
+#
+# start() spawns serverThread and returns immediately, so the bind happens
+# AFTER the caller has moved on and there is nothing for start() to return.
+# The thread cannot report it either: it may run before any wx frame
+# exists, and a worker thread must not touch the GUI in any case.
+#
+# So the thread records, and whoever cares polls.  Three states, not two,
+# because a caller that looks immediately after start() would otherwise
+# read "no error" before the bind has been attempted and conclude success:
+#
+#	(no entry) or 'pending'   not yet attempted
+#	'ok'                      bound and listening
+#	'failed: <reason>'        did not bind, and why
+#
+# Keyed by PORT because one process may run more than one server -
+# myIOTServer has two - and the caller knows the port it asked for.
+
+my $server_state:shared = shared_clone({});
+
+sub serverState
+	# What happened to the bind on this port.  Returns 'pending' when the
+	# attempt has not finished, so a caller can wait on it.
+{
+	my ($port) = @_;
+	lock($server_state);
+	return $server_state->{$port} || 'pending';
+}
+
+sub waitServerState
+	# Block until the bind on this port resolves, or the timeout expires.
+	# Returns the state.  For use from the MAIN thread at startup, where
+	# the wait is a few milliseconds in every normal case.
+{
+	my ($port,$timeout) = @_;
+	$timeout = 5 if !defined $timeout;
+	my $give_up = time() + $timeout;
+	while (time() < $give_up)
+	{
+		my $state = serverState($port);
+		return $state if $state ne 'pending';
+		sleep(0.05);
+	}
+	return serverState($port);
+}
+
+
+sub _setServerState
+{
+	my ($port,$state) = @_;
+	lock($server_state);
+	$server_state->{$port} = $state;
+}
+
 
 my $accept_queue = Thread::Queue->new;
 my $closed_queue = Thread::Queue->new;
@@ -453,6 +522,12 @@ sub new
 
 	$this->{HTTP_DEBUG_PING} ||= $OVERRIDE_DEBUG_PING;
 	$this->{HTTP_MAX_THREADS} ||= $DEFAULT_MAX_THREADS;
+	if ($this->{HTTP_MAX_THREADS} > $MAX_MAX_THREADS)
+	{
+		warning(0,0,"HTTP_MAX_THREADS($this->{HTTP_MAX_THREADS}) clamped ".
+			"to $MAX_MAX_THREADS");
+		$this->{HTTP_MAX_THREADS} = $MAX_MAX_THREADS;
+	}
 
     $this->{running} = 0;
     $this->{stopping} = 0;
@@ -471,15 +546,59 @@ sub start
 {
     my ($this) = @_;
 	$this->dbg(0,0,"serverBase::start($this->{HTTP_MAX_THREADS}) threads");
+
+	# threads->create RETURNS UNDEF RATHER THAN DYING when it cannot make
+	# a thread, and calling ->detach() on that is a fatal error in a place
+	# nobody is looking: before any window exists, on stderr, where the
+	# output ring never sees it.  Observed for real - an application that
+	# had spawned a large worker pool of its own before starting the
+	# server left no room here, and died at the detach below with the
+	# reason invisible in a packaged build.
+	#
+	# THE COUNT IS NOT THE PROBLEM; BEING LAST IS.  This may be asking for
+	# its usual four or five and still get nothing, because something else
+	# in the process took the address space first - so a limit on
+	# HTTP_MAX_THREADS would not have prevented it.  Degrading is right:
+	# a server with fewer client threads is slower, and a server that
+	# aborted the application is not a server.
+
 	my $server_thread = threads->create(\&serverThread,$this);
+	if (!$server_thread)
+	{
+		_setServerState($this->{HTTP_PORT},
+			'failed: could not create the server thread');
+		error("serverBase::start() could not create the server thread - ".
+			"the http server will not run");
+		return;
+	}
 	$server_thread->detach();
 	$this->dbg(2,1,"serverThread detatched");
 
+	my $made = 0;
 	for (my $i=0; $i<$this->{HTTP_MAX_THREADS}; $i++)
 	{
 		my $client_thread = threads->create(\&clientThread,$this,$i);
+		if (!$client_thread)
+		{
+			error("serverBase::start() could only create $made of ".
+				"$this->{HTTP_MAX_THREADS} client threads");
+			last;
+		}
 		$client_thread->detach();
+		$made++;
 		$this->dbg(2,1,"client_thread($i) detatched");
+	}
+
+	# NO CLIENT THREADS MEANS NOTHING WILL EVER BE ANSWERED.  The socket
+	# would bind and every request would sit in the accept queue forever,
+	# which looks exactly like a hung server rather than a failed one.
+
+	if (!$made)
+	{
+		_setServerState($this->{HTTP_PORT},
+			'failed: no client threads could be created');
+		error("serverBase::start() created NO client threads - ".
+			"requests would never be answered");
 	}
 }
 
@@ -520,20 +639,52 @@ sub serverThread
 	my $dbg_ssl = $this->{HTTP_SSL} ? ' SSL' : '';
     $this->HTTP_LOG(undef,-1,"HTTP$dbg_ssl SERVER STARTING ON PORT($port)");
 
+	# REUSE MEANS TWO DIFFERENT THINGS ON THE TWO PLATFORMS, so it is set
+	# on one and not the other.
+	#
+	# On unix SO_REUSEADDR lets a restarted server rebind while connections
+	# it served sit in TIME_WAIT, which is otherwise a wait of up to 2*MSL
+	# - a minute or so of "Address already in use" every time you restart a
+	# busy server.  That is why it is in every server example ever written,
+	# and it does NOT allow two live listeners: unix needs SO_REUSEPORT for
+	# that, which nobody sets.
+	#
+	# On windows SO_REUSEADDR was implemented with roughly the semantics of
+	# SO_REUSEPORT, so it DOES allow two live listeners on one port - and
+	# windows does not need it for the restart case at all.  MEASURED: a
+	# rebind immediately after a real connection, with the server closing
+	# first, succeeds without it in 0 ms; with it, two listeners both bind
+	# and connections go to whichever.  So on windows it is pure downside,
+	# and two copies of an application silently share a port instead of the
+	# second one failing.
+	#
+	# Both sides have to set it to collide - a socket bound without it
+	# refuses a later one that has it - which is why two instances of the
+	# same application find each other so reliably.
+
     my @params = (
         Proto => 'tcp',
         LocalPort => $port,
         Listen => SOMAXCONN,
-        Reuse => 1,
+        Reuse => is_win() ? 0 : 1,
 		# Blocking => 0.
 		);
 
     my $socket = IO::Socket::INET->new(@params);
     if (!$socket)
     {
-        error("Could not create$dbg_ssl socket on port $port");
+		# RECORDED AS WELL AS LOGGED.  error() reaches the log, but this
+		# runs on a worker thread and may run before any frame exists, so
+		# it cannot put the reason in front of a person.  The state is how
+		# the main thread finds out - see serverState() above.
+
+		my $why = $! || 'the port is in use';
+		_setServerState($port,"failed: $why");
+        error("Could not create$dbg_ssl socket on port $port - $why");
         return;
     }
+
+	_setServerState($port,'ok');
 
     binmode $socket;
     my $select = IO::Select->new($socket);
