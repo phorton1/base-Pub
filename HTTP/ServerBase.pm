@@ -31,6 +31,15 @@
 #   HTTP_DEBUG_PING 	=> 0/1			default(0) optional - shows ping debugging at DEBUG_SERVER level
 #
 #	HTTP_PORT			=> number		required
+#	HTTP_HOST			=> ip_address	default(undef) optional
+#			# The single interface to bind.  Omitted, the socket is bound
+#			# to the wildcard address and the server is reachable from the
+#			# network.  Set to 127.0.0.1 it is bound to the loopback alone,
+#			# which is what a server whose only client is a browser on the
+#			# same machine wants.  On windows that is also the difference
+#			# between the firewall offering its "allow access" prompt on
+#			# the first run of a new executable and never asking at all,
+#			# because a loopback socket needs no firewall rule.
 #	HTTP_MAX_THREADS	=> 5			default(10)
 #
 #	HTTP_SSL 			=> 1			default(0) optional
@@ -636,8 +645,10 @@ sub serverThread
 {
     my ($this) = @_;
     my $port = $this->{HTTP_PORT};
+	my $host = $this->{HTTP_HOST};
 	my $dbg_ssl = $this->{HTTP_SSL} ? ' SSL' : '';
-    $this->HTTP_LOG(undef,-1,"HTTP$dbg_ssl SERVER STARTING ON PORT($port)");
+	my $dbg_host = $host ? " HOST($host)" : '';
+    $this->HTTP_LOG(undef,-1,"HTTP$dbg_ssl SERVER STARTING ON PORT($port)$dbg_host");
 
 	# REUSE MEANS TWO DIFFERENT THINGS ON THE TWO PLATFORMS, so it is set
 	# on one and not the other.
@@ -662,8 +673,14 @@ sub serverThread
 	# refuses a later one that has it - which is why two instances of the
 	# same application find each other so reliably.
 
+	# HTTP_HOST binds that one interface instead of every one of them.
+	# It can be passed unconditionally: IO::Socket::INET resolves an
+	# undefined LocalAddr to INADDR_ANY, so leaving HTTP_HOST unset is
+	# exactly the wildcard bind this has always done.
+
     my @params = (
         Proto => 'tcp',
+        LocalAddr => $host,
         LocalPort => $port,
         Listen => SOMAXCONN,
         Reuse => is_win() ? 0 : 1,
@@ -680,7 +697,7 @@ sub serverThread
 
 		my $why = $! || 'the port is in use';
 		_setServerState($port,"failed: $why");
-        error("Could not create$dbg_ssl socket on port $port - $why");
+        error("Could not create$dbg_ssl socket on port $port$dbg_host - $why");
         return;
     }
 

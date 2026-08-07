@@ -131,7 +131,10 @@ named with a prepended **HTTP** or **FS** prefix.
 Those that are very similar to FS
 
 - HTTP_PORT				= required
-- HTTP_HOST 			= TODO
+- HTTP_HOST 			= default undef, the single interface to bind. Unset binds every
+  interface. 127.0.0.1 binds the loopback alone, which is what a server whose only client
+  is a browser on the same machine wants, and on windows is also what keeps the firewall
+  from ever asking the user to allow the program.
 - HTTP_SSL 				= 1 optional
 - HTTP_DEBUG_SSL		= TODO
 - HTTP_SSL_CERT_FILE  	= default undef, required if SSL
