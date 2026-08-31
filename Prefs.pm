@@ -78,7 +78,7 @@ BEGIN
 
 		setPref
 		setPrefEncrypted
-		getSequencedPref
+		setSequencedPref
 
 		getObjectPref
 		copyParamsWithout
@@ -162,7 +162,7 @@ sub setSequencedPref
 	# starting at zero, clearing any previous
 {
 	my ($id,$values) = @_;
-	display($dbg_prefs,0,"setSequencedPref($id)\r".join("\r".@$values));
+	display($dbg_prefs,0,"setSequencedPref($id)\r".join("\r",@$values));
 
 	my @deletes;
 	my $base = $id."_";
@@ -172,14 +172,14 @@ sub setSequencedPref
 	}
 	for my $del (@deletes)
 	{
-		delete $prefs->{key};
+		delete $prefs->{$del};
 	}
 
 	my $num = 0;
 	for my $value (@$values)
 	{
 		$value = '' if !defined($value);
-		$prefs->{$base.$num} = $value;
+		$prefs->{$base.$num++} = $value;
 	}
 }
 
@@ -265,6 +265,7 @@ sub writePrefs
 		my $new_line = $line;
 		my $comment = $line =~ s/(\s+#.*)$// ? $1 : '';
 		my $lead_white =$line =~ s/^(\s+)// ? $1 : '';
+		my $commented = $line =~ s/^#\s*// ? 1 : 0;
 		my $pos = index($line,'=');
 		if ($pos > 1)
 		{
@@ -273,28 +274,37 @@ sub writePrefs
 			$left =~ s/^\s+|\s+$//g;
 			$right =~ s/^\s+|\s+$//g;
 
-			$found->{$left} = 1;
+			# A line is a pref line when it is live, or commented
+			# with a KNOWN key; a commented line with an unknown
+			# key is a comment and passes through untouched.
 
-			my $value = $prefs->{$left};
-			my $default = $pref_defaults->{$left};
-
-			# comment out existing line that matches default
-			# value or change existing line that changed ..
-
-			if (defined($value))
+			my $known = defined($prefs->{$left}) || defined($pref_defaults->{$left});
+			if (!$commented || $known)
 			{
-				if (defined($default) && $value eq $default)
+				# drop any further copies of a key already written;
+				# the old comment-out behavior left one stale
+				# commented copy per toggle cycle
+
+				next if $found->{$left};
+				$found->{$left} = 1;
+
+				# rewrite the line in canonical current form,
+				# commented out at the default value, live
+				# otherwise, keeping any trailing comment
+
+				my $value = $prefs->{$left};
+				my $default = $pref_defaults->{$left};
+				if (defined($value))
 				{
-					$new_line = '# '.$new_line;
-				}
-				elsif ($right ne $value)
-				{
-					$new_line = $lead_white.$left.' = '.$value.$comment;
+					my $lead = defined($default) && $value eq $default ?
+						$lead_white.'# ' : $lead_white;
+					$new_line = $lead.$left.' = '.$value.$comment;
 				}
 			}
 		}
 		$text .= $new_line."\n";
 	}
+	$text =~ s/\n{3,}/\n\n/g;	# collapse blanks left by dropped copies
 
 	my $extra_added = 0;
     for my $id (sort(keys(%$prefs)))
