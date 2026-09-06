@@ -1280,7 +1280,7 @@ sub handle_request
 	elsif ($uri eq "/shutdown_system" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
 	{
 		LOG(0,"Shutting down the rPi");
-		system("sudo shutdown");
+		system("sudo shutdown -h now");
 		return html_ok($request,"Shutting down the Server");
 	}
 	elsif ($uri eq "/reboot" && !is_win() && $this->{HTTP_ALLOW_REBOOT})
