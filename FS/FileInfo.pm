@@ -93,8 +93,11 @@ sub new
 	my ($dev,$ino,$in_mode,$nlink,$uid,$gid,$rdev,$size,
 	  	$atime,$mtime,$ctime,$blksize,$blocks) = stat($filename);
 
+	# a zero mtime is legitimate: /sys and /proc report the
+	# epoch on newer kernels, so test for a missing stat, not
+	# for a false value
 	return error("Could not stat ".($is_dir?'directory':'file')." $filename",1,1)
-		if !$mtime;
+		if !defined($mtime);
 
 	my @time_parts = gmtime($mtime);
 	my $ts =
